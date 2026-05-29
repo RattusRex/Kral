@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Kral RPG</title>
+</head>
+<body>
+
+<h1>RPG Panel</h1>
+
+<button onclick="loadCharacters()">
+    Загрузить персонажей
+</button>
+
+<div id="characters"></div>
+
+<script>
+async function loadCharacters() {
+
+    const token = localStorage.getItem("token");
+
+    const response = await fetch(
+        "http://127.0.0.1:8000/characters",
+        {
+            headers: {
+                "Authorization": `Bearer ${token}`
+            }
+        }
+    );
+
+    const data = await response.json();
+
+    const container =
+        document.getElementById("characters");
+
+    container.innerHTML = "";
+
+    data.forEach(character => {
+
+        container.innerHTML += `
+            <div>
+                <h3>${character.name}</h3>
+
+                <p>Класс: ${character.class_name}</p>
+                <p>Уровень: ${character.level}</p>
+                <p>XP: ${character.xp}</p>
+                <p>Путь: ${character.route}</p>
+            </div>
+
+            <hr>
+        `;
+    });
+}
+</script>
+
+</body>
+</html>
