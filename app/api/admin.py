@@ -40,6 +40,22 @@ def list_characters(
     return db.query(Character).all()
 
 
+@router.get("/users")
+def list_users(
+    db: Session = Depends(get_db),
+    _: User = Depends(require_admin)
+):
+    users = db.query(User).all()
+    return [{
+        "id": user.id,
+        "username": user.username,
+        "email": user.email,
+        "karma": user.karma,
+        "is_admin": user.is_admin,
+        "character_count": len(user.characters)
+    } for user in users]
+
+
 @router.post("/characters/{character_id}/xp")
 def add_character_xp(
     character_id: int,
@@ -55,6 +71,9 @@ def add_character_xp(
 
     character = get_character_or_404(character_id, db)
     character.xp += xp_data.amount
+    while character.xp >= character.level + 1:
+        character.xp -= character.level + 1
+        character.level += 1
     db.commit()
     db.refresh(character)
     return character

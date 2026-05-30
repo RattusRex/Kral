@@ -7,7 +7,8 @@ DATABASE_URL = os.getenv(
     "postgresql://postgres:GalU5TA1@localhost:5432/EpohaTruda"
 )
 
-engine = create_engine(DATABASE_URL)
+connect_args = {"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {}
+engine = create_engine(DATABASE_URL, connect_args=connect_args)
 
 SessionLocal = sessionmaker(
     bind=engine,

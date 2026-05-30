@@ -4,11 +4,7 @@ from app.api.users import get_current_user, get_db
 from app.models.character import Character
 from app.models.inventory import Inventory, InventoryItem
 from app.models.user import User
-from app.schemas.inventory import (
-    GoldUpdateRequest,
-    InventoryResponse,
-    ShopTransactionRequest
-)
+from app.schemas.inventory import GoldUpdateRequest, InventoryResponse, ShopTransactionRequest
 
 router = APIRouter()
 
