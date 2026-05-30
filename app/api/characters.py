@@ -112,8 +112,8 @@ def update_character(
         character.xp += character_data.xp
 
         while character.xp >= character.level + 1:
+            character.xp -= character.level + 1
             character.level += 1
-            character.xp = 0
 
     update_data = character_data.dict(exclude_unset=True, exclude="xp")
 

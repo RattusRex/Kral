@@ -1,12 +1,30 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { Link, Navigate, Route, BrowserRouter as Router, Routes, useNavigate } from "react-router-dom";
-import { LogOut, Shield, ShoppingBag, UserRound, UsersRound } from "lucide-react";
+import { Link, Navigate, Route, BrowserRouter as Router, Routes, useNavigate, useParams } from "react-router-dom";
+import { LogOut, Plus, Shield, ShoppingBag, UserRound, UsersRound } from "lucide-react";
 import { api, Character, Inventory, InventoryItem, ShopResult, TOKEN_KEY, User } from "./api";
 import "./styles.css";
 
 const rarities = ["Обычный", "Необычный", "Редкий"];
 const hirelings = ["Плохой", "Хороший", "Опытный", "Экспертный"];
+const blankCharacter = {
+  name: "",
+  class_name: "",
+  subclass: "",
+  race: "",
+  background: "",
+  route: "",
+  level: 1,
+  hp: 1,
+  armor_class: 10,
+  strength: 10,
+  dexterity: 10,
+  constitution: 10,
+  intelligence: 10,
+  wisdom: 10,
+  charisma: 10,
+  investigation: 0
+};
 
 function useAuth() {
   const [user, setUser] = useState<User | null>(null);
@@ -39,6 +57,7 @@ function Shell({ children, user }: { children: React.ReactNode; user: User | nul
         <nav className="mx-auto flex max-w-7xl items-center justify-between px-4 py-3">
           <Link to="/characters" className="text-lg font-bold text-ember">Epoha Truda</Link>
           <div className="flex flex-wrap items-center gap-2">
+            <Link className="btn-secondary" to="/"><UsersRound size={16} />Меню</Link>
             <Link className="btn-secondary" to="/characters"><UsersRound size={16} />Персонажи</Link>
             <Link className="btn-secondary" to="/shop"><ShoppingBag size={16} />Магазин</Link>
             <Link className="btn-secondary" to="/profile"><UserRound size={16} />Профиль</Link>
@@ -48,6 +67,28 @@ function Shell({ children, user }: { children: React.ReactNode; user: User | nul
         </nav>
       </header>
       <main className="mx-auto max-w-7xl px-4 py-6">{children}</main>
+    </div>
+  );
+}
+
+function HomePage() {
+  const { user, loading } = useAuth();
+  if (loading || !user) return <p>Загрузка...</p>;
+  return (
+    <div className="grid gap-4 md:grid-cols-[1fr_320px]">
+      <section className="panel p-5">
+        <h1 className="text-2xl font-bold text-ember">Главное меню</h1>
+        <div className="mt-5 grid gap-3 sm:grid-cols-3">
+          <Link className="btn" to="/shop"><ShoppingBag size={18} />Shop</Link>
+          <Link className="btn" to="/characters"><UsersRound size={18} />My Characters</Link>
+          <Link className="btn" to="/characters/new"><Plus size={18} />Create Character</Link>
+        </div>
+      </section>
+      <aside className="panel p-5">
+        <h2 className="text-lg font-semibold text-ember">{user.username}</h2>
+        <p className="mt-2 text-white/70">{user.email}</p>
+        <p className="mt-4 text-xl font-semibold">Карма: {user.karma}</p>
+      </aside>
     </div>
   );
 }
@@ -139,8 +180,12 @@ function CharactersPage() {
   }, []);
 
   return (
-    <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-      {characters.map((character) => (
+    <div>
+      <div className="mb-4 flex justify-end">
+        <Link className="btn" to="/characters/new"><Plus size={16} />Создать персонажа</Link>
+      </div>
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+        {characters.map((character) => (
         <article className="panel p-4" key={character.id}>
           <div className="flex items-start justify-between gap-3">
             <div>
@@ -160,16 +205,19 @@ function CharactersPage() {
           <p className="mt-3 text-sm text-white/60">{character.background || "Без предыстории"}</p>
           <div className="mt-4 flex gap-2">
             <Link className="btn" to={`/characters/${character.id}`}>Открыть персонажа</Link>
+            <Link className="btn-secondary" to={`/characters/${character.id}/edit`}>Редактировать</Link>
             <Link className="btn-secondary" to={`/shop?character=${character.id}`}>Магазин</Link>
           </div>
         </article>
-      ))}
+        ))}
+      </div>
     </div>
   );
 }
 
 function CharacterPage() {
-  const id = Number(location.pathname.split("/").pop());
+  const { id: idParam } = useParams();
+  const id = Number(idParam);
   const [character, setCharacter] = useState<Character | null>(null);
   const [inventory, setInventory] = useState<Inventory | null>(null);
 
@@ -198,6 +246,54 @@ function CharacterPage() {
       </section>
       <InventoryPanel inventory={inventory} onChange={setInventory} characterId={id} />
     </div>
+  );
+}
+
+function CharacterFormPage({ edit = false }: { edit?: boolean }) {
+  const navigate = useNavigate();
+  const { id: idParam } = useParams();
+  const id = Number(idParam);
+  const [form, setForm] = useState(blankCharacter);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    if (!edit) return;
+    api.get<Character[]>("/characters").then((response) => {
+      const character = response.data.find((item) => item.id === id);
+      if (character) setForm({ ...blankCharacter, ...character });
+    });
+  }, [edit, id]);
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    setError("");
+    try {
+      if (edit) {
+        await api.patch(`/characters/${id}`, form);
+        navigate(`/characters/${id}`);
+      } else {
+        await api.post("/characters", form);
+        navigate("/characters");
+      }
+    } catch {
+      setError("Не удалось сохранить персонажа");
+    }
+  }
+
+  const numberFields = ["level", "hp", "armor_class", "strength", "dexterity", "constitution", "intelligence", "wisdom", "charisma", "investigation"] as const;
+
+  return (
+    <form className="panel grid gap-3 p-5 md:grid-cols-2" onSubmit={submit}>
+      <h1 className="text-xl font-bold text-ember md:col-span-2">{edit ? "Редактировать персонажа" : "Создать персонажа"}</h1>
+      {(["name", "class_name", "subclass", "race", "background", "route"] as const).map((field) => (
+        <input key={field} className="field" placeholder={field} value={form[field]} onChange={(event) => setForm({ ...form, [field]: event.target.value })} />
+      ))}
+      {numberFields.map((field) => (
+        <input key={field} className="field" type="number" placeholder={field} value={form[field]} onChange={(event) => setForm({ ...form, [field]: Number(event.target.value) })} />
+      ))}
+      {error && <p className="text-sm text-red-300 md:col-span-2">{error}</p>}
+      <button className="btn md:col-span-2" type="submit">Сохранить</button>
+    </form>
   );
 }
 
@@ -350,12 +446,15 @@ function App() {
       <Routes>
         <Route path="/login" element={<Login />} />
         <Route path="/register" element={<Register />} />
+        <Route path="/" element={<Protected><HomePage /></Protected>} />
         <Route path="/characters" element={<Protected><CharactersPage /></Protected>} />
+        <Route path="/characters/new" element={<Protected><CharacterFormPage /></Protected>} />
         <Route path="/characters/:id" element={<Protected><CharacterPage /></Protected>} />
+        <Route path="/characters/:id/edit" element={<Protected><CharacterFormPage edit /></Protected>} />
         <Route path="/shop" element={<Protected><ShopPage /></Protected>} />
         <Route path="/profile" element={<Protected><ProfilePage /></Protected>} />
         <Route path="/admin" element={<Protected><AdminPage /></Protected>} />
-        <Route path="*" element={<Navigate to="/characters" replace />} />
+        <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Router>
   );
