@@ -32,12 +32,21 @@ Swagger documentation: http://localhost:8000/docs
    ```bash
    npm install
    ```
-3. Run the dev server:
+3. Run the development stack:
    ```bash
    npm run dev
    ```
 
-The Vite dev server proxies `/api` requests to `http://localhost:8000`.
+`npm run dev` starts FastAPI on `http://localhost:8000`, waits for it to be reachable, then starts Vite. If `DATABASE_URL` is not set, this command uses a local SQLite database at `dev.db` so login and registration work without extra setup.
+
+The Vite dev server proxies `/api` requests to `http://127.0.0.1:8000`. To use a different API target, set `VITE_API_TARGET`.
+
+If you want to run services separately:
+
+```bash
+npm run dev:backend
+npm run dev:frontend
+```
 
 ## Test Admin Account
 
