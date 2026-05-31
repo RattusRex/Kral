@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from app.db.database import SessionLocal
 from app.models.character import Character
-from app.models.inventory import Inventory, InventoryItem
+from app.models.inventory import Inventory, InventoryItem, ShopQuote
 from app.models.user import User
 from app.api.users import get_current_user
 from app.schemas.inventory import (
@@ -10,10 +10,9 @@ from app.schemas.inventory import (
     CurrencyUpdateRequest,
     GoldUpdateRequest,
     InventoryResponse,
-    ShopBuyRequest,
+    ShopConfirmRequest,
     ShopResult,
     ShopSearchRequest,
-    ShopSellRequest,
 )
 import random
 
@@ -41,15 +40,20 @@ RARITY_PRICE_ROLL_MODIFIER = {
 HIRELING_BONUSES = {
     "Плохой": 0,
     "Хороший": 4,
-    "Опытный": 6,
-    "Экспертный": 8,
+    "Компетентный": 6,
+    "Эксперт": 8,
 }
 
 HIRELING_DAILY_COST = {
     "Плохой": 1,
     "Хороший": 5,
-    "Опытный": 10,
-    "Экспертный": 25,
+    "Компетентный": 10,
+    "Эксперт": 25,
+}
+
+HIRELING_ALIASES = {
+    "Опытный": "Компетентный",
+    "Экспертный": "Эксперт",
 }
 def get_db():
     db = SessionLocal()
@@ -128,6 +132,14 @@ def subtract_copper(inventory: Inventory, amount: int, detail: str):
         )
     set_inventory_from_copper(inventory, current_amount - amount)
 
+def subtract_gold_amount(inventory: Inventory, amount: int, detail: str):
+    if amount < 0:
+        raise HTTPException(
+            status_code=400,
+            detail="Gold amount must not be negative"
+        )
+    subtract_copper(inventory, amount * 100, detail)
+
 def base_price_for_item(rarity: str, is_consumable: bool) -> int:
     validate_rarity(rarity)
     if is_consumable:
@@ -167,21 +179,30 @@ def roll_sell_price_multiplier(rarity: str):
         multiplier = 1.25 + (random.randint(0, 350) / 1000)
     return price_roll, multiplier
 
-def search_item(character: Character, request: ShopSearchRequest):
-    validate_rarity(request.rarity)
-    rarity_data = RARITY_DATA[request.rarity]
+def canonical_hireling_level(level: str) -> str:
+    return HIRELING_ALIASES.get(level, level)
 
-    if request.searcher_type == "character":
+def search_item(
+    character: Character,
+    rarity: str,
+    searcher_type: str,
+    hireling_level: str
+):
+    validate_rarity(rarity)
+    rarity_data = RARITY_DATA[rarity]
+
+    if searcher_type == "character":
         modifier = character.investigation
         daily_cost = 0
-    elif request.searcher_type == "hireling":
-        if request.hireling_level not in HIRELING_BONUSES:
+    elif searcher_type == "hireling":
+        normalized_level = canonical_hireling_level(hireling_level)
+        if normalized_level not in HIRELING_BONUSES:
             raise HTTPException(
                 status_code=400,
                 detail="Unknown hireling level"
             )
-        modifier = HIRELING_BONUSES[request.hireling_level]
-        daily_cost = HIRELING_DAILY_COST[request.hireling_level]
+        modifier = HIRELING_BONUSES[normalized_level]
+        daily_cost = HIRELING_DAILY_COST[normalized_level]
     else:
         raise HTTPException(
             status_code=400,
@@ -205,6 +226,127 @@ def search_item(character: Character, request: ShopSearchRequest):
         "days": days,
         "hireling_cost": days * daily_cost
     }
+
+def get_character_for_current_user(
+    character_id: int,
+    current_user: User,
+    db: Session
+) -> Character:
+    character = db.query(Character).filter(
+        Character.id == character_id,
+        Character.user_id == current_user.id
+    ).first()
+
+    if not character:
+        raise HTTPException(
+            status_code=404,
+            detail="Персонаж не найден"
+        )
+
+    return character
+
+def resolve_search_item(
+    inventory: Inventory,
+    search_data: ShopSearchRequest,
+    db: Session
+):
+    mode = search_data.mode
+    if mode == "buy":
+        if not search_data.item_name or not search_data.rarity:
+            raise HTTPException(
+                status_code=400,
+                detail="Item name and rarity are required"
+            )
+        validate_rarity(search_data.rarity)
+        return {
+            "mode": mode,
+            "item_name": search_data.item_name,
+            "rarity": search_data.rarity,
+            "is_consumable": search_data.is_consumable,
+            "item_id": None
+        }
+
+    if mode == "sell":
+        if search_data.item_id is None:
+            raise HTTPException(
+                status_code=400,
+                detail="Item id is required for selling"
+            )
+        item = db.query(InventoryItem).filter(
+            InventoryItem.id == search_data.item_id,
+            InventoryItem.inventory_id == inventory.id
+        ).first()
+        if not item:
+            raise HTTPException(
+                status_code=400,
+                detail="Предмета нет в инвентаре"
+            )
+        validate_rarity(item.rarity)
+        return {
+            "mode": mode,
+            "item_name": item.name,
+            "rarity": item.rarity,
+            "is_consumable": item.is_consumable,
+            "item_id": item.id
+        }
+
+    raise HTTPException(
+        status_code=400,
+        detail="Unknown shop mode"
+    )
+
+def quote_total_cost(quote: ShopQuote) -> int:
+    if quote.mode == "buy" and quote.item_price is not None:
+        return quote.hireling_cost + quote.item_price
+    return quote.hireling_cost
+
+def serialize_quote(quote: ShopQuote, inventory: Inventory):
+    return {
+        "quote_id": quote.id,
+        "mode": quote.mode,
+        "item_name": quote.item_name,
+        "rarity": quote.rarity,
+        "is_consumable": quote.is_consumable,
+        "success": quote.success,
+        "search_roll": quote.search_roll,
+        "modifier": quote.modifier,
+        "total_roll": quote.total_roll,
+        "dc": quote.dc,
+        "days": quote.days,
+        "hireling_cost": quote.hireling_cost,
+        "price_roll": quote.price_roll,
+        "multiplier": quote.multiplier,
+        "item_price": quote.item_price,
+        "total_cost": quote_total_cost(quote),
+        "is_consumed": quote.is_consumed,
+        "inventory": inventory
+    }
+
+def get_quote_for_inventory(
+    inventory: Inventory,
+    quote_id: int,
+    db: Session
+) -> ShopQuote:
+    quote = db.query(ShopQuote).filter(
+        ShopQuote.id == quote_id,
+        ShopQuote.inventory_id == inventory.id
+    ).first()
+    if not quote:
+        raise HTTPException(
+            status_code=404,
+            detail="Shop result not found"
+        )
+    if quote.is_consumed:
+        raise HTTPException(
+            status_code=400,
+            detail="Shop result has already been used"
+        )
+    if not quote.success or quote.item_price is None:
+        raise HTTPException(
+            status_code=400,
+            detail="Search did not find a valid deal"
+        )
+    return quote
 
 @router.get("/characters/{character_id}/inventory", response_model=InventoryResponse)
 def get_inventory(
@@ -342,119 +484,97 @@ def search_shop_item(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    character = db.query(Character).filter(
-        Character.id == character_id,
-        Character.user_id == current_user.id
-    ).first()
-
-    if not character:
-        raise HTTPException(
-            status_code=404,
-            detail="Персонаж не найден"
-        )
-
+    character = get_character_for_current_user(character_id, current_user, db)
     inventory = get_character_inventory(character_id, current_user, db)
-    search_result = search_item(character, search_data)
-    subtract_copper(
+    item_data = resolve_search_item(inventory, search_data, db)
+    search_result = search_item(
+        character,
+        item_data["rarity"],
+        search_data.searcher_type,
+        search_data.hireling_level
+    )
+    subtract_gold_amount(
         inventory,
         search_result["hireling_cost"],
-        "Недостаточно денег для наёмников"
+        "Недостаточно золота для наёмников"
     )
+
+    price_roll = None
+    multiplier = None
+    item_price = None
+    if search_result["success"]:
+        if item_data["mode"] == "buy":
+            price_roll, multiplier = roll_buy_price_multiplier(item_data["rarity"])
+        else:
+            price_roll, multiplier = roll_sell_price_multiplier(item_data["rarity"])
+        item_price = max(1, round(base_price_for_item(
+            item_data["rarity"],
+            item_data["is_consumable"]
+        ) * multiplier))
+
+    quote = ShopQuote(
+        **item_data,
+        **search_result,
+        price_roll=price_roll,
+        multiplier=multiplier,
+        item_price=item_price,
+        inventory_id=inventory.id
+    )
+    db.add(quote)
     db.commit()
+    db.refresh(quote)
     db.refresh(inventory)
 
-    return {
-        **search_result,
-        "price_roll": None,
-        "multiplier": None,
-        "item_price": None,
-        "total_cost": search_result["hireling_cost"],
-        "inventory": inventory
-    }
+    return serialize_quote(quote, inventory)
 
 @router.post("/characters/{character_id}/shop/buy", response_model=ShopResult)
 def buy_shop_item(
     character_id: int,
-    buy_data: ShopBuyRequest,
+    confirm_data: ShopConfirmRequest,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    character = db.query(Character).filter(
-        Character.id == character_id,
-        Character.user_id == current_user.id
-    ).first()
-
-    if not character:
-        raise HTTPException(
-            status_code=404,
-            detail="Персонаж не найден"
-        )
-
+    get_character_for_current_user(character_id, current_user, db)
     inventory = get_character_inventory(character_id, current_user, db)
-    search_result = search_item(character, buy_data)
-    if not search_result["success"]:
-        subtract_copper(
-            inventory,
-            search_result["hireling_cost"],
-            "Недостаточно денег для наёмников"
+    quote = get_quote_for_inventory(inventory, confirm_data.quote_id, db)
+    if quote.mode != "buy":
+        raise HTTPException(
+            status_code=400,
+            detail="Shop result is not a buy result"
         )
-        db.commit()
-        db.refresh(inventory)
-        return {
-            **search_result,
-            "price_roll": None,
-            "multiplier": None,
-            "item_price": None,
-            "total_cost": search_result["hireling_cost"],
-            "inventory": inventory
-        }
 
-    price_roll, multiplier = roll_buy_price_multiplier(buy_data.rarity)
-    item_price = round(base_price_for_item(
-        buy_data.rarity,
-        buy_data.is_consumable
-    ) * multiplier)
-    total_cost = item_price + search_result["hireling_cost"]
-    subtract_copper(inventory, total_cost, "Недостаточно денег")
+    subtract_gold_amount(inventory, quote.item_price, "Недостаточно золота")
     db.add(InventoryItem(
-        name=buy_data.item_name,
-        rarity=buy_data.rarity,
-        is_consumable=buy_data.is_consumable,
+        name=quote.item_name,
+        rarity=quote.rarity,
+        is_consumable=quote.is_consumable,
         inventory_id=inventory.id
     ))
+    quote.is_consumed = True
     db.commit()
+    db.refresh(quote)
     db.refresh(inventory)
 
-    return {
-        **search_result,
-        "price_roll": price_roll,
-        "multiplier": multiplier,
-        "item_price": item_price,
-        "total_cost": total_cost,
-        "inventory": inventory
-    }
+    return serialize_quote(quote, inventory)
 
 @router.post("/characters/{character_id}/shop/sell", response_model=ShopResult)
 def sell_shop_item(
     character_id: int,
-    sell_data: ShopSellRequest,
+    confirm_data: ShopConfirmRequest,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    character = db.query(Character).filter(
-        Character.id == character_id,
-        Character.user_id == current_user.id
-    ).first()
-
-    if not character:
+    get_character_for_current_user(character_id, current_user, db)
+    inventory = get_character_inventory(character_id, current_user, db)
+    quote = get_quote_for_inventory(inventory, confirm_data.quote_id, db)
+    if quote.mode != "sell":
         raise HTTPException(
-            status_code=404,
-            detail="Персонаж не найден"
+            status_code=400,
+            detail="Shop result is not a sell result"
         )
 
-    inventory = get_character_inventory(character_id, current_user, db)
     item = db.query(InventoryItem).filter(
-        InventoryItem.id == sell_data.item_id,
+        InventoryItem.id == quote.item_id,
         InventoryItem.inventory_id == inventory.id
     ).first()
 
@@ -464,41 +584,11 @@ def sell_shop_item(
             detail="Предмета нет в инвентаре"
         )
 
-    search_data = ShopSearchRequest(
-        item_name=item.name,
-        rarity=item.rarity,
-        is_consumable=item.is_consumable,
-        searcher_type=sell_data.searcher_type,
-        hireling_level=sell_data.hireling_level
-    )
-    search_result = search_item(character, search_data)
-    subtract_copper(
-        inventory,
-        search_result["hireling_cost"],
-        "Недостаточно денег для наёмников"
-    )
-
-    price_roll = None
-    multiplier = None
-    item_price = None
-    if search_result["success"]:
-        price_roll, multiplier = roll_sell_price_multiplier(item.rarity)
-        item_price = round(base_price_for_item(
-            item.rarity,
-            item.is_consumable
-        ) * multiplier)
-        add_currency(inventory, copper=item_price)
-        db.delete(item)
-
+    add_currency(inventory, gold=quote.item_price)
+    db.delete(item)
+    quote.is_consumed = True
     db.commit()
+    db.refresh(quote)
     db.refresh(inventory)
 
-
-    return {
-        **search_result,
-        "price_roll": price_roll,
-        "multiplier": multiplier,
-        "item_price": item_price,
-        "total_cost": search_result["hireling_cost"],
-        "inventory": inventory
-    }
+    return serialize_quote(quote, inventory)

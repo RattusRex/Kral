@@ -31,13 +31,61 @@ def get_character_or_404(character_id: int, db: Session) -> Character:
         )
     return character
 
+def serialize_character(character: Character):
+    return {
+        "id": character.id,
+        "name": character.name,
+        "class_name": character.class_name,
+        "subclass": character.subclass,
+        "race": character.race,
+        "background": character.background,
+        "route": character.route,
+        "level": character.level,
+        "xp": character.xp,
+        "hp": character.hp,
+        "armor_class": character.armor_class,
+        "strength": character.strength,
+        "dexterity": character.dexterity,
+        "constitution": character.constitution,
+        "intelligence": character.intelligence,
+        "wisdom": character.wisdom,
+        "charisma": character.charisma,
+        "investigation": character.investigation,
+        "is_dead": character.is_dead,
+        "user_id": character.user_id,
+        "owner_username": character.owner.username,
+        "owner_email": character.owner.email
+    }
+
 
 @router.get("/characters")
 def list_characters(
     db: Session = Depends(get_db),
     _: User = Depends(require_admin)
 ):
-    return db.query(Character).all()
+    return [
+        serialize_character(character)
+        for character in db.query(Character).all()
+    ]
+
+
+@router.get("/characters/{character_id}")
+def get_admin_character(
+    character_id: int,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_admin)
+):
+    return serialize_character(get_character_or_404(character_id, db))
+
+
+@router.get("/characters/{character_id}/inventory", response_model=InventoryResponse)
+def get_admin_character_inventory(
+    character_id: int,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_admin)
+):
+    character = get_character_or_404(character_id, db)
+    return get_character_inventory(character.id, character.owner, db)
 
 
 @router.get("/users")
@@ -161,12 +209,10 @@ def grant_character_item(
     return inventory
 
 
-@router.post("/users/{user_id}/karma")
-def add_user_karma(
+def update_user_karma(
     user_id: int,
-    karma_data: KarmaUpdate,
-    db: Session = Depends(get_db),
-    _: User = Depends(require_admin)
+    amount: int,
+    db: Session
 ):
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
@@ -175,7 +221,7 @@ def add_user_karma(
             detail="User not found"
         )
 
-    user.karma += karma_data.amount
+    user.karma += amount
     db.commit()
     db.refresh(user)
     return {
@@ -185,3 +231,43 @@ def add_user_karma(
         "karma": user.karma,
         "is_admin": user.is_admin
     }
+
+
+@router.post("/users/{user_id}/karma")
+def change_user_karma(
+    user_id: int,
+    karma_data: KarmaUpdate,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_admin)
+):
+    return update_user_karma(user_id, karma_data.amount, db)
+
+
+@router.post("/users/{user_id}/karma/add")
+def add_user_karma(
+    user_id: int,
+    karma_data: KarmaUpdate,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_admin)
+):
+    if karma_data.amount <= 0:
+        raise HTTPException(
+            status_code=400,
+            detail="Amount must be positive"
+        )
+    return update_user_karma(user_id, karma_data.amount, db)
+
+
+@router.post("/users/{user_id}/karma/subtract")
+def subtract_user_karma(
+    user_id: int,
+    karma_data: KarmaUpdate,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_admin)
+):
+    if karma_data.amount <= 0:
+        raise HTTPException(
+            status_code=400,
+            detail="Amount must be positive"
+        )
+    return update_user_karma(user_id, -karma_data.amount, db)
