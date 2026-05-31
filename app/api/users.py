@@ -1,5 +1,6 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, status
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import IntegrityError
 from app.core.security import hash_password
 from app.db.database import SessionLocal
 from app.models.user import User
@@ -34,6 +35,17 @@ def create_user(
     user_data: UserCreate,
     db: Session = Depends(get_db)
 ):
+    existing_user = db.query(User).filter(
+        (User.username == user_data.username) |
+        (User.email == user_data.email)
+    ).first()
+
+    if existing_user:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Username or email already exists"
+        )
+
     user = User(
         username=user_data.username,
         email=user_data.email,
@@ -41,7 +53,14 @@ def create_user(
     )
 
     db.add(user)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Username or email already exists"
+        )
     db.refresh(user)
     
     return {

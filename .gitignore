@@ -1,2 +1,9 @@
 /.idea
 *.pyc
+__pycache__/
+.pytest_cache/
+.venv/
+node_modules/
+dist/
+*.db
+.playwright-mcp/
