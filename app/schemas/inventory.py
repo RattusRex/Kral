@@ -38,9 +38,11 @@ class CurrencyUpdateRequest(BaseModel):
     copper: int = 0
 
 class ShopSearchRequest(BaseModel):
-    item_name: str
-    rarity: str
+    mode: str = "buy"
+    item_name: str | None = None
+    rarity: str | None = None
     is_consumable: bool = False
+    item_id: int | None = None
     searcher_type: str = "character"
     hireling_level: str = "Плохой"
 
@@ -51,12 +53,21 @@ class ShopSellRequest(BaseModel):
     item_id: int
     searcher_type: str = "character"
     hireling_level: str = "Плохой"
+
+class ShopConfirmRequest(BaseModel):
+    quote_id: int
+
 class ShopTransactionRequest(BaseModel):
     item_name: str
     item_price: int
     mercenary_cost: int = 0
 
 class ShopResult(BaseModel):
+    quote_id: int | None = None
+    mode: str
+    item_name: str
+    rarity: str
+    is_consumable: bool
     success: bool
     search_roll: int
     modifier: int
@@ -68,4 +79,5 @@ class ShopResult(BaseModel):
     multiplier: float | None
     item_price: int | None
     total_cost: int | None
+    is_consumed: bool
     inventory: InventoryResponse

@@ -9,7 +9,6 @@ from app.api.characters import router as character_router
 from app.models.inventory import Inventory, InventoryItem
 from app.api.inventory import router as inventory_router
 from app.api.admin import router as admin_router
-from app.api.shop import router as shop_router
 from app.core.security import hash_password
 from sqlalchemy.orm import Session
 
@@ -43,7 +42,6 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(lifespan=lifespan)
 app.include_router(inventory_router, prefix="/api")
-app.include_router(shop_router, prefix="/api")
 app.include_router(character_router, prefix="/api")
 app.include_router(admin_router, prefix="/api")
 app.include_router(users_router, prefix="/api")

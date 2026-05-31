@@ -30,6 +30,8 @@ export interface Character {
   xp: number;
   route: string;
   user_id?: number;
+  owner_username?: string;
+  owner_email?: string;
   is_dead?: boolean;
 }
 
@@ -50,6 +52,11 @@ export interface Inventory {
 }
 
 export interface ShopResult {
+  quote_id: number | null;
+  mode: "buy" | "sell";
+  item_name: string;
+  rarity: string;
+  is_consumable: boolean;
   success: boolean;
   search_roll: number;
   modifier: number;
@@ -61,7 +68,13 @@ export interface ShopResult {
   multiplier: number | null;
   item_price: number | null;
   total_cost: number | null;
+  is_consumed: boolean;
   inventory: Inventory;
+}
+
+export interface AdminUser extends User {
+  character_count: number;
+  is_admin: boolean;
 }
 
 export const api = axios.create({
