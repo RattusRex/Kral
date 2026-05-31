@@ -1,3 +1,13 @@
 /.idea
 *.pyc
-*.node_modules
+<<<<<<< HEAD
+node_modules/
+=======
+__pycache__/
+.pytest_cache/
+.venv/
+node_modules/
+dist/
+*.db
+.playwright-mcp/
+>>>>>>> 599e82c4cc3665c6ec0de34cb98681f8acbb3d4b

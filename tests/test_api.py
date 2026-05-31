@@ -27,6 +27,48 @@ def test_admin_seed_and_username_login():
         assert response.json()["is_admin"] is True
 
 
+def test_create_user_then_login_with_username_and_email():
+    with TestClient(app) as client:
+        created = client.post("/api/users", json={
+            "username": "player-one",
+            "email": "player-one@example.com",
+            "password": "secret123"
+        })
+        assert created.status_code == 200, created.text
+        assert created.json()["username"] == "player-one"
+
+        username_token = login(client, "player-one", "secret123")
+        username_response = client.get(
+            "/api/me",
+            headers={"Authorization": f"Bearer {username_token}"}
+        )
+        assert username_response.status_code == 200
+        assert username_response.json()["email"] == "player-one@example.com"
+
+        email_token = login(client, "player-one@example.com", "secret123")
+        email_response = client.get(
+            "/api/me",
+            headers={"Authorization": f"Bearer {email_token}"}
+        )
+        assert email_response.status_code == 200
+        assert email_response.json()["username"] == "player-one"
+
+
+def test_duplicate_user_returns_conflict():
+    with TestClient(app) as client:
+        payload = {
+            "username": "player-two",
+            "email": "player-two@example.com",
+            "password": "secret123"
+        }
+        assert client.post("/api/users", json=payload).status_code == 200
+
+        duplicate = client.post("/api/users", json=payload)
+
+        assert duplicate.status_code == 409
+        assert duplicate.json()["detail"] == "Username or email already exists"
+
+
 def test_character_xp_rolls_over_remaining_xp():
     with TestClient(app) as client:
         token = login(client, "admin", "admin123")

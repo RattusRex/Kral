@@ -1,6 +1,10 @@
 {
+  "name": "epoch-of-catastrophe-assistant",
+  "type": "module",
   "scripts": {
-    "dev": "vite --host 0.0.0.0",
+    "dev": "node scripts/dev.mjs",
+    "dev:backend": "python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000",
+    "dev:frontend": "vite --host 0.0.0.0",
     "build": "tsc && vite build",
     "preview": "vite preview --host 0.0.0.0"
   },
