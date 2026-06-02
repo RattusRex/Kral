@@ -1,3 +1,5 @@
+import random
+
 from fastapi import APIRouter
 from fastapi import Depends
 from sqlalchemy.orm import Session
@@ -7,10 +9,21 @@ from app.models.character import Character
 from app.models.user import User
 from app.api.users import get_current_user
 from app.schemas.character import (
+    AbilityRollResponse,
     CharacterCreate,
-    CharacterUpdate
+    CharacterUpdate,
+    SavingThrowRollResponse,
 )
 from app.api.users import get_db
+
+ABILITY_FIELDS = {
+    "strength": "Сила",
+    "dexterity": "Ловкость",
+    "constitution": "Телосложение",
+    "intelligence": "Интеллект",
+    "wisdom": "Мудрость",
+    "charisma": "Харизма",
+}
 
 
 router = APIRouter()
@@ -155,3 +168,102 @@ def update_character(
     db.refresh(character)
 
     return character
+
+
+@router.post(
+    "/characters/{character_id}/roll-ability/{ability}",
+    response_model=AbilityRollResponse
+)
+def roll_ability(
+    character_id: int,
+    ability: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    if ability not in ABILITY_FIELDS:
+        raise HTTPException(status_code=400, detail="Неизвестная характеристика")
+
+    character = db.query(Character).filter(
+        Character.id == character_id,
+        Character.user_id == current_user.id
+    ).first()
+    if not character:
+        raise HTTPException(status_code=404, detail="Персонаж не найден")
+
+    score = getattr(character, ability)
+    modifier = (score - 10) // 2
+    roll = random.randint(1, 20)
+    total = roll + modifier
+    mod_text = f"{'+' if modifier >= 0 else ''}{modifier}"
+    ability_label = ABILITY_FIELDS[ability]
+
+    from app.api.chat import create_roll_chat_message
+    create_roll_chat_message(
+        db=db,
+        user=current_user,
+        formula=f"1d20{mod_text}",
+        rolls=[roll],
+        total=total,
+        content=(
+            f"{current_user.username}: {character.name} — бросок {ability_label}. "
+            f"Бросок: {roll}. Модификатор: {mod_text}. Итог: {total}."
+        )
+    )
+    db.commit()
+
+    return {
+        "ability": ability,
+        "score": score,
+        "modifier": modifier,
+        "roll": roll,
+        "total": total,
+    }
+
+
+@router.post(
+    "/characters/{character_id}/roll-saving-throw/{ability}",
+    response_model=SavingThrowRollResponse
+)
+def roll_saving_throw(
+    character_id: int,
+    ability: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    if ability not in ABILITY_FIELDS:
+        raise HTTPException(status_code=400, detail="Неизвестная характеристика")
+
+    character = db.query(Character).filter(
+        Character.id == character_id,
+        Character.user_id == current_user.id
+    ).first()
+    if not character:
+        raise HTTPException(status_code=404, detail="Персонаж не найден")
+
+    score = getattr(character, ability)
+    bonus = (score - 10) // 2
+    roll = random.randint(1, 20)
+    total = roll + bonus
+    bonus_text = f"{'+' if bonus >= 0 else ''}{bonus}"
+    ability_label = ABILITY_FIELDS[ability]
+
+    from app.api.chat import create_roll_chat_message
+    create_roll_chat_message(
+        db=db,
+        user=current_user,
+        formula=f"1d20{bonus_text}",
+        rolls=[roll],
+        total=total,
+        content=(
+            f"{current_user.username}: {character.name} — спасбросок {ability_label}. "
+            f"Бросок: {roll}. Бонус: {bonus_text}. Итог: {total}."
+        )
+    )
+    db.commit()
+
+    return {
+        "ability": ability,
+        "bonus": bonus,
+        "roll": roll,
+        "total": total,
+    }

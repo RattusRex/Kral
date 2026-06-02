@@ -73,3 +73,27 @@ class AttackRollResponse(BaseModel):
     bonus: int
     total: int
     damage: str
+
+
+class DamageRollResponse(BaseModel):
+    attack_id: int
+    name: str
+    formula: str
+    rolls: list[int]
+    modifier: int
+    total: int
+
+
+class AbilityRollResponse(BaseModel):
+    ability: str
+    score: int
+    modifier: int
+    roll: int
+    total: int
+
+
+class SavingThrowRollResponse(BaseModel):
+    ability: str
+    bonus: int
+    roll: int
+    total: int

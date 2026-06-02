@@ -1,4 +1,5 @@
 import random
+import re
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
@@ -12,6 +13,12 @@ from app.schemas.character import (
     CharacterAttackCreate,
     CharacterAttackResponse,
     CharacterAttackUpdate,
+    DamageRollResponse,
+)
+
+DAMAGE_PATTERN = re.compile(
+    r"^(?P<count>\d+)d(?P<sides>\d+)(?P<mod>[+-]\d+)?",
+    re.IGNORECASE
 )
 
 
@@ -178,4 +185,57 @@ def roll_attack(
         "bonus": attack.attack_bonus,
         "total": total,
         "damage": attack.damage
+    }
+
+
+@router.post(
+    "/characters/{character_id}/attacks/{attack_id}/roll-damage",
+    response_model=DamageRollResponse
+)
+def roll_damage(
+    character_id: int,
+    attack_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    character = get_character_for_current_user(character_id, current_user, db)
+    attack = get_attack_for_character(character, attack_id, db)
+
+    if not attack.damage:
+        raise HTTPException(status_code=400, detail="У атаки не задан урон")
+
+    match = DAMAGE_PATTERN.match(attack.damage.strip())
+    if not match:
+        raise HTTPException(status_code=400, detail="Неверный формат урона")
+
+    count = int(match.group("count"))
+    sides = int(match.group("sides"))
+    mod_str = match.group("mod") or "+0"
+    modifier = int(mod_str)
+
+    rolls = [random.randint(1, sides) for _ in range(count)]
+    total = sum(rolls) + modifier
+
+    formula = f"{count}d{sides}{mod_str if modifier != 0 else ''}"
+    mod_text = f"{'+' if modifier >= 0 else ''}{modifier}"
+    create_roll_chat_message(
+        db=db,
+        user=current_user,
+        formula=formula,
+        rolls=rolls,
+        total=total,
+        content=(
+            f"{current_user.username}: {character.name} — урон {attack.name}. "
+            f"Кубики: {rolls}. Модификатор: {mod_text}. Итог: {total}."
+        )
+    )
+    db.commit()
+
+    return {
+        "attack_id": attack.id,
+        "name": attack.name,
+        "formula": formula,
+        "rolls": rolls,
+        "modifier": modifier,
+        "total": total,
     }
