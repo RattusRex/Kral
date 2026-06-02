@@ -25,7 +25,9 @@ export interface Character {
   charisma: number;
   investigation: number;
   hp: number;
+  temp_hp: number;
   armor_class: number;
+  speed: number;
   level: number;
   xp: number;
   route: string;
@@ -56,7 +58,44 @@ export interface Inventory {
   gold: number;
   silver: number;
   copper: number;
+  notes: string;
   items: InventoryItem[];
+}
+
+export interface CharacterAttack {
+  id: number;
+  character_id: number;
+  name: string;
+  attack_bonus: number;
+  damage: string;
+}
+
+export interface AttackRoll {
+  attack_id: number;
+  name: string;
+  roll: number;
+  bonus: number;
+  total: number;
+  damage: string;
+}
+
+export interface ChatMessage {
+  id: number;
+  created_at: string;
+  user_id: number;
+  username: string;
+  channel: "general" | "rolls";
+  content: string;
+  formula: string | null;
+  rolls: number[] | null;
+  total: number | null;
+}
+
+export interface LeaderboardEntry {
+  rank: number;
+  id: number;
+  username: string;
+  karma: number;
 }
 
 export interface ShopResult {

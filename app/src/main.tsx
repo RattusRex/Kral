@@ -1,8 +1,8 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { Link, Navigate, Route, BrowserRouter as Router, Routes, useNavigate, useParams } from "react-router-dom";
-import { Check, LogOut, Plus, RefreshCw, Save, ScrollText, Search, Shield, ShoppingBag, Trash2, UserRound, UsersRound } from "lucide-react";
-import { AdminUser, api, Character, Inventory, InventoryItem, ShopResult, ShopTransactionLog, TOKEN_KEY, TransferLog, TransferTarget, User } from "./api";
+import { Check, Dice5, LogOut, MessageSquare, Plus, RefreshCw, Save, ScrollText, Search, Send, Shield, ShoppingBag, Swords, Trash2, Trophy, UserRound, UsersRound } from "lucide-react";
+import { AdminUser, api, AttackRoll, Character, CharacterAttack, ChatMessage, Inventory, InventoryItem, LeaderboardEntry, ShopResult, ShopTransactionLog, TOKEN_KEY, TransferLog, TransferTarget, User } from "./api";
 import "./styles.css";
 
 const rarities = ["Обычный", "Необычный", "Редкий"];
@@ -45,7 +45,9 @@ const textFields = [
 const numberFields = [
   { field: "level", label: "Уровень" },
   { field: "hp", label: "HP" },
+  { field: "temp_hp", label: "Временные HP" },
   { field: "armor_class", label: "КД (Armor Class)" },
+  { field: "speed", label: "Скорость" },
   { field: "strength", label: "Сила (STR)" },
   { field: "dexterity", label: "Ловкость (DEX)" },
   { field: "constitution", label: "Телосложение (CON)" },
@@ -68,7 +70,9 @@ const blankCharacter = {
   route: "",
   level: 1,
   hp: 1,
+  temp_hp: 0,
   armor_class: 10,
+  speed: 30,
   strength: 10,
   dexterity: 10,
   constitution: 10,
@@ -82,6 +86,14 @@ const maxCharacters = 10;
 function apiErrorDetail(error: unknown, fallback: string) {
   const detail = (error as { response?: { data?: { detail?: unknown } } }).response?.data?.detail;
   return typeof detail === "string" ? detail : fallback;
+}
+
+function abilityModifier(score: number) {
+  return Math.floor((score - 10) / 2);
+}
+
+function signed(value: number) {
+  return value >= 0 ? `+${value}` : String(value);
 }
 
 function classOptionsForValue(value: string) {
@@ -124,11 +136,13 @@ function Shell({ children, user }: { children: React.ReactNode; user: User | nul
     <div className="min-h-screen bg-[#101217] text-parchment">
       <header className="sticky top-0 z-10 border-b border-white/10 bg-[#101217]/95 backdrop-blur">
         <nav className="mx-auto flex max-w-7xl items-center justify-between px-4 py-3">
-          <Link to="/characters" className="text-lg font-bold text-ember">Epoha Truda</Link>
+          <Link to="/characters" className="text-lg font-bold text-ember">Эпоха Катастроф</Link>
           <div className="flex flex-wrap items-center gap-2">
             <Link className="btn-secondary" to="/"><UsersRound size={16} />Меню</Link>
             <Link className="btn-secondary" to="/characters"><UsersRound size={16} />Персонажи</Link>
             <Link className="btn-secondary" to="/shop"><ShoppingBag size={16} />Магазин</Link>
+            <Link className="btn-secondary" to="/leaderboard"><Trophy size={16} />Лидеры</Link>
+            <Link className="btn-secondary" to="/chat"><MessageSquare size={16} />Чат</Link>
             <Link className="btn-secondary" to="/profile"><UserRound size={16} />Профиль</Link>
             {user?.is_admin && <Link className="btn-secondary" to="/admin"><Shield size={16} />Админ</Link>}
             {user?.is_admin && <Link className="btn-secondary" to="/admin/shop-logs"><ScrollText size={16} />Логи</Link>}
@@ -149,10 +163,12 @@ function HomePage() {
     <div className="grid gap-4 md:grid-cols-[1fr_320px]">
       <section className="panel p-5">
         <h1 className="text-2xl font-bold text-ember">Главное меню</h1>
-        <div className="mt-5 grid gap-3 sm:grid-cols-3">
+        <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
           <Link className="btn" to="/shop"><ShoppingBag size={18} />Shop</Link>
           <Link className="btn" to="/characters"><UsersRound size={18} />My Characters</Link>
           <Link className="btn" to="/characters/new"><Plus size={18} />Create Character</Link>
+          <Link className="btn" to="/leaderboard"><Trophy size={18} />Таблица лидеров</Link>
+          <Link className="btn" to="/chat"><MessageSquare size={18} />Чат</Link>
         </div>
       </section>
       <aside className="panel p-5">
@@ -316,32 +332,167 @@ function CharacterPage() {
   const [character, setCharacter] = useState<Character | null>(null);
   const [inventory, setInventory] = useState<Inventory | null>(null);
   const [transferTargets, setTransferTargets] = useState<TransferTarget[]>([]);
+  const [attacks, setAttacks] = useState<CharacterAttack[]>([]);
+  const [attackForm, setAttackForm] = useState({ name: "", attack_bonus: 0, damage: "" });
+  const [attackRoll, setAttackRoll] = useState<AttackRoll | null>(null);
+  const [attackError, setAttackError] = useState("");
 
   useEffect(() => {
-    api.get<Character[]>("/characters").then((response) => {
-      setCharacter(response.data.find((item) => item.id === id) ?? null);
+    Promise.all([
+      api.get<Character[]>("/characters"),
+      api.get<TransferTarget[]>("/characters/transfer-targets"),
+      api.get<Inventory>(`/characters/${id}/inventory`),
+      api.get<CharacterAttack[]>(`/characters/${id}/attacks`)
+    ]).then(([charactersResponse, targetsResponse, inventoryResponse, attacksResponse]) => {
+      setCharacter(charactersResponse.data.find((item) => item.id === id) ?? null);
+      setTransferTargets(targetsResponse.data);
+      setInventory(inventoryResponse.data);
+      setAttacks(attacksResponse.data);
     });
-    api.get<TransferTarget[]>("/characters/transfer-targets").then((response) => setTransferTargets(response.data));
-    api.get<Inventory>(`/characters/${id}/inventory`).then((response) => setInventory(response.data));
   }, [id]);
 
   if (!character) return <p>Загрузка...</p>;
-  const stats = numberFields.filter((item) => !["level", "hp", "armor_class"].includes(item.field));
+  const abilities = [
+    { label: "Сила", short: "STR", value: character.strength },
+    { label: "Ловкость", short: "DEX", value: character.dexterity },
+    { label: "Телосложение", short: "CON", value: character.constitution },
+    { label: "Интеллект", short: "INT", value: character.intelligence },
+    { label: "Мудрость", short: "WIS", value: character.wisdom },
+    { label: "Харизма", short: "CHA", value: character.charisma }
+  ];
+
+  async function createAttack(event: FormEvent) {
+    event.preventDefault();
+    setAttackError("");
+    try {
+      const response = await api.post<CharacterAttack>(`/characters/${id}/attacks`, attackForm);
+      setAttacks((current) => [...current, response.data]);
+      setAttackForm({ name: "", attack_bonus: 0, damage: "" });
+    } catch (createError) {
+      setAttackError(apiErrorDetail(createError, "Не удалось добавить атаку"));
+    }
+  }
+
+  async function removeAttack(attack: CharacterAttack) {
+    setAttackError("");
+    try {
+      await api.delete(`/characters/${id}/attacks/${attack.id}`);
+      setAttacks((current) => current.filter((item) => item.id !== attack.id));
+    } catch (removeError) {
+      setAttackError(apiErrorDetail(removeError, "Не удалось удалить атаку"));
+    }
+  }
+
+  async function rollAttack(attack: CharacterAttack) {
+    setAttackError("");
+    try {
+      const response = await api.post<AttackRoll>(`/characters/${id}/attacks/${attack.id}/roll`);
+      setAttackRoll(response.data);
+    } catch (rollError) {
+      setAttackError(apiErrorDetail(rollError, "Не удалось выполнить бросок атаки"));
+    }
+  }
 
   return (
-    <div className="grid gap-4 lg:grid-cols-[1fr_360px]">
+    <div className="space-y-4">
       <section className="panel p-5">
-        <h1 className="text-2xl font-bold text-ember">{character.name}</h1>
-        <p className="text-white/70">{character.class_name} / {character.subclass} / {character.race}</p>
-        <dl className="mt-5 grid grid-cols-2 gap-3 md:grid-cols-4">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <p className="text-xs uppercase text-white/45">Лист персонажа</p>
+            <h1 className="text-3xl font-bold text-ember">{character.name}</h1>
+            <p className="mt-1 text-white/70">{character.class_name}{character.subclass ? ` / ${character.subclass}` : ""}</p>
+          </div>
+          <Link className="btn-secondary" to={`/characters/${id}/edit`}>Редактировать</Link>
+        </div>
+        <dl className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+          <Stat label="Раса" value={character.race || "-"} />
+          <Stat label="Предыстория" value={character.background || "-"} />
+          <Stat label="Путь" value={character.route || "-"} />
           <Stat label="Уровень" value={character.level} />
           <Stat label="XP" value={character.xp} />
-          <Stat label="HP" value={character.hp} />
-          <Stat label="КД" value={character.armor_class} />
-          {stats.map((stat) => <Stat key={stat.field} label={stat.label} value={character[stat.field]} />)}
         </dl>
       </section>
-      <InventoryPanel inventory={inventory} onChange={setInventory} characterId={id} transferTargets={transferTargets} />
+
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_380px]">
+        <div className="space-y-4">
+          <section className="panel p-5">
+            <div className="mb-4 flex items-center gap-2">
+              <Shield size={18} className="text-ember" />
+              <h2 className="text-lg font-semibold text-ember">Боевой блок</h2>
+            </div>
+            <dl className="grid grid-cols-2 gap-3 md:grid-cols-5">
+              <Stat label="HP" value={character.hp} />
+              <Stat label="Временные HP" value={character.temp_hp} />
+              <Stat label="КД" value={character.armor_class} />
+              <Stat label="Скорость" value={`${character.speed} фт`} />
+              <Stat label="Investigation" value={signed(character.investigation)} />
+            </dl>
+          </section>
+
+          <section className="panel p-5">
+            <h2 className="text-lg font-semibold text-ember">Характеристики</h2>
+            <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              {abilities.map((ability) => (
+                <AbilityCard key={ability.short} {...ability} />
+              ))}
+            </div>
+          </section>
+
+          <section className="panel p-5">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-2">
+                <Swords size={18} className="text-ember" />
+                <h2 className="text-lg font-semibold text-ember">Атаки</h2>
+              </div>
+              {attackRoll && (
+                <div className="rounded-md border border-ember/40 px-3 py-2 text-sm">
+                  <span className="font-semibold text-ember">{attackRoll.name}</span>: d20 {signed(attackRoll.bonus)} = {attackRoll.total}
+                </div>
+              )}
+            </div>
+            <form className="mt-4 grid gap-3 md:grid-cols-[1fr_120px_1fr_auto]" onSubmit={createAttack}>
+              <input className="field" placeholder="Название атаки" value={attackForm.name} onChange={(event) => setAttackForm({ ...attackForm, name: event.target.value })} />
+              <input className="field" type="number" value={attackForm.attack_bonus} onChange={(event) => setAttackForm({ ...attackForm, attack_bonus: Number(event.target.value) })} />
+              <input className="field" placeholder="Урон, например 1d8+3 рубящий" value={attackForm.damage} onChange={(event) => setAttackForm({ ...attackForm, damage: event.target.value })} />
+              <button className="btn" disabled={!attackForm.name.trim()} type="submit"><Plus size={16} />Добавить</button>
+            </form>
+            {attackError && <p className="mt-3 text-sm text-red-300">{attackError}</p>}
+            <div className="mt-4 space-y-3">
+              {attacks.map((attack) => (
+                <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-white/10 px-3 py-3" key={attack.id}>
+                  <div>
+                    <div className="font-semibold">{attack.name}</div>
+                    <div className="text-sm text-white/60">Попадание: {signed(attack.attack_bonus)} · Урон: {attack.damage || "-"}</div>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <button className="btn-secondary" onClick={() => rollAttack(attack)}><Dice5 size={16} />Бросить атаку</button>
+                    <button className="btn-secondary" onClick={() => removeAttack(attack)}><Trash2 size={16} />Удалить</button>
+                  </div>
+                </div>
+              ))}
+              {attacks.length === 0 && <p className="text-sm text-white/55">Атаки пока не добавлены.</p>}
+            </div>
+          </section>
+        </div>
+
+        <InventoryPanel inventory={inventory} onChange={setInventory} characterId={id} transferTargets={transferTargets} />
+      </div>
+    </div>
+  );
+}
+
+function AbilityCard({ label, short, value }: { label: string; short: string; value: number }) {
+  const modifier = abilityModifier(value);
+  return (
+    <div className="ability-card">
+      <div>
+        <p className="text-xs uppercase text-white/45">{short}</p>
+        <h3 className="font-semibold text-ember">{label}</h3>
+      </div>
+      <div className="text-right">
+        <div className="text-3xl font-bold">{value}</div>
+        <div className="text-lg font-semibold text-white/75">{signed(modifier)}</div>
+      </div>
     </div>
   );
 }
@@ -405,6 +556,8 @@ function InventoryPanel({ inventory, onChange, characterId, transferTargets }: {
   const recipients = transferTargets.filter((character) => character.id !== characterId);
   const [currencyTransfer, setCurrencyTransfer] = useState({ recipient_character_id: "", gold: 0, silver: 0, copper: 0 });
   const [itemRecipients, setItemRecipients] = useState<Record<number, string>>({});
+  const [notesDraft, setNotesDraft] = useState("");
+  const [notesSaved, setNotesSaved] = useState(false);
   const [error, setError] = useState("");
 
   async function remove(item: InventoryItem) {
@@ -442,16 +595,46 @@ function InventoryPanel({ inventory, onChange, characterId, transferTargets }: {
     }
   }
 
+  async function saveNotes() {
+    setError("");
+    setNotesSaved(false);
+    try {
+      const response = await api.patch<Inventory>(`/characters/${characterId}/inventory/notes`, { notes: notesDraft });
+      onChange(response.data);
+      setNotesSaved(true);
+    } catch (notesError) {
+      setError(apiErrorDetail(notesError, "Не удалось сохранить заметки"));
+    }
+  }
+
   useEffect(() => {
     if (!currencyTransfer.recipient_character_id && recipients[0]) {
       setCurrencyTransfer((current) => ({ ...current, recipient_character_id: String(recipients[0].id) }));
     }
   }, [currencyTransfer.recipient_character_id, recipients]);
 
+  useEffect(() => {
+    setNotesDraft(inventory?.notes ?? "");
+    setNotesSaved(false);
+  }, [inventory?.id, inventory?.notes]);
+
   return (
     <aside className="panel p-5">
       <h2 className="text-lg font-semibold text-ember">Инвентарь</h2>
       <p className="mt-1 text-sm text-white/70">{inventory?.gold ?? 0} зол. / {inventory?.silver ?? 0} сер. / {inventory?.copper ?? 0} мед.</p>
+      <div className="mt-4">
+        <label className="field-label">
+          <span>Заметки</span>
+          <textarea className="field min-h-32 resize-y" value={notesDraft} onChange={(event) => {
+            setNotesSaved(false);
+            setNotesDraft(event.target.value);
+          }} />
+        </label>
+        <div className="mt-2 flex items-center gap-3">
+          <button className="btn-secondary" onClick={saveNotes}><Save size={16} />Сохранить заметки</button>
+          {notesSaved && <span className="text-sm text-emerald-200">Сохранено</span>}
+        </div>
+      </div>
       <form className="mt-4 rounded-md border border-white/10 p-3" onSubmit={transferCurrency}>
         <h3 className="font-semibold text-ember">Передать валюту</h3>
         <div className="mt-3 grid grid-cols-3 gap-2">
@@ -685,6 +868,120 @@ function ProfilePage() {
   const { user, loading } = useAuth();
   if (loading || !user) return <p>Загрузка...</p>;
   return <section className="panel max-w-xl p-5"><h1 className="text-xl font-bold text-ember">{user.username}</h1><p>{user.email}</p><p className="mt-2">Карма: {user.karma}</p></section>;
+}
+
+function LeaderboardPage() {
+  const [entries, setEntries] = useState<LeaderboardEntry[]>([]);
+
+  useEffect(() => {
+    api.get<LeaderboardEntry[]>("/leaderboard").then((response) => setEntries(response.data));
+  }, []);
+
+  return (
+    <section className="panel p-5">
+      <div className="mb-5 flex items-center gap-2">
+        <Trophy size={20} className="text-ember" />
+        <h1 className="text-xl font-bold text-ember">Таблица лидеров</h1>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[520px] text-left text-sm">
+          <thead className="text-xs uppercase text-white/45">
+            <tr>
+              <th className="py-2 pr-3">Место</th>
+              <th className="py-2 pr-3">Пользователь</th>
+              <th className="py-2 pr-3">Карма</th>
+            </tr>
+          </thead>
+          <tbody>
+            {entries.map((entry) => (
+              <tr className="border-t border-white/10" key={entry.id}>
+                <td className="py-3 pr-3 font-semibold text-ember">{entry.rank}</td>
+                <td className="py-3 pr-3">{entry.username}</td>
+                <td className="py-3 pr-3">{entry.karma}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
+function ChatPage() {
+  const [channel, setChannel] = useState<"general" | "rolls">("general");
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [content, setContent] = useState("");
+  const [error, setError] = useState("");
+
+  function loadMessages(nextChannel = channel) {
+    api.get<ChatMessage[]>("/chat/messages", { params: { channel: nextChannel } })
+      .then((response) => setMessages(response.data))
+      .catch((loadError) => setError(apiErrorDetail(loadError, "Не удалось загрузить чат")));
+  }
+
+  useEffect(() => {
+    setError("");
+    loadMessages(channel);
+  }, [channel]);
+
+  async function sendMessage(event: FormEvent) {
+    event.preventDefault();
+    setError("");
+    try {
+      const response = await api.post<ChatMessage>("/chat/messages", { content });
+      setContent("");
+      if (response.data.channel !== channel) {
+        setChannel(response.data.channel);
+      } else {
+        setMessages((current) => [...current, response.data]);
+      }
+    } catch (sendError) {
+      setError(apiErrorDetail(sendError, "Не удалось отправить сообщение"));
+    }
+  }
+
+  return (
+    <section className="panel flex min-h-[70vh] flex-col p-5">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <MessageSquare size={20} className="text-ember" />
+          <h1 className="text-xl font-bold text-ember">Чат</h1>
+        </div>
+        <div className="grid grid-cols-2 gap-2">
+          <button className={channel === "general" ? "mode-tab-active" : "mode-tab"} onClick={() => setChannel("general")}>Общий чат</button>
+          <button className={channel === "rolls" ? "mode-tab-active" : "mode-tab"} onClick={() => setChannel("rolls")}>Броски</button>
+        </div>
+      </div>
+
+      <div className="mt-5 flex-1 space-y-3 overflow-y-auto rounded-md border border-white/10 p-3">
+        {messages.map((message) => (
+          <article className="rounded-md bg-black/25 p-3" key={message.id}>
+            <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
+              <span className="font-semibold text-ember">{message.username}</span>
+              <span className="text-white/45">{new Date(message.created_at).toLocaleString("ru-RU")}</span>
+            </div>
+            {message.channel === "rolls" ? (
+              <div className="mt-2 text-sm text-white/80">
+                <p className="whitespace-pre-wrap">{message.content}</p>
+                {message.formula && (
+                  <p className="mt-2 text-white/60">Формула: {message.formula} · Результаты: [{message.rolls?.join(", ")}] · Итого: {message.total}</p>
+                )}
+              </div>
+            ) : (
+              <p className="mt-2 whitespace-pre-wrap text-sm text-white/80">{message.content}</p>
+            )}
+          </article>
+        ))}
+        {messages.length === 0 && <p className="text-sm text-white/55">Сообщений пока нет.</p>}
+      </div>
+
+      <form className="mt-4 grid gap-2 md:grid-cols-[1fr_auto]" onSubmit={sendMessage}>
+        <input className="field" placeholder={channel === "rolls" ? "/r 1d20" : "Сообщение или /r 2d6"} value={content} onChange={(event) => setContent(event.target.value)} />
+        <button className="btn" disabled={!content.trim()}><Send size={16} />Отправить</button>
+      </form>
+      {error && <p className="mt-3 text-sm text-red-300">{error}</p>}
+    </section>
+  );
 }
 
 function AdminPage() {
@@ -1181,6 +1478,10 @@ function ReadOnlyInventoryPanel({ inventory }: { inventory: Inventory | null }) 
     <aside className="panel p-5">
       <h2 className="text-lg font-semibold text-ember">Инвентарь</h2>
       <p className="mt-1 text-sm text-white/70">{inventory?.gold ?? 0} зм / {inventory?.silver ?? 0} см / {inventory?.copper ?? 0} мм</p>
+      <div className="mt-4 rounded-md border border-white/10 p-3">
+        <h3 className="font-semibold text-ember">Заметки</h3>
+        <p className="mt-2 whitespace-pre-wrap text-sm text-white/75">{inventory?.notes || "Заметок нет"}</p>
+      </div>
       <div className="mt-4 space-y-3">
         {inventory?.items.map((item) => (
           <div className="rounded-md border border-white/10 p-3" key={item.id}>
@@ -1209,6 +1510,8 @@ function App() {
         <Route path="/characters/:id" element={<Protected><CharacterPage /></Protected>} />
         <Route path="/characters/:id/edit" element={<Protected><CharacterFormPage edit /></Protected>} />
         <Route path="/shop" element={<Protected><ShopPage /></Protected>} />
+        <Route path="/leaderboard" element={<Protected><LeaderboardPage /></Protected>} />
+        <Route path="/chat" element={<Protected><ChatPage /></Protected>} />
         <Route path="/profile" element={<Protected><ProfilePage /></Protected>} />
         <Route path="/admin/shop-logs" element={<Protected><ShopLogsPage /></Protected>} />
         <Route path="/admin/transfer-logs" element={<Protected><TransferLogsPage /></Protected>} />
