@@ -11,6 +11,7 @@ from app.schemas.inventory import (
     CurrencyUpdateRequest,
     GoldUpdateRequest,
     InventoryResponse,
+    InventoryNotesUpdateRequest,
     ItemTransferRequest,
     ShopConfirmRequest,
     ShopResult,
@@ -90,7 +91,8 @@ def get_character_inventory(
             character_id=character_id,
             gold=0,
             silver=0,
-            copper=0
+            copper=0,
+            notes=""
         )
         db.add(inventory)
         db.commit()
@@ -108,7 +110,8 @@ def get_or_create_inventory_for_character(character: Character, db: Session) -> 
             character_id=character.id,
             gold=0,
             silver=0,
-            copper=0
+            copper=0,
+            notes=""
         )
         db.add(inventory)
         db.flush()
@@ -476,6 +479,21 @@ def add_item(
         inventory_id=inventory.id
     )
     db.add(item)
+    db.commit()
+    db.refresh(inventory)
+
+    return inventory
+
+
+@router.patch("/characters/{character_id}/inventory/notes", response_model=InventoryResponse)
+def update_inventory_notes(
+    character_id: int,
+    notes_data: InventoryNotesUpdateRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    inventory = get_character_inventory(character_id, current_user, db)
+    inventory.notes = notes_data.notes
     db.commit()
     db.refresh(inventory)
 

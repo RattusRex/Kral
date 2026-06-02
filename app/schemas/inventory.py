@@ -19,6 +19,7 @@ class InventoryResponse(BaseModel):
     gold: int
     silver: int
     copper: int
+    notes: str = ""
     items: List[InventoryItemResponse] = []
 
     model_config = ConfigDict(from_attributes=True)
@@ -37,6 +38,9 @@ class CurrencyUpdateRequest(BaseModel):
     gold: int = 0
     silver: int = 0
     copper: int = 0
+
+class InventoryNotesUpdateRequest(BaseModel):
+    notes: str = ""
 
 class CurrencyTransferRequest(CurrencyUpdateRequest):
     recipient_character_id: int

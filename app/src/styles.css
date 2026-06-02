@@ -16,7 +16,8 @@ body {
 
 button,
 input,
-select {
+select,
+textarea {
   font: inherit;
 }
 
@@ -54,4 +55,8 @@ select {
 
 .hireling-option-active {
   @apply flex min-h-24 flex-col items-start justify-center rounded-md border border-ember bg-black/60 px-3 py-2 text-left text-sm text-parchment shadow-inner shadow-ember/30 transition disabled:cursor-not-allowed disabled:opacity-45;
+}
+
+.ability-card {
+  @apply flex min-h-28 items-center justify-between rounded-md border border-white/10 bg-black/25 p-4;
 }

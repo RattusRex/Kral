@@ -1,6 +1,6 @@
 from datetime import UTC, datetime
 
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped
 from sqlalchemy.orm import mapped_column
 from sqlalchemy.orm import relationship
@@ -28,6 +28,11 @@ class Inventory(Base):
 
     copper: Mapped[int] = mapped_column(
         default=0
+    )
+
+    notes: Mapped[str] = mapped_column(
+        Text,
+        default=""
     )
 
     character_id: Mapped[int] = mapped_column(

@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from typing import Optional
 
 class CharacterCreate(BaseModel):
@@ -17,7 +17,9 @@ class CharacterCreate(BaseModel):
     charisma: int = 8
     investigation: int = 0
     hp: int = 0
+    temp_hp: int = 0
     armor_class: int = 9
+    speed: int = 30
 
 class CharacterUpdate(BaseModel):
     name: Optional[str] = None
@@ -36,6 +38,38 @@ class CharacterUpdate(BaseModel):
     charisma: Optional[int] = None
     investigation: Optional[int] = None
     hp: Optional[int] = None
+    temp_hp: Optional[int] = None
     armor_class: Optional[int] = None
+    speed: Optional[int] = None
     is_dead: Optional[bool] = None
 
+
+class CharacterAttackCreate(BaseModel):
+    name: str
+    attack_bonus: int = 0
+    damage: str = ""
+
+
+class CharacterAttackUpdate(BaseModel):
+    name: Optional[str] = None
+    attack_bonus: Optional[int] = None
+    damage: Optional[str] = None
+
+
+class CharacterAttackResponse(BaseModel):
+    id: int
+    character_id: int
+    name: str
+    attack_bonus: int
+    damage: str
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class AttackRollResponse(BaseModel):
+    attack_id: int
+    name: str
+    roll: int
+    bonus: int
+    total: int
+    damage: str

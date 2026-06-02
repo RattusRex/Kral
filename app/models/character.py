@@ -61,8 +61,16 @@ class Character(Base):
         default=0
     )
 
+    temp_hp: Mapped[int] = mapped_column(
+        default=0
+    )
+
     armor_class: Mapped[int] = mapped_column(
         default=10
+    )
+
+    speed: Mapped[int] = mapped_column(
+        default=30
     )
 
     level: Mapped[int] = mapped_column(
@@ -99,4 +107,39 @@ class Character(Base):
     shop_transaction_logs = relationship(
         "ShopTransactionLog",
         back_populates="character"
+    )
+
+    attacks = relationship(
+        "CharacterAttack",
+        back_populates="character",
+        cascade="all, delete-orphan"
+    )
+
+
+class CharacterAttack(Base):
+    __tablename__ = "character_attacks"
+
+    id: Mapped[int] = mapped_column(
+        primary_key=True
+    )
+
+    name: Mapped[str] = mapped_column(
+        String(255)
+    )
+
+    attack_bonus: Mapped[int] = mapped_column(
+        default=0
+    )
+
+    damage: Mapped[str] = mapped_column(
+        String(255),
+        default=""
+    )
+
+    character_id: Mapped[int] = mapped_column(
+        ForeignKey("characters.id")
+    )
+    character = relationship(
+        "Character",
+        back_populates="attacks"
     )

@@ -666,3 +666,191 @@ def test_cross_player_currency_and_item_transfers_create_persistent_logs():
         item_log = next(log for log in payload if log["transfer_type"] == "item")
         assert item_log["item_name"] == "Courier Ring"
         assert item_log["item_rarity"] == "Обычный"
+
+
+def test_inventory_notes_combat_fields_and_attacks_persist_with_roll_log():
+    with TestClient(app) as client:
+        token = login(client, "admin", "admin123")
+        headers = {"Authorization": f"Bearer {token}"}
+        created = client.post("/api/characters", headers=headers, json={
+            "name": "Sheet Hero",
+            "class_name": "Воин",
+            "level": 5,
+            "route": "Frontline",
+            "temp_hp": 8,
+            "speed": 35,
+            "strength": 16
+        })
+        assert created.status_code == 200, created.text
+        character_id = created.json()["id"]
+        assert created.json()["temp_hp"] == 8
+        assert created.json()["speed"] == 35
+
+        patched = client.patch(
+            f"/api/characters/{character_id}",
+            headers=headers,
+            json={"temp_hp": 3, "speed": 40}
+        )
+        assert patched.status_code == 200, patched.text
+        assert patched.json()["temp_hp"] == 3
+        assert patched.json()["speed"] == 40
+
+        inventory = client.get(
+            f"/api/characters/{character_id}/inventory",
+            headers=headers
+        )
+        assert inventory.status_code == 200, inventory.text
+        assert inventory.json()["notes"] == ""
+
+        notes = "2 верёвки\n14 стрел\n3 факела"
+        updated_notes = client.patch(
+            f"/api/characters/{character_id}/inventory/notes",
+            headers=headers,
+            json={"notes": notes}
+        )
+        assert updated_notes.status_code == 200, updated_notes.text
+        assert updated_notes.json()["notes"] == notes
+
+        loaded_notes = client.get(
+            f"/api/characters/{character_id}/inventory",
+            headers=headers
+        )
+        assert loaded_notes.json()["notes"] == notes
+
+        created_attack = client.post(
+            f"/api/characters/{character_id}/attacks",
+            headers=headers,
+            json={
+                "name": "Длинный меч",
+                "attack_bonus": 5,
+                "damage": "1d8+3 рубящий"
+            }
+        )
+        assert created_attack.status_code == 200, created_attack.text
+        attack_id = created_attack.json()["id"]
+
+        attacks = client.get(
+            f"/api/characters/{character_id}/attacks",
+            headers=headers
+        )
+        assert attacks.status_code == 200, attacks.text
+        assert attacks.json()[0]["name"] == "Длинный меч"
+        assert attacks.json()[0]["damage"] == "1d8+3 рубящий"
+
+        rolled = client.post(
+            f"/api/characters/{character_id}/attacks/{attack_id}/roll",
+            headers=headers
+        )
+        assert rolled.status_code == 200, rolled.text
+        roll_payload = rolled.json()
+        assert 1 <= roll_payload["roll"] <= 20
+        assert roll_payload["bonus"] == 5
+        assert roll_payload["total"] == roll_payload["roll"] + 5
+
+        roll_messages = client.get(
+            "/api/chat/messages",
+            headers=headers,
+            params={"channel": "rolls"}
+        )
+        assert roll_messages.status_code == 200, roll_messages.text
+        assert any(
+            message["formula"] == "1d20+5"
+            and message["total"] == roll_payload["total"]
+            and "Длинный меч" in message["content"]
+            for message in roll_messages.json()
+        )
+
+
+def test_leaderboard_orders_users_by_karma_with_rank():
+    with TestClient(app) as client:
+        admin_token = login(client, "admin", "admin123")
+        admin_headers = {"Authorization": f"Bearer {admin_token}"}
+        users = []
+        for username, karma in [
+            ("leader-low", 3),
+            ("leader-high", 11),
+            ("leader-middle", 7)
+        ]:
+            created = client.post("/api/users", json={
+                "username": username,
+                "email": f"{username}@example.com",
+                "password": "secret123"
+            })
+            assert created.status_code == 200, created.text
+            users.append((created.json()["id"], username, karma))
+            adjusted = client.post(
+                f"/api/admin/users/{created.json()['id']}/karma",
+                headers=admin_headers,
+                json={"amount": karma}
+            )
+            assert adjusted.status_code == 200, adjusted.text
+
+        leaderboard = client.get("/api/leaderboard", headers=admin_headers)
+        assert leaderboard.status_code == 200, leaderboard.text
+        payload = leaderboard.json()
+        ranked = [
+            (entry["rank"], entry["username"], entry["karma"])
+            for entry in payload
+            if entry["username"].startswith("leader-")
+        ]
+        assert ranked == [
+            (1, "leader-high", 11),
+            (2, "leader-middle", 7),
+            (3, "leader-low", 3)
+        ]
+
+
+def test_chat_messages_and_dice_roll_commands_persist_to_channels():
+    with TestClient(app) as client:
+        token = login(client, "admin", "admin123")
+        headers = {"Authorization": f"Bearer {token}"}
+
+        message = client.post(
+            "/api/chat/messages",
+            headers=headers,
+            json={"content": "Кто идёт в экспедицию?"}
+        )
+        assert message.status_code == 200, message.text
+        assert message.json()["channel"] == "general"
+        assert message.json()["content"] == "Кто идёт в экспедицию?"
+
+        general = client.get(
+            "/api/chat/messages",
+            headers=headers,
+            params={"channel": "general"}
+        )
+        assert general.status_code == 200, general.text
+        assert general.json()[0]["content"] == "Кто идёт в экспедицию?"
+
+        roll = client.post(
+            "/api/dice/roll",
+            headers=headers,
+            json={"formula": "/r 2d6"}
+        )
+        assert roll.status_code == 200, roll.text
+        roll_payload = roll.json()
+        assert roll_payload["formula"] == "2d6"
+        assert len(roll_payload["rolls"]) == 2
+        assert all(1 <= value <= 6 for value in roll_payload["rolls"])
+        assert roll_payload["total"] == sum(roll_payload["rolls"])
+
+        arbitrary = client.post(
+            "/api/chat/messages",
+            headers=headers,
+            json={"content": "/r 1d37"}
+        )
+        assert arbitrary.status_code == 200, arbitrary.text
+        assert arbitrary.json()["channel"] == "rolls"
+        assert arbitrary.json()["formula"] == "1d37"
+        assert len(arbitrary.json()["rolls"]) == 1
+        assert 1 <= arbitrary.json()["rolls"][0] <= 37
+
+        rolls = client.get(
+            "/api/chat/messages",
+            headers=headers,
+            params={"channel": "rolls"}
+        )
+        assert rolls.status_code == 200, rolls.text
+        formulas = [message["formula"] for message in rolls.json()]
+        assert "2d6" in formulas
+        assert "1d37" in formulas

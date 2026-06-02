@@ -25,6 +25,14 @@ Prototype web application for D&D 2014 open-table bookkeeping: characters, inven
 
 Swagger documentation: http://localhost:8000/docs
 
+Notable protected API routes:
+
+- `GET /api/leaderboard` returns users ranked by karma.
+- `GET/POST /api/chat/messages` stores general chat messages and `/r` roll commands.
+- `POST /api/dice/roll` rolls formulas such as `/r 2d6` or `/r 1d37` and stores the result in the rolls channel.
+- `PATCH /api/characters/{id}/inventory/notes` saves free-form inventory notes.
+- `GET/POST /api/characters/{id}/attacks` manages attack rows, and `POST /api/characters/{id}/attacks/{attack_id}/roll` records attack rolls.
+
 ## Frontend Setup
 
 1. Install Node.js 20+.
