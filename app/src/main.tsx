@@ -596,6 +596,7 @@ function AdminPage() {
           <label className="field-label">
             <span>Количество</span>
             <input className="field" type="number" value={amount} onChange={(event) => setAmount(Number(event.target.value))} />
+            <span className="text-xs text-white/45">Отрицательное значение уменьшает ресурс (не ниже нуля).</span>
           </label>
           <button className="btn" onClick={() => action("xp", { amount })}>Выдать XP</button>
           <button className="btn" onClick={() => action("gold", { amount })}>Выдать золото</button>
@@ -621,6 +622,7 @@ function AdminPage() {
           <label className="field-label">
             <span>Карма</span>
             <input className="field" type="number" value={karmaAmount} onChange={(event) => setKarmaAmount(Number(event.target.value))} />
+            <span className="text-xs text-white/45">«Выдать» с отрицательным значением уменьшает карму (не ниже нуля).</span>
           </label>
           <p className="text-sm text-white/65">{selectedUser?.username ?? "Игрок"}: {selectedUser?.karma ?? 0}</p>
           <div className="grid grid-cols-2 gap-2">

@@ -186,6 +186,125 @@ def test_shop_sell_search_waits_for_confirmation_and_adds_gold():
         )
 
 
+def test_admin_negative_xp_reduces_and_clamps_at_zero():
+    with TestClient(app) as client:
+        token = login(client, "admin", "admin123")
+        headers = {"Authorization": f"Bearer {token}"}
+        created = client.post("/api/characters", headers=headers, json={
+            "name": "Kael",
+            "class_name": "Wizard",
+            "level": 50,
+            "route": "Arcane"
+        })
+        character_id = created.json()["id"]
+
+        granted = client.post(
+            f"/api/admin/characters/{character_id}/xp",
+            headers=headers,
+            json={"amount": 10}
+        )
+        assert granted.status_code == 200, granted.text
+        assert granted.json()["xp"] == 10
+
+        reduced = client.post(
+            f"/api/admin/characters/{character_id}/xp",
+            headers=headers,
+            json={"amount": -5}
+        )
+        assert reduced.status_code == 200, reduced.text
+        assert reduced.json()["xp"] == 5
+
+        clamped = client.post(
+            f"/api/admin/characters/{character_id}/xp",
+            headers=headers,
+            json={"amount": -100}
+        )
+        assert clamped.status_code == 200, clamped.text
+        assert clamped.json()["xp"] == 0
+
+        zero = client.post(
+            f"/api/admin/characters/{character_id}/xp",
+            headers=headers,
+            json={"amount": 0}
+        )
+        assert zero.status_code == 400, zero.text
+
+
+def test_admin_negative_gold_reduces_and_clamps_at_zero():
+    with TestClient(app) as client:
+        token = login(client, "admin", "admin123")
+        headers = {"Authorization": f"Bearer {token}"}
+        created = client.post("/api/characters", headers=headers, json={
+            "name": "Dorn",
+            "class_name": "Fighter",
+            "level": 1,
+            "route": "Steel"
+        })
+        character_id = created.json()["id"]
+
+        granted = client.post(
+            f"/api/admin/characters/{character_id}/gold",
+            headers=headers,
+            json={"amount": 100}
+        )
+        assert granted.status_code == 200, granted.text
+        assert granted.json()["gold"] == 100
+
+        reduced = client.post(
+            f"/api/admin/characters/{character_id}/gold",
+            headers=headers,
+            json={"amount": -25}
+        )
+        assert reduced.status_code == 200, reduced.text
+        assert reduced.json()["gold"] == 75
+
+        clamped = client.post(
+            f"/api/admin/characters/{character_id}/gold",
+            headers=headers,
+            json={"amount": -1000}
+        )
+        assert clamped.status_code == 200, clamped.text
+        assert clamped.json()["gold"] == 0
+
+
+def test_admin_negative_karma_reduces_and_clamps_at_zero():
+    with TestClient(app) as client:
+        admin_token = login(client, "admin", "admin123")
+        admin_headers = {"Authorization": f"Bearer {admin_token}"}
+        created_user = client.post("/api/users", json={
+            "username": "karma-player",
+            "email": "karma-player@example.com",
+            "password": "secret123"
+        })
+        user_id = created_user.json()["id"]
+
+        granted = client.post(
+            f"/api/admin/users/{user_id}/karma/add",
+            headers=admin_headers,
+            json={"amount": 20}
+        )
+        assert granted.status_code == 200, granted.text
+        assert granted.json()["karma"] == 20
+
+        # A negative amount on the grant endpoint reduces karma.
+        reduced = client.post(
+            f"/api/admin/users/{user_id}/karma/add",
+            headers=admin_headers,
+            json={"amount": -7}
+        )
+        assert reduced.status_code == 200, reduced.text
+        assert reduced.json()["karma"] == 13
+
+        # Subtracting more than the current karma clamps at zero.
+        clamped = client.post(
+            f"/api/admin/users/{user_id}/karma/subtract",
+            headers=admin_headers,
+            json={"amount": 100}
+        )
+        assert clamped.status_code == 200, clamped.text
+        assert clamped.json()["karma"] == 0
+
+
 def test_admin_can_change_karma_and_view_all_characters_with_owner():
     with TestClient(app) as client:
         admin_token = login(client, "admin", "admin123")

@@ -111,14 +111,15 @@ def add_character_xp(
     db: Session = Depends(get_db),
     _: User = Depends(require_admin)
 ):
-    if xp_data.amount <= 0:
+    if xp_data.amount == 0:
         raise HTTPException(
             status_code=400,
-            detail="Amount must be positive"
+            detail="Amount must not be zero"
         )
 
     character = get_character_or_404(character_id, db)
-    character.xp += xp_data.amount
+    # Negative amounts reduce XP. Values must never drop below zero.
+    character.xp = max(0, character.xp + xp_data.amount)
     while character.xp >= character.level + 1:
         character.xp -= character.level + 1
         character.level += 1
@@ -134,15 +135,16 @@ def add_character_gold(
     db: Session = Depends(get_db),
     _: User = Depends(require_admin)
 ):
-    if gold_data.amount <= 0:
+    if gold_data.amount == 0:
         raise HTTPException(
             status_code=400,
-            detail="Amount must be positive"
+            detail="Amount must not be zero"
         )
 
     character = get_character_or_404(character_id, db)
     inventory = get_character_inventory(character.id, character.owner, db)
-    inventory.gold += gold_data.amount
+    # Negative amounts reduce gold. Values must never drop below zero.
+    inventory.gold = max(0, inventory.gold + gold_data.amount)
     db.commit()
     db.refresh(inventory)
     return inventory
@@ -221,7 +223,8 @@ def update_user_karma(
             detail="User not found"
         )
 
-    user.karma += amount
+    # Karma may be reduced by negative amounts but must never go below zero.
+    user.karma = max(0, user.karma + amount)
     db.commit()
     db.refresh(user)
     return {
@@ -250,10 +253,11 @@ def add_user_karma(
     db: Session = Depends(get_db),
     _: User = Depends(require_admin)
 ):
-    if karma_data.amount <= 0:
+    # A negative amount reduces karma (clamped at zero by update_user_karma).
+    if karma_data.amount == 0:
         raise HTTPException(
             status_code=400,
-            detail="Amount must be positive"
+            detail="Amount must not be zero"
         )
     return update_user_karma(user_id, karma_data.amount, db)
 
