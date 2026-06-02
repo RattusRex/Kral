@@ -79,6 +79,30 @@ export interface AttackRoll {
   damage: string;
 }
 
+export interface DamageRoll {
+  attack_id: number;
+  name: string;
+  formula: string;
+  rolls: number[];
+  modifier: number;
+  total: number;
+}
+
+export interface AbilityRoll {
+  ability: string;
+  score: number;
+  modifier: number;
+  roll: number;
+  total: number;
+}
+
+export interface SavingThrowRoll {
+  ability: string;
+  bonus: number;
+  roll: number;
+  total: number;
+}
+
 export interface ChatMessage {
   id: number;
   created_at: string;

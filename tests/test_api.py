@@ -854,3 +854,168 @@ def test_chat_messages_and_dice_roll_commands_persist_to_channels():
         formulas = [message["formula"] for message in rolls.json()]
         assert "2d6" in formulas
         assert "1d37" in formulas
+
+
+def test_damage_roll_returns_dice_results_and_logs_to_rolls_channel():
+    with TestClient(app) as client:
+        token = login(client, "admin", "admin123")
+        headers = {"Authorization": f"Bearer {token}"}
+        created = client.post("/api/characters", headers=headers, json={
+            "name": "Damage Roller",
+            "class_name": "Воин",
+            "level": 5,
+            "route": "Frontline"
+        })
+        assert created.status_code == 200, created.text
+        character_id = created.json()["id"]
+
+        attack = client.post(
+            f"/api/characters/{character_id}/attacks",
+            headers=headers,
+            json={"name": "Длинный меч", "attack_bonus": 5, "damage": "1d8+3"}
+        )
+        assert attack.status_code == 200, attack.text
+        attack_id = attack.json()["id"]
+
+        rolled = client.post(
+            f"/api/characters/{character_id}/attacks/{attack_id}/roll-damage",
+            headers=headers
+        )
+        assert rolled.status_code == 200, rolled.text
+        payload = rolled.json()
+        assert payload["attack_id"] == attack_id
+        assert payload["name"] == "Длинный меч"
+        assert len(payload["rolls"]) == 1
+        assert 1 <= payload["rolls"][0] <= 8
+        assert payload["modifier"] == 3
+        assert payload["total"] == payload["rolls"][0] + 3
+
+        roll_messages = client.get(
+            "/api/chat/messages",
+            headers=headers,
+            params={"channel": "rolls"}
+        )
+        assert roll_messages.status_code == 200, roll_messages.text
+        assert any(
+            "Длинный меч" in message["content"] and "урон" in message["content"]
+            for message in roll_messages.json()
+        )
+
+
+def test_damage_roll_fails_for_attack_without_damage():
+    with TestClient(app) as client:
+        token = login(client, "admin", "admin123")
+        headers = {"Authorization": f"Bearer {token}"}
+        created = client.post("/api/characters", headers=headers, json={
+            "name": "No Damage Hero",
+            "class_name": "Воин",
+            "level": 1,
+            "route": "Frontline"
+        })
+        character_id = created.json()["id"]
+        attack = client.post(
+            f"/api/characters/{character_id}/attacks",
+            headers=headers,
+            json={"name": "Удар", "attack_bonus": 3, "damage": ""}
+        )
+        attack_id = attack.json()["id"]
+        response = client.post(
+            f"/api/characters/{character_id}/attacks/{attack_id}/roll-damage",
+            headers=headers
+        )
+        assert response.status_code == 400
+
+
+def test_ability_roll_returns_d20_plus_modifier_and_logs():
+    with TestClient(app) as client:
+        token = login(client, "admin", "admin123")
+        headers = {"Authorization": f"Bearer {token}"}
+        created = client.post("/api/characters", headers=headers, json={
+            "name": "Ability Roller",
+            "class_name": "Воин",
+            "level": 1,
+            "route": "Frontline",
+            "strength": 16
+        })
+        assert created.status_code == 200, created.text
+        character_id = created.json()["id"]
+
+        response = client.post(
+            f"/api/characters/{character_id}/roll-ability/strength",
+            headers=headers
+        )
+        assert response.status_code == 200, response.text
+        payload = response.json()
+        assert payload["ability"] == "strength"
+        assert payload["score"] == 16
+        assert payload["modifier"] == 3
+        assert 1 <= payload["roll"] <= 20
+        assert payload["total"] == payload["roll"] + 3
+
+        roll_messages = client.get(
+            "/api/chat/messages",
+            headers=headers,
+            params={"channel": "rolls"}
+        )
+        assert roll_messages.status_code == 200, roll_messages.text
+        assert any(
+            "Сила" in message["content"] and message["total"] == payload["total"]
+            for message in roll_messages.json()
+        )
+
+
+def test_ability_roll_rejects_unknown_ability():
+    with TestClient(app) as client:
+        token = login(client, "admin", "admin123")
+        headers = {"Authorization": f"Bearer {token}"}
+        created = client.post("/api/characters", headers=headers, json={
+            "name": "Ability Reject Hero",
+            "class_name": "Воин",
+            "level": 1,
+            "route": "Frontline"
+        })
+        character_id = created.json()["id"]
+        response = client.post(
+            f"/api/characters/{character_id}/roll-ability/luck",
+            headers=headers
+        )
+        assert response.status_code == 400
+
+
+def test_saving_throw_roll_returns_d20_plus_modifier_and_logs():
+    with TestClient(app) as client:
+        token = login(client, "admin", "admin123")
+        headers = {"Authorization": f"Bearer {token}"}
+        created = client.post("/api/characters", headers=headers, json={
+            "name": "Save Roller",
+            "class_name": "Воин",
+            "level": 1,
+            "route": "Frontline",
+            "dexterity": 14
+        })
+        assert created.status_code == 200, created.text
+        character_id = created.json()["id"]
+
+        response = client.post(
+            f"/api/characters/{character_id}/roll-saving-throw/dexterity",
+            headers=headers
+        )
+        assert response.status_code == 200, response.text
+        payload = response.json()
+        assert payload["ability"] == "dexterity"
+        assert payload["bonus"] == 2
+        assert 1 <= payload["roll"] <= 20
+        assert payload["total"] == payload["roll"] + 2
+
+        roll_messages = client.get(
+            "/api/chat/messages",
+            headers=headers,
+            params={"channel": "rolls"}
+        )
+        assert roll_messages.status_code == 200, roll_messages.text
+        assert any(
+            "Ловкость" in message["content"]
+            and "спасбросок" in message["content"]
+            and message["total"] == payload["total"]
+            for message in roll_messages.json()
+        )

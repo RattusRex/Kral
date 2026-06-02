@@ -2,7 +2,7 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { Link, Navigate, Route, BrowserRouter as Router, Routes, useNavigate, useParams } from "react-router-dom";
 import { Check, Dice5, LogOut, MessageSquare, Plus, RefreshCw, Save, ScrollText, Search, Send, Shield, ShoppingBag, Swords, Trash2, Trophy, UserRound, UsersRound } from "lucide-react";
-import { AdminUser, api, AttackRoll, Character, CharacterAttack, ChatMessage, Inventory, InventoryItem, LeaderboardEntry, ShopResult, ShopTransactionLog, TOKEN_KEY, TransferLog, TransferTarget, User } from "./api";
+import { AbilityRoll, AdminUser, api, AttackRoll, Character, CharacterAttack, ChatMessage, DamageRoll, Inventory, InventoryItem, LeaderboardEntry, SavingThrowRoll, ShopResult, ShopTransactionLog, TOKEN_KEY, TransferLog, TransferTarget, User } from "./api";
 import "./styles.css";
 
 const rarities = ["Обычный", "Необычный", "Редкий"];
@@ -335,6 +335,9 @@ function CharacterPage() {
   const [attacks, setAttacks] = useState<CharacterAttack[]>([]);
   const [attackForm, setAttackForm] = useState({ name: "", attack_bonus: 0, damage: "" });
   const [attackRoll, setAttackRoll] = useState<AttackRoll | null>(null);
+  const [damageRoll, setDamageRoll] = useState<DamageRoll | null>(null);
+  const [abilityRoll, setAbilityRoll] = useState<AbilityRoll | null>(null);
+  const [savingThrowRoll, setSavingThrowRoll] = useState<SavingThrowRoll | null>(null);
   const [attackError, setAttackError] = useState("");
 
   useEffect(() => {
@@ -353,12 +356,12 @@ function CharacterPage() {
 
   if (!character) return <p>Загрузка...</p>;
   const abilities = [
-    { label: "Сила", short: "STR", value: character.strength },
-    { label: "Ловкость", short: "DEX", value: character.dexterity },
-    { label: "Телосложение", short: "CON", value: character.constitution },
-    { label: "Интеллект", short: "INT", value: character.intelligence },
-    { label: "Мудрость", short: "WIS", value: character.wisdom },
-    { label: "Харизма", short: "CHA", value: character.charisma }
+    { label: "Сила", short: "STR", field: "strength", value: character.strength },
+    { label: "Ловкость", short: "DEX", field: "dexterity", value: character.dexterity },
+    { label: "Телосложение", short: "CON", field: "constitution", value: character.constitution },
+    { label: "Интеллект", short: "INT", field: "intelligence", value: character.intelligence },
+    { label: "Мудрость", short: "WIS", field: "wisdom", value: character.wisdom },
+    { label: "Харизма", short: "CHA", field: "charisma", value: character.charisma }
   ];
 
   async function createAttack(event: FormEvent) {
@@ -385,11 +388,43 @@ function CharacterPage() {
 
   async function rollAttack(attack: CharacterAttack) {
     setAttackError("");
+    setDamageRoll(null);
     try {
       const response = await api.post<AttackRoll>(`/characters/${id}/attacks/${attack.id}/roll`);
       setAttackRoll(response.data);
     } catch (rollError) {
       setAttackError(apiErrorDetail(rollError, "Не удалось выполнить бросок атаки"));
+    }
+  }
+
+  async function rollDamage(attack: CharacterAttack) {
+    setAttackError("");
+    setAttackRoll(null);
+    try {
+      const response = await api.post<DamageRoll>(`/characters/${id}/attacks/${attack.id}/roll-damage`);
+      setDamageRoll(response.data);
+    } catch (rollError) {
+      setAttackError(apiErrorDetail(rollError, "Не удалось выполнить бросок урона"));
+    }
+  }
+
+  async function rollAbility(ability: string) {
+    setSavingThrowRoll(null);
+    try {
+      const response = await api.post<AbilityRoll>(`/characters/${id}/roll-ability/${ability}`);
+      setAbilityRoll(response.data);
+    } catch {
+      // ignore
+    }
+  }
+
+  async function rollSavingThrow(ability: string) {
+    setAbilityRoll(null);
+    try {
+      const response = await api.post<SavingThrowRoll>(`/characters/${id}/roll-saving-throw/${ability}`);
+      setSavingThrowRoll(response.data);
+    } catch {
+      // ignore
     }
   }
 
@@ -430,10 +465,33 @@ function CharacterPage() {
           </section>
 
           <section className="panel p-5">
-            <h2 className="text-lg font-semibold text-ember">Характеристики</h2>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <h2 className="text-lg font-semibold text-ember">Характеристики</h2>
+              {abilityRoll && (
+                <div className="rounded-md border border-ember/40 px-3 py-2 text-sm">
+                  <span className="font-semibold text-ember">{abilities.find((a) => a.field === abilityRoll.ability)?.label}</span>: d20 {signed(abilityRoll.modifier)} = <span className="font-bold text-ember">{abilityRoll.total}</span>
+                </div>
+              )}
+            </div>
             <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
               {abilities.map((ability) => (
-                <AbilityCard key={ability.short} {...ability} />
+                <AbilityCard key={ability.short} {...ability} onRoll={() => rollAbility(ability.field)} />
+              ))}
+            </div>
+          </section>
+
+          <section className="panel p-5">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <h2 className="text-lg font-semibold text-ember">Спасброски</h2>
+              {savingThrowRoll && (
+                <div className="rounded-md border border-ember/40 px-3 py-2 text-sm">
+                  <span className="font-semibold text-ember">{abilities.find((a) => a.field === savingThrowRoll.ability)?.label}</span>: d20 {signed(savingThrowRoll.bonus)} = <span className="font-bold text-ember">{savingThrowRoll.total}</span>
+                </div>
+              )}
+            </div>
+            <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              {abilities.map((ability) => (
+                <SavingThrowCard key={ability.short} label={ability.label} short={ability.short} value={ability.value} onRoll={() => rollSavingThrow(ability.field)} />
               ))}
             </div>
           </section>
@@ -447,6 +505,11 @@ function CharacterPage() {
               {attackRoll && (
                 <div className="rounded-md border border-ember/40 px-3 py-2 text-sm">
                   <span className="font-semibold text-ember">{attackRoll.name}</span>: d20 {signed(attackRoll.bonus)} = {attackRoll.total}
+                </div>
+              )}
+              {damageRoll && (
+                <div className="rounded-md border border-amber-400/40 px-3 py-2 text-sm">
+                  <span className="font-semibold text-amber-300">{damageRoll.name}</span>: [{damageRoll.rolls.join(", ")}]{damageRoll.modifier !== 0 ? ` ${signed(damageRoll.modifier)}` : ""} = <span className="font-bold text-amber-300">{damageRoll.total}</span>
                 </div>
               )}
             </div>
@@ -466,6 +529,7 @@ function CharacterPage() {
                   </div>
                   <div className="flex flex-wrap gap-2">
                     <button className="btn-secondary" onClick={() => rollAttack(attack)}><Dice5 size={16} />Бросить атаку</button>
+                    {attack.damage && <button className="btn-secondary" onClick={() => rollDamage(attack)}><Dice5 size={16} />Бросить урон</button>}
                     <button className="btn-secondary" onClick={() => removeAttack(attack)}><Trash2 size={16} />Удалить</button>
                   </div>
                 </div>
@@ -481,10 +545,15 @@ function CharacterPage() {
   );
 }
 
-function AbilityCard({ label, short, value }: { label: string; short: string; value: number }) {
+function AbilityCard({ label, short, value, onRoll }: { label: string; short: string; value: number; onRoll?: () => void }) {
   const modifier = abilityModifier(value);
   return (
-    <div className="ability-card">
+    <button
+      className="ability-card text-left w-full"
+      onClick={onRoll}
+      title={onRoll ? `Бросить d20 + ${signed(modifier)}` : undefined}
+      type="button"
+    >
       <div>
         <p className="text-xs uppercase text-white/45">{short}</p>
         <h3 className="font-semibold text-ember">{label}</h3>
@@ -493,7 +562,27 @@ function AbilityCard({ label, short, value }: { label: string; short: string; va
         <div className="text-3xl font-bold">{value}</div>
         <div className="text-lg font-semibold text-white/75">{signed(modifier)}</div>
       </div>
-    </div>
+    </button>
+  );
+}
+
+function SavingThrowCard({ label, short, value, onRoll }: { label: string; short: string; value: number; onRoll?: () => void }) {
+  const modifier = abilityModifier(value);
+  return (
+    <button
+      className="ability-card text-left w-full"
+      onClick={onRoll}
+      title={onRoll ? `Спасбросок d20 + ${signed(modifier)}` : undefined}
+      type="button"
+    >
+      <div>
+        <p className="text-xs uppercase text-white/45">{short}</p>
+        <h3 className="font-semibold text-ember">{label}</h3>
+      </div>
+      <div className="text-right">
+        <div className="text-lg font-semibold text-white/75">{signed(modifier)}</div>
+      </div>
+    </button>
   );
 }
 
