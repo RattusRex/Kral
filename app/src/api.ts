@@ -35,6 +35,14 @@ export interface Character {
   is_dead?: boolean;
 }
 
+export interface TransferTarget {
+  id: number;
+  name: string;
+  class_name: string;
+  level: number;
+  owner_username: string;
+}
+
 export interface InventoryItem {
   id: number;
   name: string;
@@ -90,6 +98,24 @@ export interface ShopTransactionLog {
   item_price: number;
   hireling_cost: number;
   total_amount: number;
+}
+
+export interface TransferLog {
+  id: number;
+  created_at: string;
+  user_id: number;
+  username: string;
+  sender_character_id: number;
+  sender_character_name: string;
+  recipient_character_id: number;
+  recipient_character_name: string;
+  transfer_type: "currency" | "item";
+  gold: number;
+  silver: number;
+  copper: number;
+  item_name: string | null;
+  item_rarity: string | null;
+  item_is_consumable: boolean | null;
 }
 
 export const api = axios.create({

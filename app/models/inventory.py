@@ -217,3 +217,71 @@ class ShopTransactionLog(Base):
         "Inventory",
         back_populates="shop_transaction_logs"
     )
+
+
+class TransferLog(Base):
+    __tablename__ = "transfer_logs"
+
+    id: Mapped[int] = mapped_column(
+        primary_key=True
+    )
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime,
+        default=utc_now
+    )
+
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id")
+    )
+
+    username: Mapped[str] = mapped_column(
+        String(50)
+    )
+
+    sender_character_id: Mapped[int] = mapped_column(
+        Integer
+    )
+
+    sender_character_name: Mapped[str] = mapped_column(
+        String(255)
+    )
+
+    recipient_character_id: Mapped[int] = mapped_column(
+        Integer
+    )
+
+    recipient_character_name: Mapped[str] = mapped_column(
+        String(255)
+    )
+
+    transfer_type: Mapped[str] = mapped_column(
+        String(20)
+    )
+
+    gold: Mapped[int] = mapped_column(
+        default=0
+    )
+
+    silver: Mapped[int] = mapped_column(
+        default=0
+    )
+
+    copper: Mapped[int] = mapped_column(
+        default=0
+    )
+
+    item_name = mapped_column(
+        String(255),
+        nullable=True
+    )
+
+    item_rarity = mapped_column(
+        String(50),
+        nullable=True
+    )
+
+    item_is_consumable = mapped_column(
+        Boolean,
+        nullable=True
+    )

@@ -506,3 +506,163 @@ def test_shop_buy_and_sell_confirmations_create_filterable_persistent_logs():
         assert len(sell_logs) == 1
         assert sell_logs[0]["item_name"] == "Audit Wand"
         assert sell_logs[0]["total_amount"] == sell_payload["item_price"] - sell_payload["hireling_cost"]
+
+
+def test_admin_delete_character_requires_confirmation_and_cascades_inventory():
+    with TestClient(app) as client:
+        admin_token = login(client, "admin", "admin123")
+        headers = {"Authorization": f"Bearer {admin_token}"}
+        created = client.post("/api/characters", headers=headers, json={
+            "name": "Delete Me",
+            "class_name": "Fighter",
+            "level": 1,
+            "route": "Dust"
+        })
+        assert created.status_code == 200, created.text
+        character_id = created.json()["id"]
+        client.post(
+            f"/api/admin/characters/{character_id}/currency/add",
+            headers=headers,
+            json={"gold": 5, "silver": 4, "copper": 3}
+        )
+        client.post(
+            f"/api/admin/characters/{character_id}/item",
+            headers=headers,
+            json={"name": "Marked Sword", "rarity": "Обычный", "is_consumable": False}
+        )
+
+        blocked = client.delete(
+            f"/api/admin/characters/{character_id}",
+            headers=headers,
+            params={"confirmation": "delete"}
+        )
+        assert blocked.status_code == 400
+
+        removed = client.delete(
+            f"/api/admin/characters/{character_id}",
+            headers=headers,
+            params={"confirmation": "УДАЛИТЬ"}
+        )
+        assert removed.status_code == 200, removed.text
+        assert removed.json() == {"deleted": True, "id": character_id}
+
+        listed = client.get("/api/admin/characters", headers=headers)
+        assert listed.status_code == 200, listed.text
+        assert all(character["id"] != character_id for character in listed.json())
+        missing_inventory = client.get(
+            f"/api/admin/characters/{character_id}/inventory",
+            headers=headers
+        )
+        assert missing_inventory.status_code == 404
+
+
+def test_cross_player_currency_and_item_transfers_create_persistent_logs():
+    with TestClient(app) as client:
+        admin_token = login(client, "admin", "admin123")
+        admin_headers = {"Authorization": f"Bearer {admin_token}"}
+        created_user = client.post("/api/users", json={
+            "username": "receiver",
+            "email": "receiver@example.com",
+            "password": "secret123"
+        })
+        assert created_user.status_code == 200, created_user.text
+        receiver_token = login(client, "receiver", "secret123")
+        receiver_headers = {"Authorization": f"Bearer {receiver_token}"}
+
+        sender = client.post("/api/characters", headers=admin_headers, json={
+            "name": "Sender",
+            "class_name": "Bard",
+            "level": 1,
+            "route": "Trade"
+        })
+        assert sender.status_code == 200, sender.text
+        sender_id = sender.json()["id"]
+        recipient = client.post("/api/characters", headers=receiver_headers, json={
+            "name": "Recipient",
+            "class_name": "Cleric",
+            "level": 1,
+            "route": "Trade"
+        })
+        assert recipient.status_code == 200, recipient.text
+        recipient_id = recipient.json()["id"]
+
+        targets = client.get("/api/characters/transfer-targets", headers=admin_headers)
+        assert targets.status_code == 200, targets.text
+        assert any(
+            character["id"] == recipient_id and character["owner_username"] == "receiver"
+            for character in targets.json()
+        )
+
+        currency = client.post(
+            f"/api/admin/characters/{sender_id}/currency/add",
+            headers=admin_headers,
+            json={"gold": 2, "silver": 5, "copper": 4}
+        )
+        assert currency.status_code == 200, currency.text
+        granted = client.post(
+            f"/api/admin/characters/{sender_id}/item",
+            headers=admin_headers,
+            json={"name": "Courier Ring", "rarity": "Обычный", "is_consumable": False}
+        )
+        assert granted.status_code == 200, granted.text
+        item_id = granted.json()["items"][0]["id"]
+
+        insufficient = client.post(
+            f"/api/characters/{sender_id}/inventory/currency/transfer",
+            headers=admin_headers,
+            json={"recipient_character_id": recipient_id, "gold": 9, "silver": 0, "copper": 0}
+        )
+        assert insufficient.status_code == 400
+
+        transferred_currency = client.post(
+            f"/api/characters/{sender_id}/inventory/currency/transfer",
+            headers=admin_headers,
+            json={"recipient_character_id": recipient_id, "gold": 1, "silver": 3, "copper": 4}
+        )
+        assert transferred_currency.status_code == 200, transferred_currency.text
+        assert transferred_currency.json()["gold"] == 1
+        assert transferred_currency.json()["silver"] == 2
+        assert transferred_currency.json()["copper"] == 0
+
+        invalid_item = client.post(
+            f"/api/characters/{sender_id}/inventory/items/transfer",
+            headers=admin_headers,
+            json={"recipient_character_id": recipient_id, "item_id": item_id + 999}
+        )
+        assert invalid_item.status_code == 400
+
+        transferred_item = client.post(
+            f"/api/characters/{sender_id}/inventory/items/transfer",
+            headers=admin_headers,
+            json={"recipient_character_id": recipient_id, "item_id": item_id}
+        )
+        assert transferred_item.status_code == 200, transferred_item.text
+        assert transferred_item.json()["items"] == []
+
+        receiver_inventory = client.get(
+            f"/api/characters/{recipient_id}/inventory",
+            headers=receiver_headers
+        )
+        assert receiver_inventory.status_code == 200, receiver_inventory.text
+        receiver_payload = receiver_inventory.json()
+        assert receiver_payload["gold"] == 1
+        assert receiver_payload["silver"] == 3
+        assert receiver_payload["copper"] == 4
+        assert receiver_payload["items"][0]["name"] == "Courier Ring"
+
+    with TestClient(app) as client:
+        admin_token = login(client, "admin", "admin123")
+        admin_headers = {"Authorization": f"Bearer {admin_token}"}
+        logs = client.get("/api/admin/transfer-logs", headers=admin_headers)
+        assert logs.status_code == 200, logs.text
+        payload = logs.json()
+        assert len(payload) == 2
+        currency_log = next(log for log in payload if log["transfer_type"] == "currency")
+        assert currency_log["sender_character_name"] == "Sender"
+        assert currency_log["recipient_character_name"] == "Recipient"
+        assert currency_log["gold"] == 1
+        assert currency_log["silver"] == 3
+        assert currency_log["copper"] == 4
+        item_log = next(log for log in payload if log["transfer_type"] == "item")
+        assert item_log["item_name"] == "Courier Ring"
+        assert item_log["item_rarity"] == "Обычный"

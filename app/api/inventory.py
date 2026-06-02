@@ -2,14 +2,16 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from app.db.database import SessionLocal
 from app.models.character import Character
-from app.models.inventory import Inventory, InventoryItem, ShopQuote, ShopTransactionLog
+from app.models.inventory import Inventory, InventoryItem, ShopQuote, ShopTransactionLog, TransferLog
 from app.models.user import User
 from app.api.users import get_current_user
 from app.schemas.inventory import (
     AddItemRequest,
+    CurrencyTransferRequest,
     CurrencyUpdateRequest,
     GoldUpdateRequest,
     InventoryResponse,
+    ItemTransferRequest,
     ShopConfirmRequest,
     ShopResult,
     ShopSearchRequest,
@@ -96,6 +98,23 @@ def get_character_inventory(
 
     return inventory
 
+def get_or_create_inventory_for_character(character: Character, db: Session) -> Inventory:
+    inventory = db.query(Inventory).filter(
+        Inventory.character_id == character.id
+    ).first()
+
+    if not inventory:
+        inventory = Inventory(
+            character_id=character.id,
+            gold=0,
+            silver=0,
+            copper=0
+        )
+        db.add(inventory)
+        db.flush()
+
+    return inventory
+
 def validate_rarity(rarity: str):
     if rarity not in RARITY_DATA:
         raise HTTPException(
@@ -107,6 +126,13 @@ def require_non_negative_currency(currency: CurrencyUpdateRequest):
         raise HTTPException(
             status_code=400,
             detail="Currency amounts must not be negative"
+        )
+def require_positive_currency(currency: CurrencyUpdateRequest):
+    require_non_negative_currency(currency)
+    if currency.gold == 0 and currency.silver == 0 and currency.copper == 0:
+        raise HTTPException(
+            status_code=400,
+            detail="Transfer amount must be positive"
         )
 def inventory_total_copper(inventory: Inventory) -> int:
     return inventory.gold * 100 + inventory.silver * 10 + inventory.copper
@@ -125,6 +151,46 @@ def add_currency(inventory: Inventory, gold: int = 0, silver: int = 0, copper: i
             inventory_total_copper(inventory) + gold * 100 + silver * 10 + copper
         )
     )
+
+def record_currency_transfer(
+    sender: Character,
+    recipient: Character,
+    transfer_data: CurrencyTransferRequest,
+    user: User,
+    db: Session
+):
+    db.add(TransferLog(
+        user_id=user.id,
+        username=user.username,
+        sender_character_id=sender.id,
+        sender_character_name=sender.name,
+        recipient_character_id=recipient.id,
+        recipient_character_name=recipient.name,
+        transfer_type="currency",
+        gold=transfer_data.gold,
+        silver=transfer_data.silver,
+        copper=transfer_data.copper
+    ))
+
+def record_item_transfer(
+    sender: Character,
+    recipient: Character,
+    item: InventoryItem,
+    user: User,
+    db: Session
+):
+    db.add(TransferLog(
+        user_id=user.id,
+        username=user.username,
+        sender_character_id=sender.id,
+        sender_character_name=sender.name,
+        recipient_character_id=recipient.id,
+        recipient_character_name=recipient.name,
+        transfer_type="item",
+        item_name=item.name,
+        item_rarity=item.rarity,
+        item_is_consumable=item.is_consumable
+    ))
 
 def subtract_copper(inventory: Inventory, amount: int, detail: str):
     current_amount = inventory_total_copper(inventory)
@@ -511,6 +577,88 @@ def add_inventory_currency(
     db.refresh(inventory)
 
     return inventory
+
+@router.post("/characters/{character_id}/inventory/currency/transfer", response_model=InventoryResponse)
+def transfer_inventory_currency(
+    character_id: int,
+    transfer_data: CurrencyTransferRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    require_positive_currency(transfer_data)
+    sender = get_character_for_current_user(character_id, current_user, db)
+    if sender.id == transfer_data.recipient_character_id:
+        raise HTTPException(
+            status_code=400,
+            detail="Recipient must be a different character"
+        )
+
+    recipient = db.query(Character).filter(
+        Character.id == transfer_data.recipient_character_id
+    ).first()
+    if not recipient:
+        raise HTTPException(
+            status_code=404,
+            detail="Recipient character not found"
+        )
+
+    sender_inventory = get_or_create_inventory_for_character(sender, db)
+    recipient_inventory = get_or_create_inventory_for_character(recipient, db)
+    amount = transfer_data.gold * 100 + transfer_data.silver * 10 + transfer_data.copper
+    subtract_copper(sender_inventory, amount, "Недостаточно средств")
+    add_currency(
+        recipient_inventory,
+        transfer_data.gold,
+        transfer_data.silver,
+        transfer_data.copper
+    )
+    record_currency_transfer(sender, recipient, transfer_data, current_user, db)
+    db.commit()
+    db.refresh(sender_inventory)
+
+    return sender_inventory
+
+@router.post("/characters/{character_id}/inventory/items/transfer", response_model=InventoryResponse)
+def transfer_inventory_item(
+    character_id: int,
+    transfer_data: ItemTransferRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    sender = get_character_for_current_user(character_id, current_user, db)
+    if sender.id == transfer_data.recipient_character_id:
+        raise HTTPException(
+            status_code=400,
+            detail="Recipient must be a different character"
+        )
+
+    recipient = db.query(Character).filter(
+        Character.id == transfer_data.recipient_character_id
+    ).first()
+    if not recipient:
+        raise HTTPException(
+            status_code=404,
+            detail="Recipient character not found"
+        )
+
+    sender_inventory = get_or_create_inventory_for_character(sender, db)
+    recipient_inventory = get_or_create_inventory_for_character(recipient, db)
+    item = db.query(InventoryItem).filter(
+        InventoryItem.id == transfer_data.item_id,
+        InventoryItem.inventory_id == sender_inventory.id
+    ).first()
+    if not item:
+        raise HTTPException(
+            status_code=400,
+            detail="Предмета нет в инвентаре"
+        )
+
+    record_item_transfer(sender, recipient, item, current_user, db)
+    item.inventory_id = recipient_inventory.id
+    db.commit()
+    db.refresh(sender_inventory)
+
+    return sender_inventory
 
 @router.post("/characters/{character_id}/shop/search", response_model=ShopResult)
 def search_shop_item(
