@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from app.api.inventory import add_currency, get_character_inventory, validate_rarity
 from app.api.users import get_current_user, get_db
 from app.models.character import Character
-from app.models.inventory import InventoryItem, ShopTransactionLog
+from app.models.inventory import InventoryItem, ShopTransactionLog, TransferLog
 from app.models.user import User
 from app.schemas.character import CharacterUpdate
 from app.schemas.inventory import (
@@ -14,6 +14,7 @@ from app.schemas.inventory import (
     CurrencyUpdateRequest,
     InventoryResponse,
     ShopTransactionLogResponse,
+    TransferLogResponse,
 )
 from app.schemas.user import KarmaUpdate
 
@@ -241,6 +242,56 @@ def list_shop_logs(
     return query.order_by(ShopTransactionLog.created_at.desc()).all()
 
 
+@router.get("/transfer-logs", response_model=list[TransferLogResponse])
+def list_transfer_logs(
+    character_id: int | None = None,
+    user_id: int | None = None,
+    transfer_type: str | None = None,
+    operation_date: date | None = Query(default=None, alias="date"),
+    date_from: date | None = None,
+    date_to: date | None = None,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_admin)
+):
+    query = db.query(TransferLog)
+
+    if character_id is not None:
+        query = query.filter(
+            (TransferLog.sender_character_id == character_id)
+            | (TransferLog.recipient_character_id == character_id)
+        )
+    if user_id is not None:
+        query = query.filter(TransferLog.user_id == user_id)
+    if transfer_type:
+        if transfer_type not in {"currency", "item"}:
+            raise HTTPException(
+                status_code=400,
+                detail="Unknown transfer type"
+            )
+        query = query.filter(TransferLog.transfer_type == transfer_type)
+
+    if operation_date is not None:
+        start = datetime.combine(operation_date, time.min)
+        end = start + timedelta(days=1)
+        query = query.filter(
+            TransferLog.created_at >= start,
+            TransferLog.created_at < end
+        )
+    else:
+        if date_from is not None:
+            query = query.filter(
+                TransferLog.created_at >= datetime.combine(date_from, time.min)
+            )
+        if date_to is not None:
+            query = query.filter(
+                TransferLog.created_at < (
+                    datetime.combine(date_to, time.min) + timedelta(days=1)
+                )
+            )
+
+    return query.order_by(TransferLog.created_at.desc()).all()
+
+
 @router.post("/characters/{character_id}/revive")
 def revive_character(
     character_id: int,
@@ -253,6 +304,25 @@ def revive_character(
     db.commit()
     db.refresh(character)
     return character
+
+
+@router.delete("/characters/{character_id}")
+def delete_admin_character(
+    character_id: int,
+    confirmation: str = Query(...),
+    db: Session = Depends(get_db),
+    _: User = Depends(require_admin)
+):
+    if confirmation != "УДАЛИТЬ":
+        raise HTTPException(
+            status_code=400,
+            detail="Введите УДАЛИТЬ для подтверждения удаления"
+        )
+
+    character = get_character_or_404(character_id, db)
+    db.delete(character)
+    db.commit()
+    return {"deleted": True, "id": character_id}
 
 
 @router.post("/characters/{character_id}/item", response_model=InventoryResponse)

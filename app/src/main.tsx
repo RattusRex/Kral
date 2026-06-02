@@ -1,8 +1,8 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { Link, Navigate, Route, BrowserRouter as Router, Routes, useNavigate, useParams } from "react-router-dom";
-import { Check, LogOut, Plus, RefreshCw, Save, ScrollText, Search, Shield, ShoppingBag, UserRound, UsersRound } from "lucide-react";
-import { AdminUser, api, Character, Inventory, InventoryItem, ShopResult, ShopTransactionLog, TOKEN_KEY, User } from "./api";
+import { Check, LogOut, Plus, RefreshCw, Save, ScrollText, Search, Shield, ShoppingBag, Trash2, UserRound, UsersRound } from "lucide-react";
+import { AdminUser, api, Character, Inventory, InventoryItem, ShopResult, ShopTransactionLog, TOKEN_KEY, TransferLog, TransferTarget, User } from "./api";
 import "./styles.css";
 
 const rarities = ["Обычный", "Необычный", "Редкий"];
@@ -77,6 +77,7 @@ const blankCharacter = {
   charisma: 10,
   investigation: 0
 };
+const maxCharacters = 10;
 
 function apiErrorDetail(error: unknown, fallback: string) {
   const detail = (error as { response?: { data?: { detail?: unknown } } }).response?.data?.detail;
@@ -131,6 +132,7 @@ function Shell({ children, user }: { children: React.ReactNode; user: User | nul
             <Link className="btn-secondary" to="/profile"><UserRound size={16} />Профиль</Link>
             {user?.is_admin && <Link className="btn-secondary" to="/admin"><Shield size={16} />Админ</Link>}
             {user?.is_admin && <Link className="btn-secondary" to="/admin/shop-logs"><ScrollText size={16} />Логи</Link>}
+            {user?.is_admin && <Link className="btn-secondary" to="/admin/transfer-logs"><ScrollText size={16} />Передачи</Link>}
             <button className="btn-secondary" onClick={logout}><LogOut size={16} />Выйти</button>
           </div>
         </nav>
@@ -262,10 +264,20 @@ function CharactersPage() {
     });
   }, []);
 
+  const characterLimitReached = characters.length >= maxCharacters;
+
   return (
     <div>
-      <div className="mb-4 flex justify-end">
-        <Link className="btn" to="/characters/new"><Plus size={16} />Создать персонажа</Link>
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 className="text-xl font-bold text-ember">Мои персонажи</h1>
+          <p className="text-sm text-white/65">Слоты: {characters.length}/{maxCharacters}</p>
+        </div>
+        {characterLimitReached ? (
+          <button className="btn" disabled><Plus size={16} />Лимит персонажей</button>
+        ) : (
+          <Link className="btn" to="/characters/new"><Plus size={16} />Создать персонажа</Link>
+        )}
       </div>
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         {characters.map((character) => (
@@ -303,11 +315,13 @@ function CharacterPage() {
   const id = Number(idParam);
   const [character, setCharacter] = useState<Character | null>(null);
   const [inventory, setInventory] = useState<Inventory | null>(null);
+  const [transferTargets, setTransferTargets] = useState<TransferTarget[]>([]);
 
   useEffect(() => {
     api.get<Character[]>("/characters").then((response) => {
       setCharacter(response.data.find((item) => item.id === id) ?? null);
     });
+    api.get<TransferTarget[]>("/characters/transfer-targets").then((response) => setTransferTargets(response.data));
     api.get<Inventory>(`/characters/${id}/inventory`).then((response) => setInventory(response.data));
   }, [id]);
 
@@ -327,7 +341,7 @@ function CharacterPage() {
           {stats.map((stat) => <Stat key={stat.field} label={stat.label} value={character[stat.field]} />)}
         </dl>
       </section>
-      <InventoryPanel inventory={inventory} onChange={setInventory} characterId={id} />
+      <InventoryPanel inventory={inventory} onChange={setInventory} characterId={id} transferTargets={transferTargets} />
     </div>
   );
 }
@@ -387,24 +401,90 @@ function CharacterFormPage({ edit = false }: { edit?: boolean }) {
   );
 }
 
-function InventoryPanel({ inventory, onChange, characterId }: { inventory: Inventory | null; onChange: (inventory: Inventory) => void; characterId: number }) {
+function InventoryPanel({ inventory, onChange, characterId, transferTargets }: { inventory: Inventory | null; onChange: (inventory: Inventory) => void; characterId: number; transferTargets: TransferTarget[] }) {
+  const recipients = transferTargets.filter((character) => character.id !== characterId);
+  const [currencyTransfer, setCurrencyTransfer] = useState({ recipient_character_id: "", gold: 0, silver: 0, copper: 0 });
+  const [itemRecipients, setItemRecipients] = useState<Record<number, string>>({});
+  const [error, setError] = useState("");
+
   async function remove(item: InventoryItem) {
     const response = await api.delete<Inventory>(`/characters/${characterId}/inventory/items/${item.id}`);
     onChange(response.data);
   }
 
+  async function transferCurrency(event: FormEvent) {
+    event.preventDefault();
+    setError("");
+    try {
+      const response = await api.post<Inventory>(`/characters/${characterId}/inventory/currency/transfer`, {
+        ...currencyTransfer,
+        recipient_character_id: Number(currencyTransfer.recipient_character_id)
+      });
+      onChange(response.data);
+      setCurrencyTransfer({ recipient_character_id: currencyTransfer.recipient_character_id, gold: 0, silver: 0, copper: 0 });
+    } catch (transferError) {
+      setError(apiErrorDetail(transferError, "Не удалось передать валюту"));
+    }
+  }
+
+  async function transferItem(item: InventoryItem) {
+    const recipientId = itemRecipients[item.id];
+    if (!recipientId) return;
+    setError("");
+    try {
+      const response = await api.post<Inventory>(`/characters/${characterId}/inventory/items/transfer`, {
+        recipient_character_id: Number(recipientId),
+        item_id: item.id
+      });
+      onChange(response.data);
+    } catch (transferError) {
+      setError(apiErrorDetail(transferError, "Не удалось передать предмет"));
+    }
+  }
+
+  useEffect(() => {
+    if (!currencyTransfer.recipient_character_id && recipients[0]) {
+      setCurrencyTransfer((current) => ({ ...current, recipient_character_id: String(recipients[0].id) }));
+    }
+  }, [currencyTransfer.recipient_character_id, recipients]);
+
   return (
     <aside className="panel p-5">
       <h2 className="text-lg font-semibold text-ember">Инвентарь</h2>
       <p className="mt-1 text-sm text-white/70">{inventory?.gold ?? 0} зол. / {inventory?.silver ?? 0} сер. / {inventory?.copper ?? 0} мед.</p>
+      <form className="mt-4 rounded-md border border-white/10 p-3" onSubmit={transferCurrency}>
+        <h3 className="font-semibold text-ember">Передать валюту</h3>
+        <div className="mt-3 grid grid-cols-3 gap-2">
+          {(["gold", "silver", "copper"] as const).map((field) => (
+            <input
+              className="field"
+              key={field}
+              min={0}
+              type="number"
+              value={currencyTransfer[field]}
+              onChange={(event) => setCurrencyTransfer({ ...currencyTransfer, [field]: Number(event.target.value) })}
+            />
+          ))}
+        </div>
+        <select className="field mt-2" value={currencyTransfer.recipient_character_id} onChange={(event) => setCurrencyTransfer({ ...currencyTransfer, recipient_character_id: event.target.value })}>
+          {recipients.map((character) => <option key={character.id} value={character.id}>{character.name} · {character.owner_username}</option>)}
+        </select>
+        <button className="btn mt-2 w-full" disabled={!currencyTransfer.recipient_character_id}>Передать</button>
+      </form>
+      {error && <p className="mt-3 text-sm text-red-300">{error}</p>}
       <div className="mt-4 space-y-3">
         {inventory?.items.map((item) => (
           <div className="rounded-md border border-white/10 p-3" key={item.id}>
             <div className="font-semibold">{item.name}</div>
             <div className="text-sm text-white/60">{item.rarity} · {item.is_consumable ? "расходуемый" : "постоянный"}</div>
-            <div className="mt-3 flex gap-2">
+            <div className="mt-3 flex flex-wrap gap-2">
               <Link className="btn-secondary" to={`/shop?mode=sell&character=${characterId}&item=${item.id}`}>Продать</Link>
               <button className="btn-secondary" onClick={() => remove(item)}>Удалить</button>
+              <select className="field min-w-0 flex-1" value={itemRecipients[item.id] ?? ""} onChange={(event) => setItemRecipients({ ...itemRecipients, [item.id]: event.target.value })}>
+                <option value="">Кому передать</option>
+                {recipients.map((character) => <option key={character.id} value={character.id}>{character.name} · {character.owner_username}</option>)}
+              </select>
+              <button className="btn-secondary" disabled={!itemRecipients[item.id]} onClick={() => transferItem(item)}>Передать</button>
             </div>
           </div>
         ))}
@@ -649,7 +729,8 @@ function AdminPage() {
         <section className="panel flex flex-col gap-3 p-5">
           <div className="flex items-center justify-between gap-3">
             <h1 className="text-xl font-bold text-ember">Админка мастера</h1>
-            <Link className="btn-secondary" to="/admin/shop-logs"><ScrollText size={16} />Логи</Link>
+            <Link className="btn-secondary" to="/admin/shop-logs"><ScrollText size={16} />Магазин</Link>
+            <Link className="btn-secondary" to="/admin/transfer-logs"><ScrollText size={16} />Передачи</Link>
           </div>
           <label className="field-label">
             <span>Персонаж</span>
@@ -733,6 +814,8 @@ function AdminCharacterPage() {
   const [inventory, setInventory] = useState<Inventory | null>(null);
   const [error, setError] = useState("");
   const [saved, setSaved] = useState(false);
+  const [deleteConfirmation, setDeleteConfirmation] = useState("");
+  const navigate = useNavigate();
 
   function load() {
     Promise.all([
@@ -770,6 +853,18 @@ function AdminCharacterPage() {
       setSaved(true);
     } catch (saveError) {
       setError(apiErrorDetail(saveError, "Не удалось сохранить персонажа"));
+    }
+  }
+
+  async function deleteCharacter() {
+    setError("");
+    try {
+      await api.delete(`/admin/characters/${id}`, {
+        params: { confirmation: deleteConfirmation }
+      });
+      navigate("/admin");
+    } catch (deleteError) {
+      setError(apiErrorDetail(deleteError, "Не удалось удалить персонажа"));
     }
   }
 
@@ -832,6 +927,13 @@ function AdminCharacterPage() {
           <Stat label="КД" value={character.armor_class} />
           {stats.map((stat) => <Stat key={stat.field} label={stat.label} value={character[stat.field]} />)}
         </dl>
+        <div className="mt-5 rounded-md border border-red-400/30 p-4">
+          <h2 className="font-semibold text-red-200">Удаление персонажа</h2>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <input className="field flex-1" placeholder="УДАЛИТЬ" value={deleteConfirmation} onChange={(event) => setDeleteConfirmation(event.target.value)} />
+            <button className="btn-secondary border-red-400/40 text-red-100" disabled={deleteConfirmation !== "УДАЛИТЬ"} onClick={deleteCharacter}><Trash2 size={16} />Удалить персонажа</button>
+          </div>
+        </div>
       </section>
       <ReadOnlyInventoryPanel inventory={inventory} />
     </div>
@@ -957,6 +1059,123 @@ function ShopLogsPage() {
   );
 }
 
+function TransferLogsPage() {
+  const [logs, setLogs] = useState<TransferLog[]>([]);
+  const [characters, setCharacters] = useState<Character[]>([]);
+  const [users, setUsers] = useState<AdminUser[]>([]);
+  const [filters, setFilters] = useState({ character_id: "", user_id: "", transfer_type: "", date: "" });
+  const [error, setError] = useState("");
+
+  function loadLogs(nextFilters = filters) {
+    const params = Object.fromEntries(
+      Object.entries(nextFilters).filter(([, value]) => value)
+    );
+    setError("");
+    api.get<TransferLog[]>("/admin/transfer-logs", { params })
+      .then((response) => setLogs(response.data))
+      .catch((loadError) => setError(apiErrorDetail(loadError, "Не удалось загрузить передачи")));
+  }
+
+  useEffect(() => {
+    Promise.all([
+      api.get<Character[]>("/admin/characters"),
+      api.get<AdminUser[]>("/admin/users")
+    ]).then(([characterResponse, userResponse]) => {
+      setCharacters(characterResponse.data);
+      setUsers(userResponse.data);
+    });
+  }, []);
+
+  useEffect(() => {
+    loadLogs();
+  }, [filters]);
+
+  function updateFilter(field: keyof typeof filters, value: string) {
+    setFilters((current) => ({ ...current, [field]: value }));
+  }
+
+  function resetFilters() {
+    setFilters({ character_id: "", user_id: "", transfer_type: "", date: "" });
+  }
+
+  return (
+    <section className="panel p-5">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 className="text-xl font-bold text-ember">Логи передач</h1>
+          <p className="text-sm text-white/60">Валюта и предметы между персонажами</p>
+        </div>
+        <Link className="btn-secondary" to="/admin">Назад</Link>
+      </div>
+      <div className="mt-5 grid gap-3 md:grid-cols-4">
+        <label className="field-label">
+          <span>Игрок</span>
+          <select className="field" value={filters.user_id} onChange={(event) => updateFilter("user_id", event.target.value)}>
+            <option value="">Все</option>
+            {users.map((user) => <option key={user.id} value={user.id}>{user.username}</option>)}
+          </select>
+        </label>
+        <label className="field-label">
+          <span>Персонаж</span>
+          <select className="field" value={filters.character_id} onChange={(event) => updateFilter("character_id", event.target.value)}>
+            <option value="">Все</option>
+            {characters.map((character) => <option key={character.id} value={character.id}>{character.name} · {character.owner_username}</option>)}
+          </select>
+        </label>
+        <label className="field-label">
+          <span>Тип</span>
+          <select className="field" value={filters.transfer_type} onChange={(event) => updateFilter("transfer_type", event.target.value)}>
+            <option value="">Все</option>
+            <option value="currency">Валюта</option>
+            <option value="item">Предмет</option>
+          </select>
+        </label>
+        <label className="field-label">
+          <span>Дата</span>
+          <input className="field" type="date" value={filters.date} onChange={(event) => updateFilter("date", event.target.value)} />
+        </label>
+      </div>
+      <div className="mt-3 flex justify-end">
+        <button className="btn-secondary" onClick={resetFilters}>Сбросить</button>
+      </div>
+      {error && <p className="mt-3 text-sm text-red-300">{error}</p>}
+      <div className="mt-5 overflow-x-auto">
+        <table className="w-full min-w-[920px] text-left text-sm">
+          <thead className="text-xs uppercase text-white/45">
+            <tr>
+              <th className="py-2 pr-3">Дата</th>
+              <th className="py-2 pr-3">Игрок</th>
+              <th className="py-2 pr-3">Отправитель</th>
+              <th className="py-2 pr-3">Получатель</th>
+              <th className="py-2 pr-3">Тип</th>
+              <th className="py-2 pr-3">Сумма</th>
+              <th className="py-2 pr-3">Предмет</th>
+            </tr>
+          </thead>
+          <tbody>
+            {logs.map((log) => (
+              <tr className="border-t border-white/10" key={log.id}>
+                <td className="py-3 pr-3">{new Date(log.created_at).toLocaleString("ru-RU")}</td>
+                <td className="py-3 pr-3">{log.username}</td>
+                <td className="py-3 pr-3">{log.sender_character_name}</td>
+                <td className="py-3 pr-3">{log.recipient_character_name}</td>
+                <td className="py-3 pr-3">{log.transfer_type === "currency" ? "Валюта" : "Предмет"}</td>
+                <td className="py-3 pr-3">{log.gold} зм / {log.silver} см / {log.copper} мм</td>
+                <td className="py-3 pr-3">{log.item_name ? `${log.item_name} · ${log.item_rarity}` : "-"}</td>
+              </tr>
+            ))}
+            {logs.length === 0 && (
+              <tr className="border-t border-white/10">
+                <td className="py-6 text-center text-white/55" colSpan={7}>Записей нет</td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
 function ReadOnlyInventoryPanel({ inventory }: { inventory: Inventory | null }) {
   return (
     <aside className="panel p-5">
@@ -992,6 +1211,7 @@ function App() {
         <Route path="/shop" element={<Protected><ShopPage /></Protected>} />
         <Route path="/profile" element={<Protected><ProfilePage /></Protected>} />
         <Route path="/admin/shop-logs" element={<Protected><ShopLogsPage /></Protected>} />
+        <Route path="/admin/transfer-logs" element={<Protected><TransferLogsPage /></Protected>} />
         <Route path="/admin/characters/:id" element={<Protected><AdminCharacterPage /></Protected>} />
         <Route path="/admin" element={<Protected><AdminPage /></Protected>} />
         <Route path="*" element={<Navigate to="/" replace />} />

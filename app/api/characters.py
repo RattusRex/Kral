@@ -100,6 +100,20 @@ def get_characters(
     return characters
 
 
+@router.get("/characters/transfer-targets")
+def get_transfer_targets(
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user)
+):
+    return [{
+        "id": character.id,
+        "name": character.name,
+        "class_name": character.class_name,
+        "level": character.level,
+        "owner_username": character.owner.username
+    } for character in db.query(Character).all()]
+
+
 @router.patch("/characters/{character_id}")
 def update_character(
     character_id: int,

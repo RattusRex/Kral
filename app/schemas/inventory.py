@@ -38,6 +38,13 @@ class CurrencyUpdateRequest(BaseModel):
     silver: int = 0
     copper: int = 0
 
+class CurrencyTransferRequest(CurrencyUpdateRequest):
+    recipient_character_id: int
+
+class ItemTransferRequest(BaseModel):
+    recipient_character_id: int
+    item_id: int
+
 class ShopSearchRequest(BaseModel):
     mode: str = "buy"
     item_name: str | None = None
@@ -97,5 +104,25 @@ class ShopTransactionLogResponse(BaseModel):
     item_price: int
     hireling_cost: int
     total_amount: int
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class TransferLogResponse(BaseModel):
+    id: int
+    created_at: datetime
+    user_id: int
+    username: str
+    sender_character_id: int
+    sender_character_name: str
+    recipient_character_id: int
+    recipient_character_name: str
+    transfer_type: str
+    gold: int
+    silver: int
+    copper: int
+    item_name: str | None
+    item_rarity: str | None
+    item_is_consumable: bool | None
 
     model_config = ConfigDict(from_attributes=True)
