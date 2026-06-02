@@ -37,3 +37,7 @@ class User(Base):
         back_populates="owner"
     )
 
+    shop_transaction_logs = relationship(
+        "ShopTransactionLog",
+        back_populates="user"
+    )

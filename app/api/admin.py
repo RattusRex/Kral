@@ -1,12 +1,20 @@
-from fastapi import APIRouter, Depends, HTTPException
+from datetime import date, datetime, time, timedelta
+
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from app.api.inventory import add_currency, get_character_inventory, validate_rarity
 from app.api.users import get_current_user, get_db
 from app.models.character import Character
-from app.models.inventory import InventoryItem
+from app.models.inventory import InventoryItem, ShopTransactionLog
 from app.models.user import User
-from app.schemas.inventory import AddItemRequest, CurrencyUpdateRequest, InventoryResponse
+from app.schemas.character import CharacterUpdate
+from app.schemas.inventory import (
+    AddItemRequest,
+    CurrencyUpdateRequest,
+    InventoryResponse,
+    ShopTransactionLogResponse,
+)
 from app.schemas.user import KarmaUpdate
 
 
@@ -58,6 +66,16 @@ def serialize_character(character: Character):
     }
 
 
+def apply_xp_delta(character: Character, amount: int):
+    character.xp = max(0, character.xp + amount)
+    if amount <= 0:
+        return
+
+    while character.xp >= character.level + 1:
+        character.xp -= character.level + 1
+        character.level += 1
+
+
 @router.get("/characters")
 def list_characters(
     db: Session = Depends(get_db),
@@ -76,6 +94,29 @@ def get_admin_character(
     _: User = Depends(require_admin)
 ):
     return serialize_character(get_character_or_404(character_id, db))
+
+
+@router.patch("/characters/{character_id}")
+def update_admin_character(
+    character_id: int,
+    character_data: CharacterUpdate,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_admin)
+):
+    character = get_character_or_404(character_id, db)
+    update_data = character_data.model_dump(exclude_unset=True)
+
+    if "level" in update_data and update_data["level"] is not None:
+        update_data["level"] = max(1, update_data["level"])
+    if "xp" in update_data and update_data["xp"] is not None:
+        update_data["xp"] = max(0, update_data["xp"])
+
+    for key, value in update_data.items():
+        setattr(character, key, value)
+
+    db.commit()
+    db.refresh(character)
+    return serialize_character(character)
 
 
 @router.get("/characters/{character_id}/inventory", response_model=InventoryResponse)
@@ -111,17 +152,8 @@ def add_character_xp(
     db: Session = Depends(get_db),
     _: User = Depends(require_admin)
 ):
-    if xp_data.amount <= 0:
-        raise HTTPException(
-            status_code=400,
-            detail="Amount must be positive"
-        )
-
     character = get_character_or_404(character_id, db)
-    character.xp += xp_data.amount
-    while character.xp >= character.level + 1:
-        character.xp -= character.level + 1
-        character.level += 1
+    apply_xp_delta(character, xp_data.amount)
     db.commit()
     db.refresh(character)
     return character
@@ -134,15 +166,9 @@ def add_character_gold(
     db: Session = Depends(get_db),
     _: User = Depends(require_admin)
 ):
-    if gold_data.amount <= 0:
-        raise HTTPException(
-            status_code=400,
-            detail="Amount must be positive"
-        )
-
     character = get_character_or_404(character_id, db)
     inventory = get_character_inventory(character.id, character.owner, db)
-    inventory.gold += gold_data.amount
+    inventory.gold = max(0, inventory.gold + gold_data.amount)
     db.commit()
     db.refresh(inventory)
     return inventory
@@ -155,12 +181,6 @@ def add_character_currency(
     db: Session = Depends(get_db),
     _: User = Depends(require_admin)
 ):
-    if currency_data.gold < 0 or currency_data.silver < 0 or currency_data.copper < 0:
-        raise HTTPException(
-            status_code=400,
-            detail="Currency amounts must not be negative"
-        )
-
     character = get_character_or_404(character_id, db)
     inventory = get_character_inventory(character.id, character.owner, db)
     add_currency(
@@ -172,6 +192,53 @@ def add_character_currency(
     db.commit()
     db.refresh(inventory)
     return inventory
+
+
+@router.get("/shop-logs", response_model=list[ShopTransactionLogResponse])
+def list_shop_logs(
+    character_id: int | None = None,
+    user_id: int | None = None,
+    mode: str | None = None,
+    operation_date: date | None = Query(default=None, alias="date"),
+    date_from: date | None = None,
+    date_to: date | None = None,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_admin)
+):
+    query = db.query(ShopTransactionLog)
+
+    if character_id is not None:
+        query = query.filter(ShopTransactionLog.character_id == character_id)
+    if user_id is not None:
+        query = query.filter(ShopTransactionLog.user_id == user_id)
+    if mode:
+        if mode not in {"buy", "sell"}:
+            raise HTTPException(
+                status_code=400,
+                detail="Unknown shop operation type"
+            )
+        query = query.filter(ShopTransactionLog.mode == mode)
+
+    if operation_date is not None:
+        start = datetime.combine(operation_date, time.min)
+        end = start + timedelta(days=1)
+        query = query.filter(
+            ShopTransactionLog.created_at >= start,
+            ShopTransactionLog.created_at < end
+        )
+    else:
+        if date_from is not None:
+            query = query.filter(
+                ShopTransactionLog.created_at >= datetime.combine(date_from, time.min)
+            )
+        if date_to is not None:
+            query = query.filter(
+                ShopTransactionLog.created_at < (
+                    datetime.combine(date_to, time.min) + timedelta(days=1)
+                )
+            )
+
+    return query.order_by(ShopTransactionLog.created_at.desc()).all()
 
 
 @router.post("/characters/{character_id}/revive")
@@ -221,7 +288,7 @@ def update_user_karma(
             detail="User not found"
         )
 
-    user.karma += amount
+    user.karma = max(0, user.karma + amount)
     db.commit()
     db.refresh(user)
     return {
@@ -250,11 +317,6 @@ def add_user_karma(
     db: Session = Depends(get_db),
     _: User = Depends(require_admin)
 ):
-    if karma_data.amount <= 0:
-        raise HTTPException(
-            status_code=400,
-            detail="Amount must be positive"
-        )
     return update_user_karma(user_id, karma_data.amount, db)
 
 
@@ -265,9 +327,6 @@ def subtract_user_karma(
     db: Session = Depends(get_db),
     _: User = Depends(require_admin)
 ):
-    if karma_data.amount <= 0:
-        raise HTTPException(
-            status_code=400,
-            detail="Amount must be positive"
-        )
+    if karma_data.amount < 0:
+        return update_user_karma(user_id, karma_data.amount, db)
     return update_user_karma(user_id, -karma_data.amount, db)

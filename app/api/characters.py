@@ -14,6 +14,7 @@ from app.api.users import get_db
 
 
 router = APIRouter()
+MAX_CHARACTERS_PER_USER = 10
 
 
 def get_db():
@@ -31,6 +32,15 @@ def create_character(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
+    character_count = db.query(Character).filter(
+        Character.user_id == current_user.id
+    ).count()
+    if character_count >= MAX_CHARACTERS_PER_USER:
+        raise HTTPException(
+            status_code=400,
+            detail="Достигнут лимит персонажей (10 из 10)."
+        )
+
     character = Character(
         name=character_data.name,
         class_name=character_data.class_name,
@@ -109,13 +119,16 @@ def update_character(
         )
     if character_data.xp is not None:
 
-        character.xp += character_data.xp
+        character.xp = max(0, character.xp + character_data.xp)
 
         while character.xp >= character.level + 1:
             character.xp -= character.level + 1
             character.level += 1
 
-    update_data = character_data.dict(exclude_unset=True, exclude="xp")
+    update_data = character_data.model_dump(
+        exclude_unset=True,
+        exclude={"xp"}
+    )
 
     for key, value in update_data.items():
         setattr(character, key, value)
