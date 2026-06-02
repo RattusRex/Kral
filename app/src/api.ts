@@ -77,6 +77,21 @@ export interface AdminUser extends User {
   is_admin: boolean;
 }
 
+export interface ShopTransactionLog {
+  id: number;
+  created_at: string;
+  user_id: number;
+  username: string;
+  character_id: number;
+  character_name: string;
+  mode: "buy" | "sell";
+  item_name: string;
+  rarity: string;
+  item_price: number;
+  hireling_cost: number;
+  total_amount: number;
+}
+
 export const api = axios.create({
   baseURL: "/api"
 });
