@@ -1,6 +1,7 @@
 from pydantic import BaseModel
 from typing import List
 from pydantic import ConfigDict
+from datetime import datetime
 
 
 class InventoryItemResponse(BaseModel):
@@ -81,3 +82,20 @@ class ShopResult(BaseModel):
     total_cost: int | None
     is_consumed: bool
     inventory: InventoryResponse
+
+
+class ShopTransactionLogResponse(BaseModel):
+    id: int
+    created_at: datetime
+    user_id: int
+    username: str
+    character_id: int
+    character_name: str
+    mode: str
+    item_name: str
+    rarity: str
+    item_price: int
+    hireling_cost: int
+    total_amount: int
+
+    model_config = ConfigDict(from_attributes=True)

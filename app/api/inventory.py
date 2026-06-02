@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from app.db.database import SessionLocal
 from app.models.character import Character
-from app.models.inventory import Inventory, InventoryItem, ShopQuote
+from app.models.inventory import Inventory, InventoryItem, ShopQuote, ShopTransactionLog
 from app.models.user import User
 from app.api.users import get_current_user
 from app.schemas.inventory import (
@@ -120,7 +120,10 @@ def set_inventory_from_copper(inventory: Inventory, amount: int):
 def add_currency(inventory: Inventory, gold: int = 0, silver: int = 0, copper: int = 0):
     set_inventory_from_copper(
         inventory,
-        inventory_total_copper(inventory) + gold * 100 + silver * 10 + copper
+        max(
+            0,
+            inventory_total_copper(inventory) + gold * 100 + silver * 10 + copper
+        )
     )
 
 def subtract_copper(inventory: Inventory, amount: int, detail: str):
@@ -348,6 +351,38 @@ def get_quote_for_inventory(
         )
     return quote
 
+def record_shop_transaction(
+    quote: ShopQuote,
+    character: Character,
+    inventory: Inventory,
+    user: User,
+    db: Session
+):
+    if quote.item_price is None:
+        raise HTTPException(
+            status_code=400,
+            detail="Search did not find a valid deal"
+        )
+
+    if quote.mode == "buy":
+        total_amount = quote.item_price + quote.hireling_cost
+    else:
+        total_amount = quote.item_price - quote.hireling_cost
+
+    db.add(ShopTransactionLog(
+        user_id=user.id,
+        username=user.username,
+        character_id=character.id,
+        character_name=character.name,
+        inventory_id=inventory.id,
+        mode=quote.mode,
+        item_name=quote.item_name,
+        rarity=quote.rarity,
+        item_price=quote.item_price,
+        hireling_cost=quote.hireling_cost,
+        total_amount=total_amount
+    ))
+
 @router.get("/characters/{character_id}/inventory", response_model=InventoryResponse)
 def get_inventory(
     character_id: int,
@@ -534,7 +569,7 @@ def buy_shop_item(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    get_character_for_current_user(character_id, current_user, db)
+    character = get_character_for_current_user(character_id, current_user, db)
     inventory = get_character_inventory(character_id, current_user, db)
     quote = get_quote_for_inventory(inventory, confirm_data.quote_id, db)
     if quote.mode != "buy":
@@ -551,6 +586,7 @@ def buy_shop_item(
         inventory_id=inventory.id
     ))
     quote.is_consumed = True
+    record_shop_transaction(quote, character, inventory, current_user, db)
     db.commit()
     db.refresh(quote)
     db.refresh(inventory)
@@ -564,7 +600,7 @@ def sell_shop_item(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    get_character_for_current_user(character_id, current_user, db)
+    character = get_character_for_current_user(character_id, current_user, db)
     inventory = get_character_inventory(character_id, current_user, db)
     quote = get_quote_for_inventory(inventory, confirm_data.quote_id, db)
     if quote.mode != "sell":
@@ -587,6 +623,7 @@ def sell_shop_item(
     add_currency(inventory, gold=quote.item_price)
     db.delete(item)
     quote.is_consumed = True
+    record_shop_transaction(quote, character, inventory, current_user, db)
     db.commit()
     db.refresh(quote)
     db.refresh(inventory)

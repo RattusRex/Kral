@@ -1,8 +1,8 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { Link, Navigate, Route, BrowserRouter as Router, Routes, useNavigate, useParams } from "react-router-dom";
-import { Check, LogOut, Plus, RefreshCw, Search, Shield, ShoppingBag, UserRound, UsersRound } from "lucide-react";
-import { AdminUser, api, Character, Inventory, InventoryItem, ShopResult, TOKEN_KEY, User } from "./api";
+import { Check, LogOut, Plus, RefreshCw, Save, ScrollText, Search, Shield, ShoppingBag, UserRound, UsersRound } from "lucide-react";
+import { AdminUser, api, Character, Inventory, InventoryItem, ShopResult, ShopTransactionLog, TOKEN_KEY, User } from "./api";
 import "./styles.css";
 
 const rarities = ["Обычный", "Необычный", "Редкий"];
@@ -12,9 +12,31 @@ const hirelings = [
   { level: "Компетентный", bonus: 6, cost: 10 },
   { level: "Эксперт", bonus: 8, cost: 25 }
 ];
+const characterClasses = [
+  { name: "Бард", hitDie: "d8" },
+  { name: "Варвар", hitDie: "d12" },
+  { name: "Воин", hitDie: "d10" },
+  { name: "Волшебник", hitDie: "d6" },
+  { name: "Друид", hitDie: "d8" },
+  { name: "Жрец", hitDie: "d8" },
+  { name: "Изобретатель", hitDie: "d8" },
+  { name: "Колдун", hitDie: "d8" },
+  { name: "Монах", hitDie: "d8" },
+  { name: "Паладин", hitDie: "d10" },
+  { name: "Плут", hitDie: "d8" },
+  { name: "Следопыт", hitDie: "d10" },
+  { name: "Чародей", hitDie: "d10" },
+  { name: "Альтернативный следопыт", hitDie: "d10" },
+  { name: "Альтернативный монах", hitDie: "d10" },
+  { name: "Альтернативный изобретатель", hitDie: "d8" },
+  { name: "Магус", hitDie: "d10" },
+  { name: "Кровавый охотник", hitDie: "d10" },
+  { name: "Призыватель", hitDie: "d8" },
+  { name: "Некромант", hitDie: "d8" }
+];
+const defaultCharacterClass = characterClasses[0].name;
 const textFields = [
   { field: "name", label: "Имя" },
-  { field: "class_name", label: "Класс" },
   { field: "subclass", label: "Подкласс" },
   { field: "race", label: "Раса" },
   { field: "background", label: "Предыстория" },
@@ -32,9 +54,14 @@ const numberFields = [
   { field: "charisma", label: "Харизма (CHA)" },
   { field: "investigation", label: "Внимательность / Investigation" }
 ] as const;
+const adminNumberFields = [
+  { field: "level", label: "Уровень" },
+  { field: "xp", label: "XP" },
+  ...numberFields.filter(({ field }) => field !== "level")
+] as const;
 const blankCharacter = {
   name: "",
-  class_name: "",
+  class_name: defaultCharacterClass,
   subclass: "",
   race: "",
   background: "",
@@ -50,6 +77,22 @@ const blankCharacter = {
   charisma: 10,
   investigation: 0
 };
+
+function apiErrorDetail(error: unknown, fallback: string) {
+  const detail = (error as { response?: { data?: { detail?: unknown } } }).response?.data?.detail;
+  return typeof detail === "string" ? detail : fallback;
+}
+
+function classOptionsForValue(value: string) {
+  if (!value || characterClasses.some((characterClass) => characterClass.name === value)) {
+    return characterClasses;
+  }
+  return [{ name: value, hitDie: "-" }, ...characterClasses];
+}
+
+function hitDieForClass(value: string) {
+  return classOptionsForValue(value).find((characterClass) => characterClass.name === value)?.hitDie ?? "-";
+}
 
 function useAuth() {
   const [user, setUser] = useState<User | null>(null);
@@ -87,6 +130,7 @@ function Shell({ children, user }: { children: React.ReactNode; user: User | nul
             <Link className="btn-secondary" to="/shop"><ShoppingBag size={16} />Магазин</Link>
             <Link className="btn-secondary" to="/profile"><UserRound size={16} />Профиль</Link>
             {user?.is_admin && <Link className="btn-secondary" to="/admin"><Shield size={16} />Админ</Link>}
+            {user?.is_admin && <Link className="btn-secondary" to="/admin/shop-logs"><ScrollText size={16} />Логи</Link>}
             <button className="btn-secondary" onClick={logout}><LogOut size={16} />Выйти</button>
           </div>
         </nav>
@@ -186,6 +230,20 @@ function AuthPanel({ title, error, onSubmit, children }: { title: string; error:
         {error && <p className="text-sm text-red-300">{error}</p>}
       </form>
     </div>
+  );
+}
+
+function ClassSelect({ value, onChange }: { value: string; onChange: (value: string) => void }) {
+  return (
+    <label className="field-label">
+      <span>Класс</span>
+      <select className="field" value={value} onChange={(event) => onChange(event.target.value)}>
+        {classOptionsForValue(value).map((characterClass) => (
+          <option key={characterClass.name} value={characterClass.name}>{characterClass.name}</option>
+        ))}
+      </select>
+      <span className="text-xs text-white/55">Кость хитов: {hitDieForClass(value)}</span>
+    </label>
   );
 }
 
@@ -300,14 +358,17 @@ function CharacterFormPage({ edit = false }: { edit?: boolean }) {
         await api.post("/characters", form);
         navigate("/characters");
       }
-    } catch {
-      setError("Не удалось сохранить персонажа");
+    } catch (error) {
+      setError(apiErrorDetail(error, "Не удалось сохранить персонажа"));
     }
   }
 
   return (
     <form className="panel grid gap-3 p-5 md:grid-cols-2" onSubmit={submit}>
       <h1 className="text-xl font-bold text-ember md:col-span-2">{edit ? "Редактировать персонажа" : "Создать персонажа"}</h1>
+      <div className="md:col-span-2">
+        <ClassSelect value={form.class_name} onChange={(value) => setForm({ ...form, class_name: value })} />
+      </div>
       {textFields.map(({ field, label }) => (
         <label className="field-label" key={field}>
           <span>{label}</span>
@@ -577,8 +638,8 @@ function AdminPage() {
     load();
   }
 
-  async function karmaAction(path: "add" | "subtract") {
-    await api.post(`/admin/users/${karmaUserId}/karma/${path}`, { amount: karmaAmount });
+  async function applyKarma() {
+    await api.post(`/admin/users/${karmaUserId}/karma`, { amount: karmaAmount });
     load();
   }
 
@@ -586,7 +647,10 @@ function AdminPage() {
     <div className="grid gap-4 xl:grid-cols-[360px_1fr]">
       <div className="space-y-4">
         <section className="panel flex flex-col gap-3 p-5">
-          <h1 className="text-xl font-bold text-ember">Админка мастера</h1>
+          <div className="flex items-center justify-between gap-3">
+            <h1 className="text-xl font-bold text-ember">Админка мастера</h1>
+            <Link className="btn-secondary" to="/admin/shop-logs"><ScrollText size={16} />Логи</Link>
+          </div>
           <label className="field-label">
             <span>Персонаж</span>
             <select className="field" value={selected} onChange={(event) => setSelected(event.target.value)}>
@@ -594,11 +658,11 @@ function AdminPage() {
             </select>
           </label>
           <label className="field-label">
-            <span>Количество</span>
+            <span>Изменение</span>
             <input className="field" type="number" value={amount} onChange={(event) => setAmount(Number(event.target.value))} />
           </label>
-          <button className="btn" onClick={() => action("xp", { amount })}>Выдать XP</button>
-          <button className="btn" onClick={() => action("gold", { amount })}>Выдать золото</button>
+          <button className="btn" onClick={() => action("xp", { amount })}>Применить XP</button>
+          <button className="btn" onClick={() => action("gold", { amount })}>Применить золото</button>
           <button className="btn-secondary" onClick={() => action("revive")}>Воскресить персонажа</button>
           <div className="mt-2 border-t border-white/10 pt-3">
             <h2 className="text-lg font-semibold text-ember">{selectedCharacter?.name ?? "Персонаж"}</h2>
@@ -619,14 +683,11 @@ function AdminPage() {
             </select>
           </label>
           <label className="field-label">
-            <span>Карма</span>
+            <span>Изменение кармы</span>
             <input className="field" type="number" value={karmaAmount} onChange={(event) => setKarmaAmount(Number(event.target.value))} />
           </label>
           <p className="text-sm text-white/65">{selectedUser?.username ?? "Игрок"}: {selectedUser?.karma ?? 0}</p>
-          <div className="grid grid-cols-2 gap-2">
-            <button className="btn" onClick={() => karmaAction("add")}>Выдать</button>
-            <button className="btn-secondary" onClick={() => karmaAction("subtract")}>Списать</button>
-          </div>
+          <button className="btn" onClick={applyKarma}>Применить</button>
         </section>
       </div>
       <section className="panel p-5">
@@ -668,14 +729,51 @@ function AdminCharacterPage() {
   const { id: idParam } = useParams();
   const id = Number(idParam);
   const [character, setCharacter] = useState<Character | null>(null);
+  const [form, setForm] = useState<Character | null>(null);
   const [inventory, setInventory] = useState<Inventory | null>(null);
+  const [error, setError] = useState("");
+  const [saved, setSaved] = useState(false);
 
-  useEffect(() => {
-    api.get<Character>(`/admin/characters/${id}`).then((response) => setCharacter(response.data));
-    api.get<Inventory>(`/admin/characters/${id}/inventory`).then((response) => setInventory(response.data));
-  }, [id]);
+  function load() {
+    Promise.all([
+      api.get<Character>(`/admin/characters/${id}`),
+      api.get<Inventory>(`/admin/characters/${id}/inventory`)
+    ]).then(([characterResponse, inventoryResponse]) => {
+      setCharacter(characterResponse.data);
+      setForm(characterResponse.data);
+      setInventory(inventoryResponse.data);
+    });
+  }
 
-  if (!character) return <p>Загрузка...</p>;
+  useEffect(load, [id]);
+
+  async function save(event: FormEvent) {
+    event.preventDefault();
+    if (!form) return;
+    setError("");
+    setSaved(false);
+
+    const payload: Record<string, string | number | boolean | undefined> = {
+      class_name: form.class_name
+    };
+    textFields.forEach(({ field }) => {
+      payload[field] = form[field];
+    });
+    adminNumberFields.forEach(({ field }) => {
+      payload[field] = form[field];
+    });
+
+    try {
+      const response = await api.patch<Character>(`/admin/characters/${id}`, payload);
+      setCharacter(response.data);
+      setForm(response.data);
+      setSaved(true);
+    } catch (saveError) {
+      setError(apiErrorDetail(saveError, "Не удалось сохранить персонажа"));
+    }
+  }
+
+  if (!character || !form) return <p>Загрузка...</p>;
   const stats = numberFields.filter((item) => !["level", "hp", "armor_class"].includes(item.field));
 
   return (
@@ -689,7 +787,45 @@ function AdminCharacterPage() {
           </div>
           <Link className="btn-secondary" to="/admin">Назад</Link>
         </div>
-        <dl className="grid grid-cols-2 gap-3 md:grid-cols-4">
+        <form className="grid gap-3 md:grid-cols-2" onSubmit={save}>
+          <div className="md:col-span-2">
+            <ClassSelect value={form.class_name} onChange={(value) => {
+              setSaved(false);
+              setForm({ ...form, class_name: value });
+            }} />
+          </div>
+          {textFields.map(({ field, label }) => (
+            <label className="field-label" key={field}>
+              <span>{label}</span>
+              <input
+                className="field"
+                value={form[field]}
+                onChange={(event) => {
+                  setSaved(false);
+                  setForm({ ...form, [field]: event.target.value });
+                }}
+              />
+            </label>
+          ))}
+          {adminNumberFields.map(({ field, label }) => (
+            <label className="field-label" key={field}>
+              <span>{label}</span>
+              <input
+                className="field"
+                type="number"
+                value={form[field]}
+                onChange={(event) => {
+                  setSaved(false);
+                  setForm({ ...form, [field]: Number(event.target.value) });
+                }}
+              />
+            </label>
+          ))}
+          {error && <p className="text-sm text-red-300 md:col-span-2">{error}</p>}
+          {saved && <p className="text-sm text-emerald-200 md:col-span-2">Сохранено</p>}
+          <button className="btn md:col-span-2" type="submit"><Save size={16} />Сохранить изменения</button>
+        </form>
+        <dl className="mt-5 grid grid-cols-2 gap-3 md:grid-cols-4">
           <Stat label="Уровень" value={character.level} />
           <Stat label="XP" value={character.xp} />
           <Stat label="HP" value={character.hp} />
@@ -699,6 +835,125 @@ function AdminCharacterPage() {
       </section>
       <ReadOnlyInventoryPanel inventory={inventory} />
     </div>
+  );
+}
+
+function ShopLogsPage() {
+  const [logs, setLogs] = useState<ShopTransactionLog[]>([]);
+  const [characters, setCharacters] = useState<Character[]>([]);
+  const [users, setUsers] = useState<AdminUser[]>([]);
+  const [filters, setFilters] = useState({ character_id: "", user_id: "", mode: "", date: "" });
+  const [error, setError] = useState("");
+
+  function loadLogs(nextFilters = filters) {
+    const params = Object.fromEntries(
+      Object.entries(nextFilters).filter(([, value]) => value)
+    );
+    setError("");
+    api.get<ShopTransactionLog[]>("/admin/shop-logs", { params })
+      .then((response) => setLogs(response.data))
+      .catch((loadError) => setError(apiErrorDetail(loadError, "Не удалось загрузить логи")));
+  }
+
+  useEffect(() => {
+    Promise.all([
+      api.get<Character[]>("/admin/characters"),
+      api.get<AdminUser[]>("/admin/users")
+    ]).then(([characterResponse, userResponse]) => {
+      setCharacters(characterResponse.data);
+      setUsers(userResponse.data);
+    });
+  }, []);
+
+  useEffect(() => {
+    loadLogs();
+  }, [filters]);
+
+  function updateFilter(field: keyof typeof filters, value: string) {
+    setFilters((current) => ({ ...current, [field]: value }));
+  }
+
+  function resetFilters() {
+    setFilters({ character_id: "", user_id: "", mode: "", date: "" });
+  }
+
+  return (
+    <section className="panel p-5">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 className="text-xl font-bold text-ember">Логи магазина</h1>
+          <p className="text-sm text-white/60">Покупки и продажи персонажей</p>
+        </div>
+        <Link className="btn-secondary" to="/admin">Назад</Link>
+      </div>
+      <div className="mt-5 grid gap-3 md:grid-cols-4">
+        <label className="field-label">
+          <span>Игрок</span>
+          <select className="field" value={filters.user_id} onChange={(event) => updateFilter("user_id", event.target.value)}>
+            <option value="">Все</option>
+            {users.map((user) => <option key={user.id} value={user.id}>{user.username}</option>)}
+          </select>
+        </label>
+        <label className="field-label">
+          <span>Персонаж</span>
+          <select className="field" value={filters.character_id} onChange={(event) => updateFilter("character_id", event.target.value)}>
+            <option value="">Все</option>
+            {characters.map((character) => <option key={character.id} value={character.id}>{character.name} · {character.owner_username}</option>)}
+          </select>
+        </label>
+        <label className="field-label">
+          <span>Операция</span>
+          <select className="field" value={filters.mode} onChange={(event) => updateFilter("mode", event.target.value)}>
+            <option value="">Все</option>
+            <option value="buy">Покупка</option>
+            <option value="sell">Продажа</option>
+          </select>
+        </label>
+        <label className="field-label">
+          <span>Дата</span>
+          <input className="field" type="date" value={filters.date} onChange={(event) => updateFilter("date", event.target.value)} />
+        </label>
+      </div>
+      <div className="mt-3 flex justify-end">
+        <button className="btn-secondary" onClick={resetFilters}>Сбросить</button>
+      </div>
+      {error && <p className="mt-3 text-sm text-red-300">{error}</p>}
+      <div className="mt-5 overflow-x-auto">
+        <table className="w-full min-w-[860px] text-left text-sm">
+          <thead className="text-xs uppercase text-white/45">
+            <tr>
+              <th className="py-2 pr-3">Дата</th>
+              <th className="py-2 pr-3">Игрок</th>
+              <th className="py-2 pr-3">Персонаж</th>
+              <th className="py-2 pr-3">Операция</th>
+              <th className="py-2 pr-3">Предмет</th>
+              <th className="py-2 pr-3">Цена</th>
+              <th className="py-2 pr-3">Наёмник</th>
+              <th className="py-2 pr-3">Итого</th>
+            </tr>
+          </thead>
+          <tbody>
+            {logs.map((log) => (
+              <tr className="border-t border-white/10" key={log.id}>
+                <td className="py-3 pr-3">{new Date(log.created_at).toLocaleString("ru-RU")}</td>
+                <td className="py-3 pr-3">{log.username}</td>
+                <td className="py-3 pr-3">{log.character_name}</td>
+                <td className="py-3 pr-3">{log.mode === "buy" ? "Покупка" : "Продажа"}</td>
+                <td className="py-3 pr-3">{log.item_name} · {log.rarity}</td>
+                <td className="py-3 pr-3">{log.item_price} зм</td>
+                <td className="py-3 pr-3">{log.hireling_cost} зм</td>
+                <td className="py-3 pr-3 font-semibold text-ember">{log.total_amount} зм</td>
+              </tr>
+            ))}
+            {logs.length === 0 && (
+              <tr className="border-t border-white/10">
+                <td className="py-6 text-center text-white/55" colSpan={8}>Записей нет</td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </section>
   );
 }
 
@@ -736,6 +991,7 @@ function App() {
         <Route path="/characters/:id/edit" element={<Protected><CharacterFormPage edit /></Protected>} />
         <Route path="/shop" element={<Protected><ShopPage /></Protected>} />
         <Route path="/profile" element={<Protected><ProfilePage /></Protected>} />
+        <Route path="/admin/shop-logs" element={<Protected><ShopLogsPage /></Protected>} />
         <Route path="/admin/characters/:id" element={<Protected><AdminCharacterPage /></Protected>} />
         <Route path="/admin" element={<Protected><AdminPage /></Protected>} />
         <Route path="*" element={<Navigate to="/" replace />} />

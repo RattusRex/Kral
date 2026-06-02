@@ -1,8 +1,14 @@
-from sqlalchemy import Boolean, Float, ForeignKey, Integer, String
+from datetime import UTC, datetime
+
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped
 from sqlalchemy.orm import mapped_column
 from sqlalchemy.orm import relationship
 from app.db.database import Base
+
+
+def utc_now() -> datetime:
+    return datetime.now(UTC).replace(tzinfo=None)
 
 
 class Inventory(Base):
@@ -43,6 +49,11 @@ class Inventory(Base):
         "ShopQuote",
         back_populates="inventory",
         cascade="all, delete-orphan"
+    )
+
+    shop_transaction_logs = relationship(
+        "ShopTransactionLog",
+        back_populates="inventory"
     )
 
 
@@ -141,4 +152,68 @@ class ShopQuote(Base):
     inventory = relationship(
         "Inventory",
         back_populates="shop_quotes"
+    )
+
+
+class ShopTransactionLog(Base):
+    __tablename__ = "shop_transaction_logs"
+
+    id: Mapped[int] = mapped_column(
+        primary_key=True
+    )
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime,
+        default=utc_now
+    )
+
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id")
+    )
+
+    username: Mapped[str] = mapped_column(
+        String(50)
+    )
+
+    character_id: Mapped[int] = mapped_column(
+        ForeignKey("characters.id")
+    )
+
+    character_name: Mapped[str] = mapped_column(
+        String(255)
+    )
+
+    inventory_id: Mapped[int] = mapped_column(
+        ForeignKey("inventories.id")
+    )
+
+    mode: Mapped[str] = mapped_column(
+        String(10)
+    )
+
+    item_name: Mapped[str] = mapped_column(
+        String(255)
+    )
+
+    rarity: Mapped[str] = mapped_column(
+        String(50)
+    )
+
+    item_price: Mapped[int]
+    hireling_cost: Mapped[int]
+    total_amount: Mapped[int]
+
+    user = relationship(
+        "User",
+        back_populates="shop_transaction_logs"
+    )
+
+    character = relationship(
+        "Character",
+        back_populates="shop_transaction_logs"
+    )
+
+    inventory = relationship(
+        "Inventory",
+        back_populates="shop_transaction_logs"
     )

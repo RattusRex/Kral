@@ -22,6 +22,7 @@ class CharacterCreate(BaseModel):
 class CharacterUpdate(BaseModel):
     name: Optional[str] = None
     class_name: Optional[str] = None
+    level: Optional[int] = None
     xp: Optional[int] = None
     route: Optional[str] = None
     subclass: Optional[str] = None
@@ -37,5 +38,4 @@ class CharacterUpdate(BaseModel):
     hp: Optional[int] = None
     armor_class: Optional[int] = None
     is_dead: Optional[bool] = None
-
 
