@@ -187,6 +187,78 @@ def test_shop_sell_search_waits_for_confirmation_and_adds_gold():
         )
 
 
+def test_magic_item_catalog_reads_magicvariants_and_filters_items():
+    with TestClient(app) as client:
+        token = login(client, "admin", "admin123")
+        headers = {"Authorization": f"Bearer {token}"}
+
+        response = client.get("/api/shop/magic-items", headers=headers)
+        assert response.status_code == 200, response.text
+        payload = response.json()
+        assert len(payload) == 129
+
+        legendary_armor = next(item for item in payload if item["name"] == "+3 Доспех")
+        assert legendary_armor["rarity"] == "Легендарный"
+        assert legendary_armor["raw_rarity"] == "legendary"
+        assert legendary_armor["type"] == "Доспех"
+        assert legendary_armor["source"] == "DMG"
+        assert legendary_armor["page"] == 152
+
+        filtered = client.get(
+            "/api/shop/magic-items",
+            headers=headers,
+            params={"q": "доспех", "rarity": "Легендарный", "type": "Доспех"}
+        )
+        assert filtered.status_code == 200, filtered.text
+        filtered_payload = filtered.json()
+        assert any(item["name"] == "+3 Доспех" for item in filtered_payload)
+        assert all(item["rarity"] == "Легендарный" for item in filtered_payload)
+        assert all(item["type"] == "Доспех" for item in filtered_payload)
+
+
+def test_shop_accepts_magic_item_catalog_rarity_for_buying():
+    with TestClient(app) as client:
+        token = login(client, "admin", "admin123")
+        headers = {"Authorization": f"Bearer {token}"}
+        created = client.post("/api/characters", headers=headers, json={
+            "name": "Astra",
+            "class_name": "Wizard",
+            "level": 17,
+            "route": "Arcane",
+            "investigation": 40
+        })
+        assert created.status_code == 200, created.text
+        character_id = created.json()["id"]
+        client.post(
+            f"/api/admin/characters/{character_id}/currency/add",
+            headers=headers,
+            json={"gold": 1000000, "silver": 0, "copper": 0}
+        )
+
+        response = client.post(f"/api/characters/{character_id}/shop/search", headers=headers, json={
+            "mode": "buy",
+            "item_name": "+3 Доспех",
+            "rarity": "Легендарный",
+            "is_consumable": False,
+            "searcher_type": "character"
+        })
+        assert response.status_code == 200, response.text
+        payload = response.json()
+        assert payload["success"] is True
+        assert payload["dc"] == 25
+        assert payload["item_price"] > 0
+
+        confirmed = client.post(
+            f"/api/characters/{character_id}/shop/buy",
+            headers=headers,
+            json={"quote_id": payload["quote_id"]}
+        )
+        assert confirmed.status_code == 200, confirmed.text
+        confirmed_payload = confirmed.json()
+        assert confirmed_payload["inventory"]["items"][0]["name"] == "+3 Доспех"
+        assert confirmed_payload["inventory"]["items"][0]["rarity"] == "Легендарный"
+
+
 def test_admin_can_change_karma_and_view_all_characters_with_owner():
     with TestClient(app) as client:
         admin_token = login(client, "admin", "admin123")

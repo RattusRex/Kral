@@ -2,10 +2,11 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { Link, Navigate, Route, BrowserRouter as Router, Routes, useNavigate, useParams } from "react-router-dom";
 import { Check, Dice5, LogOut, MessageSquare, Plus, RefreshCw, Save, ScrollText, Search, Send, Shield, ShoppingBag, Swords, Trash2, Trophy, UserRound, UsersRound } from "lucide-react";
-import { AbilityRoll, AdminUser, api, AttackRoll, Character, CharacterAttack, ChatMessage, DamageRoll, Inventory, InventoryItem, LeaderboardEntry, SavingThrowRoll, ShopResult, ShopTransactionLog, TOKEN_KEY, TransferLog, TransferTarget, User } from "./api";
+import { AbilityRoll, AdminUser, api, AttackRoll, Character, CharacterAttack, ChatMessage, DamageRoll, Inventory, InventoryItem, LeaderboardEntry, MagicItem, SavingThrowRoll, ShopResult, ShopTransactionLog, TOKEN_KEY, TransferLog, TransferTarget, User } from "./api";
 import "./styles.css";
 
-const rarities = ["Обычный", "Необычный", "Редкий"];
+const rarities = ["Обычный", "Необычный", "Редкий", "Очень редкий", "Легендарный", "Артефакт", "Неизвестная", "Неизвестная магическая", "Без редкости"];
+const magicItemResultLimit = 40;
 const hirelings = [
   { level: "Плохой", bonus: 0, cost: 1 },
   { level: "Хороший", bonus: 4, cost: 5 },
@@ -770,6 +771,11 @@ function ShopPage() {
   const [characterId, setCharacterId] = useState("");
   const [mode, setMode] = useState<"buy" | "sell">(() => new URLSearchParams(window.location.search).get("mode") === "sell" ? "sell" : "buy");
   const [inventory, setInventory] = useState<Inventory | null>(null);
+  const [magicItems, setMagicItems] = useState<MagicItem[]>([]);
+  const [itemQuery, setItemQuery] = useState("");
+  const [selectedMagicItemId, setSelectedMagicItemId] = useState<number | null>(null);
+  const [rarityFilter, setRarityFilter] = useState("");
+  const [typeFilter, setTypeFilter] = useState("");
   const [form, setForm] = useState({ item_name: "", rarity: "Обычный", is_consumable: false, item_id: "", searcher_type: "hireling", hireling_level: "Плохой" });
   const [result, setResult] = useState<ShopResult | null>(null);
   const [error, setError] = useState("");
@@ -780,6 +786,10 @@ function ShopPage() {
       const selected = new URLSearchParams(window.location.search).get("character");
       setCharacterId(selected ?? String(response.data[0]?.id ?? ""));
     });
+  }, []);
+
+  useEffect(() => {
+    api.get<MagicItem[]>("/shop/magic-items").then((response) => setMagicItems(response.data));
   }, []);
 
   useEffect(() => {
@@ -859,7 +869,50 @@ function ShopPage() {
 
   const selectedCharacter = characters.find((character) => String(character.id) === characterId);
   const selectedItem = inventory?.items.find((item) => String(item.id) === form.item_id);
+  const selectedMagicItem = useMemo(
+    () => magicItems.find((item) => item.id === selectedMagicItemId) ?? null,
+    [magicItems, selectedMagicItemId]
+  );
+  const catalogRarities = useMemo(() => {
+    const values = new Set(magicItems.map((item) => item.rarity));
+    return [
+      ...rarities.filter((rarity) => values.has(rarity)),
+      ...Array.from(values).filter((rarity) => !rarities.includes(rarity)).sort((first, second) => first.localeCompare(second, "ru"))
+    ];
+  }, [magicItems]);
+  const catalogTypes = useMemo(
+    () => Array.from(new Set(magicItems.map((item) => item.type))).sort((first, second) => first.localeCompare(second, "ru")),
+    [magicItems]
+  );
+  const filteredMagicItems = useMemo(() => {
+    const query = itemQuery.trim().toLowerCase();
+    return magicItems
+      .filter((item) => !query || item.name.toLowerCase().includes(query))
+      .filter((item) => !rarityFilter || item.rarity === rarityFilter)
+      .filter((item) => !typeFilter || item.type === typeFilter)
+      .slice(0, magicItemResultLimit);
+  }, [itemQuery, magicItems, rarityFilter, typeFilter]);
   const canSearch = Boolean(characterId) && (mode === "buy" ? form.item_name.trim().length > 0 : Boolean(form.item_id));
+
+  function selectMagicItem(item: MagicItem) {
+    setSelectedMagicItemId(item.id);
+    setItemQuery(item.name);
+    setForm((current) => ({
+      ...current,
+      item_name: item.name,
+      rarity: item.rarity,
+      is_consumable: item.is_consumable
+    }));
+    setResult(null);
+    setError("");
+  }
+
+  function updateItemQuery(value: string) {
+    setItemQuery(value);
+    setSelectedMagicItemId(null);
+    setForm((current) => ({ ...current, item_name: value }));
+    setResult(null);
+  }
 
   return (
     <div className="grid gap-4 lg:grid-cols-[420px_1fr]">
@@ -876,14 +929,66 @@ function ShopPage() {
         {mode === "buy" ? (
           <>
             <label className="field-label">
-              <span>Название предмета</span>
-              <input className="field" value={form.item_name} onChange={(event) => setForm({ ...form, item_name: event.target.value })} />
+              <span>Магический предмет</span>
+              <div className="relative">
+                <input
+                  className="field pr-9"
+                  placeholder="Поиск по названию"
+                  value={itemQuery}
+                  onChange={(event) => updateItemQuery(event.target.value)}
+                />
+                <Search className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-white/35" size={16} />
+              </div>
             </label>
-            <label className="field-label">
-              <span>Редкость</span>
-              <select className="field" value={form.rarity} onChange={(event) => setForm({ ...form, rarity: event.target.value })}>{rarities.map((rarity) => <option key={rarity}>{rarity}</option>)}</select>
-            </label>
-            <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={form.is_consumable} onChange={(event) => setForm({ ...form, is_consumable: event.target.checked })} />Расходуемый</label>
+            <div className="grid gap-2 sm:grid-cols-2">
+              <label className="field-label">
+                <span>Фильтр редкости</span>
+                <select className="field" value={rarityFilter} onChange={(event) => setRarityFilter(event.target.value)}>
+                  <option value="">Все редкости</option>
+                  {catalogRarities.map((rarity) => <option key={rarity} value={rarity}>{rarity}</option>)}
+                </select>
+              </label>
+              <label className="field-label">
+                <span>Фильтр типа</span>
+                <select className="field" value={typeFilter} onChange={(event) => setTypeFilter(event.target.value)}>
+                  <option value="">Все типы</option>
+                  {catalogTypes.map((type) => <option key={type} value={type}>{type}</option>)}
+                </select>
+              </label>
+            </div>
+            <div className="magic-item-results" role="listbox">
+              {filteredMagicItems.map((item) => (
+                <button
+                  className={selectedMagicItemId === item.id ? "magic-item-option-active" : "magic-item-option"}
+                  key={item.id}
+                  onClick={() => selectMagicItem(item)}
+                  type="button"
+                >
+                  <span className="font-semibold">{item.name}</span>
+                  <span className="text-xs text-white/55">{item.rarity} · {item.type}{item.source ? ` · ${item.source}${item.page ? ` ${item.page}` : ""}` : ""}</span>
+                </button>
+              ))}
+              {filteredMagicItems.length === 0 && <p className="px-3 py-2 text-sm text-white/55">Предметы не найдены.</p>}
+            </div>
+            {selectedMagicItem && (
+              <div className="magic-item-details">
+                <div className="flex flex-wrap gap-2 text-xs">
+                  <span className="rounded-md border border-ember/35 px-2 py-1 text-ember">{selectedMagicItem.rarity}</span>
+                  <span className="rounded-md border border-white/15 px-2 py-1 text-white/70">{selectedMagicItem.type}</span>
+                  {selectedMagicItem.tier && <span className="rounded-md border border-white/15 px-2 py-1 text-white/70">{selectedMagicItem.tier}</span>}
+                  {selectedMagicItem.requires_attunement && <span className="rounded-md border border-white/15 px-2 py-1 text-white/70">Настройка</span>}
+                  {selectedMagicItem.is_consumable && <span className="rounded-md border border-white/15 px-2 py-1 text-white/70">Расходуемый</span>}
+                </div>
+                <p className="mt-2 max-h-24 overflow-y-auto text-sm text-white/75">{selectedMagicItem.description || "Описание отсутствует."}</p>
+              </div>
+            )}
+            <div className="grid gap-2 sm:grid-cols-[1fr_auto]">
+              <label className="field-label">
+                <span>Редкость сделки</span>
+                <select className="field" value={form.rarity} onChange={(event) => setForm({ ...form, rarity: event.target.value })}>{rarities.map((rarity) => <option key={rarity}>{rarity}</option>)}</select>
+              </label>
+              <label className="flex items-end gap-2 text-sm text-white/75"><input type="checkbox" checked={form.is_consumable} onChange={(event) => setForm({ ...form, is_consumable: event.target.checked })} />Расходуемый</label>
+            </div>
           </>
         ) : (
           <label className="field-label">

@@ -62,6 +62,21 @@ export interface Inventory {
   items: InventoryItem[];
 }
 
+export interface MagicItem {
+  id: number;
+  name: string;
+  rarity: string;
+  raw_rarity: string;
+  type: string;
+  source: string | null;
+  page: number | null;
+  tier: string | null;
+  requires_attunement: boolean;
+  attunement_note: string | null;
+  is_consumable: boolean;
+  description: string;
+}
+
 export interface CharacterAttack {
   id: number;
   character_id: number;

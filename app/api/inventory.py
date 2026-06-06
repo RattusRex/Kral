@@ -26,18 +26,24 @@ RARITY_DATA = {
     "Обычный": {"dc": 5, "days_dice": 4, "base_price": 100},
     "Необычный": {"dc": 10, "days_dice": 8, "base_price": 500},
     "Редкий": {"dc": 15, "days_dice": 12, "base_price": 5000},
-}
-
-CONSUMABLE_BASE_PRICE = {
-    "Обычный": 50,
-    "Необычный": 250,
-    "Редкий": 2500,
+    "Очень редкий": {"dc": 20, "days_dice": 20, "base_price": 50000},
+    "Легендарный": {"dc": 25, "days_dice": 20, "base_price": 500000},
+    "Артефакт": {"dc": 30, "days_dice": 20, "base_price": 1000000},
+    "Неизвестная": {"dc": 10, "days_dice": 8, "base_price": 500},
+    "Неизвестная магическая": {"dc": 10, "days_dice": 8, "base_price": 500},
+    "Без редкости": {"dc": 5, "days_dice": 4, "base_price": 100},
 }
 
 RARITY_PRICE_ROLL_MODIFIER = {
     "Обычный": 10,
     "Необычный": 0,
     "Редкий": -10,
+    "Очень редкий": -15,
+    "Легендарный": -20,
+    "Артефакт": -25,
+    "Неизвестная": 0,
+    "Неизвестная магическая": 0,
+    "Без редкости": 10,
 }
 
 HIRELING_BONUSES = {
@@ -214,9 +220,10 @@ def subtract_gold_amount(inventory: Inventory, amount: int, detail: str):
 
 def base_price_for_item(rarity: str, is_consumable: bool) -> int:
     validate_rarity(rarity)
+    base_price = RARITY_DATA[rarity]["base_price"]
     if is_consumable:
-        return CONSUMABLE_BASE_PRICE[rarity]
-    return RARITY_DATA[rarity]["base_price"]
+        return max(1, base_price // 2)
+    return base_price
 
 def adjusted_price_roll(rarity: str) -> int:
     price_roll = random.randint(1, 100) + RARITY_PRICE_ROLL_MODIFIER[rarity]

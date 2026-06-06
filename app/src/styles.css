@@ -29,6 +29,32 @@ textarea {
   @apply w-full rounded-md border border-white/10 bg-black/25 px-3 py-2 text-sm text-parchment outline-none transition focus:border-ember;
 }
 
+.field::placeholder {
+  color: rgb(232 222 200 / 45%);
+}
+
+select.field,
+select.field option,
+select.field optgroup {
+  background: #151820;
+  color: #e8dec8;
+}
+
+select.field option:checked,
+select.field option:hover {
+  background: #2a2118;
+  color: #f2c36b;
+}
+
+select.field:disabled {
+  color: rgb(232 222 200 / 60%);
+  opacity: 1;
+}
+
+input[type="checkbox"] {
+  accent-color: #c58a32;
+}
+
 .field-label {
   @apply flex flex-col gap-1 text-sm text-white/70;
 }
@@ -55,6 +81,22 @@ textarea {
 
 .hireling-option-active {
   @apply flex min-h-24 flex-col items-start justify-center rounded-md border border-ember bg-black/60 px-3 py-2 text-left text-sm text-parchment shadow-inner shadow-ember/30 transition disabled:cursor-not-allowed disabled:opacity-45;
+}
+
+.magic-item-results {
+  @apply flex max-h-72 flex-col overflow-y-auto rounded-md border border-white/10 bg-black/25;
+}
+
+.magic-item-option {
+  @apply flex flex-col gap-1 border-b border-white/10 px-3 py-2 text-left text-sm text-parchment transition last:border-b-0 hover:bg-white/10;
+}
+
+.magic-item-option-active {
+  @apply flex flex-col gap-1 border-b border-ember/40 bg-ember/15 px-3 py-2 text-left text-sm text-parchment transition last:border-b-0;
+}
+
+.magic-item-details {
+  @apply rounded-md border border-white/10 bg-white/5 p-3;
 }
 
 .ability-card {

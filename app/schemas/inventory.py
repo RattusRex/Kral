@@ -25,6 +25,21 @@ class InventoryResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class MagicItemResponse(BaseModel):
+    id: int
+    name: str
+    rarity: str
+    raw_rarity: str
+    type: str
+    source: str | None = None
+    page: int | None = None
+    tier: str | None = None
+    requires_attunement: bool = False
+    attunement_note: str | None = None
+    is_consumable: bool = False
+    description: str = ""
+
+
 class AddItemRequest(BaseModel):
     name: str
     rarity: str = "Обычный"
