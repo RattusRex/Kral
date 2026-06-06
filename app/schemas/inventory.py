@@ -1,5 +1,5 @@
-from pydantic import BaseModel
-from typing import List
+from pydantic import BaseModel, Field
+from typing import Any, List
 from pydantic import ConfigDict
 from datetime import datetime
 
@@ -51,6 +51,7 @@ class ItemTransferRequest(BaseModel):
 
 class ShopSearchRequest(BaseModel):
     mode: str = "buy"
+    magic_item_id: str | None = None
     item_name: str | None = None
     rarity: str | None = None
     is_consumable: bool = False
@@ -73,6 +74,20 @@ class ShopTransactionRequest(BaseModel):
     item_name: str
     item_price: int
     mercenary_cost: int = 0
+
+class MagicItemResponse(BaseModel):
+    id: str
+    name: str
+    rarity: str
+    rarity_key: str
+    item_type: str
+    source: str | None = None
+    page: int | None = None
+    tier: str | None = None
+    is_consumable: bool = False
+    reference_sources: List[str] = Field(default_factory=list)
+    requires: List[dict[str, Any]] = Field(default_factory=list)
+    entries: List[str] = Field(default_factory=list)
 
 class ShopResult(BaseModel):
     quote_id: int | None = None

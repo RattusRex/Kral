@@ -1,4 +1,8 @@
-from fastapi import APIRouter, Depends, HTTPException
+import json
+from functools import lru_cache
+from pathlib import Path
+
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from app.db.database import SessionLocal
 from app.models.character import Character
@@ -13,6 +17,7 @@ from app.schemas.inventory import (
     InventoryResponse,
     InventoryNotesUpdateRequest,
     ItemTransferRequest,
+    MagicItemResponse,
     ShopConfirmRequest,
     ShopResult,
     ShopSearchRequest,
@@ -58,6 +63,22 @@ HIRELING_ALIASES = {
     "Опытный": "Компетентный",
     "Экспертный": "Эксперт",
 }
+
+MAGIC_VARIANTS_PATH = Path(__file__).resolve().parents[2] / "magicvariants.json"
+MAGIC_ITEM_RARITY_LABELS = {
+    "common": "Обычный",
+    "uncommon": "Необычный",
+    "rare": "Редкий",
+}
+MAGIC_ITEM_RARITY_FILTERS = {
+    key.casefold(): key
+    for key in MAGIC_ITEM_RARITY_LABELS
+} | {
+    value.casefold(): key
+    for key, value in MAGIC_ITEM_RARITY_LABELS.items()
+}
+
+
 def get_db():
     db = SessionLocal()
     try:
@@ -124,6 +145,161 @@ def validate_rarity(rarity: str):
             status_code=400,
             detail="Unknown rarity"
         )
+
+
+def normalize_catalog_text(value: str) -> str:
+    return " ".join(value.casefold().split())
+
+
+def raw_magic_item_rarity(record: dict) -> str:
+    inherits = record.get("inherits") or {}
+    rarity = inherits.get("rarity") or record.get("rarity") or ""
+    return rarity.strip().casefold()
+
+
+def magic_item_source_value(record: dict, key: str):
+    inherits = record.get("inherits") or {}
+    return record.get(key) or inherits.get(key)
+
+
+def describe_magic_item_type(record: dict) -> str:
+    if record.get("ammo"):
+        return "Боеприпас"
+
+    requires = record.get("requires") or []
+    if any(requirement.get("armor") or requirement.get("type") in {"LA", "MA", "HA"} for requirement in requires):
+        return "Доспех"
+    if any(requirement.get("type") == "S" for requirement in requires):
+        return "Щит"
+    if any(
+        requirement.get("type") in {"A", "AF|DMG"} or requirement.get("arrow") or requirement.get("bolt")
+        for requirement in requires
+    ):
+        return "Боеприпас"
+    if any(
+        requirement.get("weapon")
+        or requirement.get("weaponCategory")
+        or requirement.get("sword")
+        or requirement.get("bow")
+        or requirement.get("axe")
+        or requirement.get("net")
+        or requirement.get("crossbow")
+        or requirement.get("spear")
+        or requirement.get("polearm")
+        or requirement.get("type") == "M"
+        for requirement in requires
+    ):
+        return "Оружие"
+    if any(requirement.get("type") == "SCF" for requirement in requires):
+        return "Фокусировка"
+
+    return magic_item_source_value(record, "type") or "Магический предмет"
+
+
+def magic_item_entries(record: dict) -> list[str]:
+    entries = []
+    for source in (record, record.get("inherits") or {}):
+        for entry in source.get("entries") or []:
+            if isinstance(entry, str):
+                entries.append(entry)
+    return entries[:3]
+
+
+def serialize_magic_variant(index: int, record: dict) -> dict:
+    rarity_key = raw_magic_item_rarity(record)
+    name = record.get("name") or magic_item_source_value(record, "name")
+    return {
+        "id": f"magicvariant-{index}",
+        "name": name,
+        "rarity": MAGIC_ITEM_RARITY_LABELS.get(rarity_key, rarity_key),
+        "rarity_key": rarity_key,
+        "item_type": describe_magic_item_type(record),
+        "source": magic_item_source_value(record, "source"),
+        "page": magic_item_source_value(record, "page"),
+        "tier": magic_item_source_value(record, "tier"),
+        "is_consumable": bool(record.get("ammo")),
+        "reference_sources": record.get("referenceSources") or [],
+        "requires": record.get("requires") or [],
+        "entries": magic_item_entries(record),
+        "available": rarity_key in MAGIC_ITEM_RARITY_LABELS
+    }
+
+
+@lru_cache
+def load_magic_variants() -> tuple[dict, ...]:
+    with MAGIC_VARIANTS_PATH.open(encoding="utf-8") as catalog_file:
+        data = json.load(catalog_file)
+    return tuple(
+        record
+        for record in data.get("magicvariant", [])
+        if record.get("name") or magic_item_source_value(record, "name")
+    )
+
+
+@lru_cache
+def all_magic_items_by_id() -> dict[str, dict]:
+    return {
+        item["id"]: item
+        for item in (
+            serialize_magic_variant(index, record)
+            for index, record in enumerate(load_magic_variants())
+        )
+    }
+
+
+@lru_cache
+def all_magic_items_by_name() -> dict[str, dict]:
+    return {
+        normalize_catalog_text(item["name"]): item
+        for item in all_magic_items_by_id().values()
+    }
+
+
+@lru_cache
+def available_magic_items() -> tuple[dict, ...]:
+    return tuple(
+        sorted(
+            (
+                {key: value for key, value in item.items() if key != "available"}
+                for item in all_magic_items_by_id().values()
+                if item["available"]
+            ),
+            key=lambda item: item["name"].casefold()
+        )
+    )
+
+
+def catalog_rarity_filter_key(rarity: str | None) -> str | None:
+    if not rarity:
+        return None
+    rarity_key = MAGIC_ITEM_RARITY_FILTERS.get(rarity.strip().casefold())
+    if not rarity_key:
+        raise HTTPException(
+            status_code=400,
+            detail="Unknown rarity"
+        )
+    return rarity_key
+
+
+def require_available_magic_item(item: dict | None) -> dict:
+    if not item or not item["available"]:
+        raise HTTPException(
+            status_code=400,
+            detail="Magic item is not available in the shop"
+        )
+    return item
+
+
+def selected_magic_item_payload(item: dict, mode: str) -> dict:
+    return {
+        "mode": mode,
+        "item_name": item["name"],
+        "rarity": item["rarity"],
+        "is_consumable": item["is_consumable"],
+        "item_id": None
+    }
+
+
 def require_non_negative_currency(currency: CurrencyUpdateRequest):
     if currency.gold < 0 or currency.silver < 0 or currency.copper < 0:
         raise HTTPException(
@@ -324,11 +500,25 @@ def resolve_search_item(
 ):
     mode = search_data.mode
     if mode == "buy":
+        if search_data.magic_item_id:
+            item = require_available_magic_item(
+                all_magic_items_by_id().get(search_data.magic_item_id)
+            )
+            return selected_magic_item_payload(item, mode)
+
         if not search_data.item_name or not search_data.rarity:
             raise HTTPException(
                 status_code=400,
                 detail="Item name and rarity are required"
             )
+
+        catalog_item = all_magic_items_by_name().get(
+            normalize_catalog_text(search_data.item_name)
+        )
+        if catalog_item:
+            item = require_available_magic_item(catalog_item)
+            return selected_magic_item_payload(item, mode)
+
         validate_rarity(search_data.rarity)
         return {
             "mode": mode,
@@ -451,6 +641,34 @@ def record_shop_transaction(
         hireling_cost=quote.hireling_cost,
         total_amount=total_amount
     ))
+
+
+@router.get("/shop/magic-items", response_model=list[MagicItemResponse])
+def list_magic_items(
+    search: str | None = None,
+    rarity: str | None = None,
+    item_type: str | None = None,
+    limit: int = Query(default=100, ge=1, le=200),
+    _: User = Depends(get_current_user)
+):
+    rarity_key = catalog_rarity_filter_key(rarity)
+    search_text = normalize_catalog_text(search or "")
+    item_type_text = normalize_catalog_text(item_type or "")
+
+    items = []
+    for item in available_magic_items():
+        if search_text and search_text not in normalize_catalog_text(item["name"]):
+            continue
+        if rarity_key and item["rarity_key"] != rarity_key:
+            continue
+        if item_type_text and item_type_text not in normalize_catalog_text(item["item_type"]):
+            continue
+        items.append(item)
+        if len(items) >= limit:
+            break
+
+    return items
+
 
 @router.get("/characters/{character_id}/inventory", response_model=InventoryResponse)
 def get_inventory(
