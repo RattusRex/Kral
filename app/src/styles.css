@@ -29,6 +29,27 @@ textarea {
   @apply w-full rounded-md border border-white/10 bg-black/25 px-3 py-2 text-sm text-parchment outline-none transition focus:border-ember;
 }
 
+select.field {
+  color-scheme: dark;
+  background-color: rgba(0, 0, 0, 0.42);
+}
+
+select.field option,
+select.field optgroup {
+  background-color: #151820;
+  color: #e8dec8;
+}
+
+select.field option:checked {
+  background-color: #c79245;
+  color: #0b0d12;
+}
+
+select.field option:hover {
+  background-color: #2a2f3a;
+  color: #fffaf0;
+}
+
 .field-label {
   @apply flex flex-col gap-1 text-sm text-white/70;
 }

@@ -11,6 +11,7 @@ from app.api.inventory import router as inventory_router
 from app.api.admin import router as admin_router
 from app.api.attacks import router as attacks_router
 from app.api.chat import router as chat_router
+from app.api.magic_items import router as magic_items_router
 from app.models.chat import ChatMessage
 from app.core.security import hash_password
 from sqlalchemy import inspect, text
@@ -69,6 +70,7 @@ app.include_router(character_router, prefix="/api")
 app.include_router(admin_router, prefix="/api")
 app.include_router(attacks_router, prefix="/api")
 app.include_router(chat_router, prefix="/api")
+app.include_router(magic_items_router, prefix="/api")
 app.include_router(users_router, prefix="/api")
 
 @app.get("/")

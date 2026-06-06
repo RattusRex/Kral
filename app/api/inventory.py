@@ -26,18 +26,41 @@ RARITY_DATA = {
     "Обычный": {"dc": 5, "days_dice": 4, "base_price": 100},
     "Необычный": {"dc": 10, "days_dice": 8, "base_price": 500},
     "Редкий": {"dc": 15, "days_dice": 12, "base_price": 5000},
+    "Очень редкий": {"dc": 20, "days_dice": 20, "base_price": 50000},
+    "Легендарный": {"dc": 25, "days_dice": 20, "base_price": 500000},
+    "Неизвестная": {"dc": 15, "days_dice": 12, "base_price": 5000},
+    "Без редкости": {"dc": 5, "days_dice": 4, "base_price": 100},
 }
 
 CONSUMABLE_BASE_PRICE = {
     "Обычный": 50,
     "Необычный": 250,
     "Редкий": 2500,
+    "Очень редкий": 25000,
+    "Легендарный": 250000,
+    "Неизвестная": 2500,
+    "Без редкости": 50,
 }
 
 RARITY_PRICE_ROLL_MODIFIER = {
     "Обычный": 10,
     "Необычный": 0,
     "Редкий": -10,
+    "Очень редкий": -20,
+    "Легендарный": -30,
+    "Неизвестная": -10,
+    "Без редкости": 10,
+}
+
+RARITY_ALIASES = {
+    "common": "Обычный",
+    "uncommon": "Необычный",
+    "rare": "Редкий",
+    "very rare": "Очень редкий",
+    "legendary": "Легендарный",
+    "unknown": "Неизвестная",
+    "unknown (magic)": "Неизвестная",
+    "none": "Без редкости",
 }
 
 HIRELING_BONUSES = {
@@ -118,12 +141,22 @@ def get_or_create_inventory_for_character(character: Character, db: Session) -> 
 
     return inventory
 
-def validate_rarity(rarity: str):
+def normalize_rarity(rarity: str | None) -> str:
+    if not rarity:
+        return "Неизвестная"
+    return RARITY_ALIASES.get(rarity.casefold(), rarity)
+
+
+def validate_rarity(rarity: str | None) -> str:
+    rarity = normalize_rarity(rarity)
     if rarity not in RARITY_DATA:
         raise HTTPException(
             status_code=400,
             detail="Unknown rarity"
         )
+    return rarity
+
+
 def require_non_negative_currency(currency: CurrencyUpdateRequest):
     if currency.gold < 0 or currency.silver < 0 or currency.copper < 0:
         raise HTTPException(
@@ -213,12 +246,13 @@ def subtract_gold_amount(inventory: Inventory, amount: int, detail: str):
     subtract_copper(inventory, amount * 100, detail)
 
 def base_price_for_item(rarity: str, is_consumable: bool) -> int:
-    validate_rarity(rarity)
+    rarity = validate_rarity(rarity)
     if is_consumable:
         return CONSUMABLE_BASE_PRICE[rarity]
     return RARITY_DATA[rarity]["base_price"]
 
 def adjusted_price_roll(rarity: str) -> int:
+    rarity = validate_rarity(rarity)
     price_roll = random.randint(1, 100) + RARITY_PRICE_ROLL_MODIFIER[rarity]
     return max(1, min(100, price_roll))
 
@@ -260,7 +294,7 @@ def search_item(
     searcher_type: str,
     hireling_level: str
 ):
-    validate_rarity(rarity)
+    rarity = validate_rarity(rarity)
     rarity_data = RARITY_DATA[rarity]
 
     if searcher_type == "character":
@@ -329,11 +363,11 @@ def resolve_search_item(
                 status_code=400,
                 detail="Item name and rarity are required"
             )
-        validate_rarity(search_data.rarity)
+        rarity = validate_rarity(search_data.rarity)
         return {
             "mode": mode,
             "item_name": search_data.item_name,
-            "rarity": search_data.rarity,
+            "rarity": rarity,
             "is_consumable": search_data.is_consumable,
             "item_id": None
         }
@@ -353,11 +387,11 @@ def resolve_search_item(
                 status_code=400,
                 detail="Предмета нет в инвентаре"
             )
-        validate_rarity(item.rarity)
+        rarity = validate_rarity(item.rarity)
         return {
             "mode": mode,
             "item_name": item.name,
-            "rarity": item.rarity,
+            "rarity": rarity,
             "is_consumable": item.is_consumable,
             "item_id": item.id
         }
@@ -469,12 +503,12 @@ def add_item(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    validate_rarity(item_data.rarity)
+    rarity = validate_rarity(item_data.rarity)
     inventory = get_character_inventory(character_id, current_user, db)
 
     item = InventoryItem(
         name=item_data.name,
-        rarity=item_data.rarity,
+        rarity=rarity,
         is_consumable=item_data.is_consumable,
         inventory_id=inventory.id
     )

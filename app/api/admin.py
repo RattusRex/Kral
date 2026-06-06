@@ -334,12 +334,12 @@ def grant_character_item(
     db: Session = Depends(get_db),
     _: User = Depends(require_admin)
 ):
-    validate_rarity(item_data.rarity)
+    rarity = validate_rarity(item_data.rarity)
     character = get_character_or_404(character_id, db)
     inventory = get_character_inventory(character.id, character.owner, db)
     db.add(InventoryItem(
         name=item_data.name,
-        rarity=item_data.rarity,
+        rarity=rarity,
         is_consumable=item_data.is_consumable,
         inventory_id=inventory.id
     ))

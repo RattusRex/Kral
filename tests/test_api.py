@@ -187,6 +187,80 @@ def test_shop_sell_search_waits_for_confirmation_and_adds_gold():
         )
 
 
+def test_magic_items_catalog_reads_magicvariants_and_filters_results():
+    with TestClient(app) as client:
+        token = login(client, "admin", "admin123")
+        headers = {"Authorization": f"Bearer {token}"}
+
+        response = client.get(
+            "/api/magic-items",
+            headers=headers,
+            params={"q": "+1 Доспех"}
+        )
+        assert response.status_code == 200, response.text
+        payload = response.json()
+        armor = next(item for item in payload if item["name"] == "+1 Доспех")
+        assert armor["rarity"] == "Редкий"
+        assert armor["rarity_key"] == "rare"
+        assert armor["item_type"] == "Доспех"
+        assert armor["source"] == "DMG"
+        assert armor["page"] == 152
+        assert armor["is_consumable"] is False
+
+        ammunition = client.get(
+            "/api/magic-items",
+            headers=headers,
+            params={"item_type": "Боеприпас", "rarity": "Необычный"}
+        )
+        assert ammunition.status_code == 200, ammunition.text
+        assert ammunition.json()
+        assert all(
+            item["item_type"] == "Боеприпас"
+            and item["rarity"] == "Необычный"
+            for item in ammunition.json()
+        )
+
+        options = client.get("/api/magic-items/options", headers=headers)
+        assert options.status_code == 200, options.text
+        assert "Очень редкий" in options.json()["rarities"]
+        assert "Оружие" in options.json()["item_types"]
+
+
+def test_shop_search_accepts_autofilled_magic_item_rarity():
+    with TestClient(app) as client:
+        token = login(client, "admin", "admin123")
+        headers = {"Authorization": f"Bearer {token}"}
+        created = client.post("/api/characters", headers=headers, json={
+            "name": "Catalog Buyer",
+            "class_name": "Wizard",
+            "level": 1,
+            "route": "Trade",
+            "investigation": 30
+        })
+        assert created.status_code == 200, created.text
+        character_id = created.json()["id"]
+        currency = client.post(
+            f"/api/admin/characters/{character_id}/currency/add",
+            headers=headers,
+            json={"gold": 1000000, "silver": 0, "copper": 0}
+        )
+        assert currency.status_code == 200, currency.text
+
+        response = client.post(f"/api/characters/{character_id}/shop/search", headers=headers, json={
+            "mode": "buy",
+            "item_name": "+2 Доспех",
+            "rarity": "Очень редкий",
+            "is_consumable": False,
+            "searcher_type": "character"
+        })
+        assert response.status_code == 200, response.text
+        payload = response.json()
+        assert payload["success"] is True
+        assert payload["item_name"] == "+2 Доспех"
+        assert payload["rarity"] == "Очень редкий"
+        assert payload["item_price"] > 0
+
+
 def test_admin_can_change_karma_and_view_all_characters_with_owner():
     with TestClient(app) as client:
         admin_token = login(client, "admin", "admin123")
