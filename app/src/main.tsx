@@ -2,7 +2,7 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { Link, Navigate, Route, BrowserRouter as Router, Routes, useNavigate, useParams } from "react-router-dom";
 import { Check, Dice5, LogOut, MessageSquare, Plus, RefreshCw, Save, ScrollText, Search, Send, Shield, ShoppingBag, Swords, Trash2, Trophy, UserRound, UsersRound } from "lucide-react";
-import { AbilityRoll, AdminUser, api, AttackRoll, Character, CharacterAttack, ChatMessage, DamageRoll, Inventory, InventoryItem, LeaderboardEntry, SavingThrowRoll, ShopResult, ShopTransactionLog, TOKEN_KEY, TransferLog, TransferTarget, User } from "./api";
+import { AbilityRoll, AdminUser, api, AttackRoll, Character, CharacterAttack, ChatMessage, DamageRoll, Inventory, InventoryItem, LeaderboardEntry, MagicItem, SavingThrowRoll, ShopResult, ShopTransactionLog, TOKEN_KEY, TransferLog, TransferTarget, User } from "./api";
 import "./styles.css";
 
 const rarities = ["Обычный", "Необычный", "Редкий"];
@@ -770,7 +770,12 @@ function ShopPage() {
   const [characterId, setCharacterId] = useState("");
   const [mode, setMode] = useState<"buy" | "sell">(() => new URLSearchParams(window.location.search).get("mode") === "sell" ? "sell" : "buy");
   const [inventory, setInventory] = useState<Inventory | null>(null);
-  const [form, setForm] = useState({ item_name: "", rarity: "Обычный", is_consumable: false, item_id: "", searcher_type: "hireling", hireling_level: "Плохой" });
+  const [form, setForm] = useState({ magic_item_id: "", item_name: "", rarity: "Обычный", is_consumable: false, item_id: "", searcher_type: "hireling", hireling_level: "Плохой" });
+  const [magicItems, setMagicItems] = useState<MagicItem[]>([]);
+  const [magicItemSearch, setMagicItemSearch] = useState("");
+  const [magicItemRarity, setMagicItemRarity] = useState("");
+  const [magicItemType, setMagicItemType] = useState("");
+  const [magicItemsLoading, setMagicItemsLoading] = useState(false);
   const [result, setResult] = useState<ShopResult | null>(null);
   const [error, setError] = useState("");
 
@@ -795,12 +800,50 @@ function ShopPage() {
     });
   }, [characterId]);
 
+  useEffect(() => {
+    if (mode !== "buy") return;
+
+    const handle = window.setTimeout(() => {
+      setMagicItemsLoading(true);
+      api.get<MagicItem[]>("/shop/magic-items", {
+        params: {
+          search: magicItemSearch || undefined,
+          rarity: magicItemRarity || undefined,
+          item_type: magicItemType || undefined,
+          limit: 100
+        }
+      })
+        .then((response) => setMagicItems(response.data))
+        .catch(() => setMagicItems([]))
+        .finally(() => setMagicItemsLoading(false));
+    }, 150);
+
+    return () => window.clearTimeout(handle);
+  }, [mode, magicItemSearch, magicItemRarity, magicItemType]);
+
+  function selectMagicItem(itemId: string) {
+    const item = magicItems.find((magicItem) => magicItem.id === itemId);
+    if (!item) {
+      setForm((current) => ({ ...current, magic_item_id: "" }));
+      return;
+    }
+
+    setForm((current) => ({
+      ...current,
+      magic_item_id: item.id,
+      item_name: item.name,
+      rarity: item.rarity,
+      is_consumable: item.is_consumable
+    }));
+  }
+
   async function performSearch() {
     setError("");
     try {
       const payload = mode === "buy"
         ? {
             mode,
+            magic_item_id: form.magic_item_id || undefined,
             item_name: form.item_name,
             rarity: form.rarity,
             is_consumable: form.is_consumable,
@@ -859,7 +902,8 @@ function ShopPage() {
 
   const selectedCharacter = characters.find((character) => String(character.id) === characterId);
   const selectedItem = inventory?.items.find((item) => String(item.id) === form.item_id);
-  const canSearch = Boolean(characterId) && (mode === "buy" ? form.item_name.trim().length > 0 : Boolean(form.item_id));
+  const selectedMagicItem = magicItems.find((item) => item.id === form.magic_item_id);
+  const canSearch = Boolean(characterId) && (mode === "buy" ? Boolean(form.magic_item_id || form.item_name.trim()) : Boolean(form.item_id));
 
   return (
     <div className="grid gap-4 lg:grid-cols-[420px_1fr]">
@@ -876,14 +920,53 @@ function ShopPage() {
         {mode === "buy" ? (
           <>
             <label className="field-label">
+              <span>Поиск в базе предметов</span>
+              <input className="field" value={magicItemSearch} onChange={(event) => setMagicItemSearch(event.target.value)} />
+            </label>
+            <div className="grid gap-2 sm:grid-cols-2">
+              <label className="field-label">
+                <span>Фильтр редкости</span>
+                <select className="field" value={magicItemRarity} onChange={(event) => setMagicItemRarity(event.target.value)}>
+                  <option value="">Все</option>
+                  {rarities.map((rarity) => <option key={rarity} value={rarity}>{rarity}</option>)}
+                </select>
+              </label>
+              <label className="field-label">
+                <span>Тип</span>
+                <input className="field" value={magicItemType} onChange={(event) => setMagicItemType(event.target.value)} />
+              </label>
+            </div>
+            <label className="field-label">
+              <span>Предмет из базы</span>
+              <select className="field min-h-48" size={8} value={form.magic_item_id} onChange={(event) => selectMagicItem(event.target.value)}>
+                <option value="">Ручной ввод</option>
+                {magicItems.map((item) => (
+                  <option key={item.id} value={item.id}>{item.name} · {item.rarity} · {item.item_type}</option>
+                ))}
+              </select>
+            </label>
+            {magicItemsLoading && <p className="text-sm text-white/55">Загрузка предметов...</p>}
+            {selectedMagicItem && (
+              <div className="rounded-md border border-white/10 bg-black/25 p-3 text-sm text-white/70">
+                <p className="font-semibold text-parchment">{selectedMagicItem.name}</p>
+                <p>{selectedMagicItem.rarity} · {selectedMagicItem.item_type}{selectedMagicItem.is_consumable ? " · расходуемый" : ""}</p>
+                {(selectedMagicItem.source || selectedMagicItem.page || selectedMagicItem.tier) && (
+                  <p>
+                    {[selectedMagicItem.source, selectedMagicItem.page ? `стр. ${selectedMagicItem.page}` : "", selectedMagicItem.tier].filter(Boolean).join(" · ")}
+                  </p>
+                )}
+                {selectedMagicItem.entries[0] && <p className="mt-2 max-h-24 overflow-hidden text-white/60">{selectedMagicItem.entries[0]}</p>}
+              </div>
+            )}
+            <label className="field-label">
               <span>Название предмета</span>
-              <input className="field" value={form.item_name} onChange={(event) => setForm({ ...form, item_name: event.target.value })} />
+              <input className="field" value={form.item_name} onChange={(event) => setForm({ ...form, magic_item_id: "", item_name: event.target.value })} />
             </label>
             <label className="field-label">
               <span>Редкость</span>
-              <select className="field" value={form.rarity} onChange={(event) => setForm({ ...form, rarity: event.target.value })}>{rarities.map((rarity) => <option key={rarity}>{rarity}</option>)}</select>
+              <select className="field" value={form.rarity} onChange={(event) => setForm({ ...form, magic_item_id: "", rarity: event.target.value })}>{rarities.map((rarity) => <option key={rarity}>{rarity}</option>)}</select>
             </label>
-            <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={form.is_consumable} onChange={(event) => setForm({ ...form, is_consumable: event.target.checked })} />Расходуемый</label>
+            <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={form.is_consumable} onChange={(event) => setForm({ ...form, magic_item_id: "", is_consumable: event.target.checked })} />Расходуемый</label>
           </>
         ) : (
           <label className="field-label">

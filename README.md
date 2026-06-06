@@ -32,6 +32,7 @@ Notable protected API routes:
 - `POST /api/dice/roll` rolls formulas such as `/r 2d6` or `/r 1d37` and stores the result in the rolls channel.
 - `PATCH /api/characters/{id}/inventory/notes` saves free-form inventory notes.
 - `GET/POST /api/characters/{id}/attacks` manages attack rows, and `POST /api/characters/{id}/attacks/{attack_id}/roll` records attack rolls.
+- `GET /api/shop/magic-items` searches `magicvariants.json` and returns shop-eligible common, uncommon, and rare magic items.
 
 ## Frontend Setup
 

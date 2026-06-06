@@ -143,6 +143,21 @@ export interface ShopResult {
   inventory: Inventory;
 }
 
+export interface MagicItem {
+  id: string;
+  name: string;
+  rarity: string;
+  rarity_key: "common" | "uncommon" | "rare";
+  item_type: string;
+  source: string | null;
+  page: number | null;
+  tier: string | null;
+  is_consumable: boolean;
+  reference_sources: string[];
+  requires: Record<string, unknown>[];
+  entries: string[];
+}
+
 export interface AdminUser extends User {
   character_count: number;
   is_admin: boolean;

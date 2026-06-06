@@ -187,6 +187,101 @@ def test_shop_sell_search_waits_for_confirmation_and_adds_gold():
         )
 
 
+def test_magic_item_catalog_only_lists_allowed_rarities_and_supports_search():
+    with TestClient(app) as client:
+        token = login(client, "admin", "admin123")
+        headers = {"Authorization": f"Bearer {token}"}
+
+        response = client.get("/api/shop/magic-items", headers=headers)
+
+        assert response.status_code == 200, response.text
+        catalog = response.json()
+        assert catalog
+        assert {item["rarity"] for item in catalog} <= {"Обычный", "Необычный", "Редкий"}
+        assert {item["rarity_key"] for item in catalog} <= {"common", "uncommon", "rare"}
+        names = {item["name"] for item in catalog}
+        assert "+1 Доспех" in names
+        assert "+3 Доспех" not in names
+        assert "Vorpal Sword" not in names
+        assert all(item["item_type"] for item in catalog)
+
+        search = client.get(
+            "/api/shop/magic-items",
+            headers=headers,
+            params={"search": "щит", "rarity": "Необычный"}
+        )
+
+        assert search.status_code == 200, search.text
+        search_payload = search.json()
+        assert search_payload
+        assert all("щит" in item["name"].casefold() for item in search_payload)
+        assert all(item["rarity"] == "Необычный" for item in search_payload)
+
+
+def test_shop_search_uses_selected_magic_item_without_manual_name_or_rarity():
+    with TestClient(app) as client:
+        token = login(client, "admin", "admin123")
+        headers = {"Authorization": f"Bearer {token}"}
+        created = client.post("/api/characters", headers=headers, json={
+            "name": "Catalog Buyer",
+            "class_name": "Fighter",
+            "level": 1,
+            "route": "Market",
+            "investigation": 20
+        })
+        character_id = created.json()["id"]
+        client.post(
+            f"/api/admin/characters/{character_id}/currency/add",
+            headers=headers,
+            json={"gold": 10000, "silver": 0, "copper": 0}
+        )
+        catalog = client.get(
+            "/api/shop/magic-items",
+            headers=headers,
+            params={"search": "+1 Доспех"}
+        )
+        magic_item = next(item for item in catalog.json() if item["name"] == "+1 Доспех")
+
+        response = client.post(f"/api/characters/{character_id}/shop/search", headers=headers, json={
+            "mode": "buy",
+            "magic_item_id": magic_item["id"],
+            "searcher_type": "character"
+        })
+
+        assert response.status_code == 200, response.text
+        payload = response.json()
+        assert payload["success"] is True
+        assert payload["item_name"] == "+1 Доспех"
+        assert payload["rarity"] == "Редкий"
+        assert payload["is_consumable"] is False
+        assert payload["item_price"] > 0
+
+
+def test_shop_buy_rejects_known_banned_magic_item_even_when_manual_rarity_lowered():
+    with TestClient(app) as client:
+        token = login(client, "admin", "admin123")
+        headers = {"Authorization": f"Bearer {token}"}
+        created = client.post("/api/characters", headers=headers, json={
+            "name": "Ban Checker",
+            "class_name": "Wizard",
+            "level": 1,
+            "route": "Market",
+            "investigation": 20
+        })
+        character_id = created.json()["id"]
+
+        response = client.post(f"/api/characters/{character_id}/shop/search", headers=headers, json={
+            "mode": "buy",
+            "item_name": "Vorpal Sword",
+            "rarity": "Редкий",
+            "is_consumable": False,
+            "searcher_type": "character"
+        })
+
+        assert response.status_code == 400
+        assert response.json()["detail"] == "Magic item is not available in the shop"
+
+
 def test_admin_can_change_karma_and_view_all_characters_with_owner():
     with TestClient(app) as client:
         admin_token = login(client, "admin", "admin123")
