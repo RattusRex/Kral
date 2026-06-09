@@ -12,3 +12,7 @@ class UserLogin(BaseModel):
 
 class KarmaUpdate(BaseModel):
     amount: int
+
+
+class RoleUpdate(BaseModel):
+    role: str

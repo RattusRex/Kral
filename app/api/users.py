@@ -130,7 +130,9 @@ def get_me(
         "username": current_user.username,
         "email": current_user.email,
         "karma": current_user.karma,
-        "is_admin": current_user.is_admin
+        "role": current_user.role,
+        "is_admin": current_user.is_admin,
+        "is_owner": current_user.is_owner
     }
 
 @router.post("/me/karma/add")

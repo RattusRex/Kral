@@ -39,6 +39,17 @@ Notable protected API routes:
 - `PATCH /api/characters/{id}/inventory/notes` saves free-form inventory notes.
 - `GET/POST /api/characters/{id}/attacks` manages attack rows, and `POST /api/characters/{id}/attacks/{attack_id}/roll` records attack rolls.
 - `GET /api/shop/magic-items` searches `magicvariants.json` and returns shop-eligible common, uncommon, and rare magic items.
+- `POST /api/admin/users/{id}/role` lets an **owner** assign a user role (`owner`, `admin`, or `player`).
+
+## User Roles
+
+Access is controlled by three roles:
+
+- **👑 Owner** — full control, including managing users and assigning roles, plus everything an admin can do.
+- **🛠 Admin** — game-master tools: add/remove karma, grant items and currency, view logs, and manage game data. Cannot manage roles.
+- **🎮 Player** — default role for new accounts: manage own characters, chat, roll dice, and use the inventory.
+
+The seeded `admin` account is an **owner**. New accounts are created as **players**. Only an owner can change another user's role from the admin panel.
 
 ## Frontend Setup
 

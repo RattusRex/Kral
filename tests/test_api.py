@@ -1169,3 +1169,132 @@ def test_chat_messages_pagination_with_limit_and_before_id():
             params={"channel": "general", "limit": 0}
         )
         assert invalid.status_code == 422
+
+
+def _register(client: TestClient, username: str) -> int:
+    created = client.post("/api/users", json={
+        "username": username,
+        "email": f"{username}@example.com",
+        "password": "secret123"
+    })
+    assert created.status_code == 200, created.text
+    return created.json()["id"]
+
+
+def test_seeded_admin_account_has_owner_role():
+    with TestClient(app) as client:
+        token = login(client, "admin", "admin123")
+        me = client.get("/api/me", headers={"Authorization": f"Bearer {token}"})
+        assert me.status_code == 200, me.text
+        body = me.json()
+        assert body["role"] == "owner"
+        assert body["is_owner"] is True
+        assert body["is_admin"] is True
+
+
+def test_new_users_default_to_player_role():
+    with TestClient(app) as client:
+        _register(client, "fresh-player")
+        token = login(client, "fresh-player", "secret123")
+        me = client.get("/api/me", headers={"Authorization": f"Bearer {token}"})
+        assert me.status_code == 200, me.text
+        body = me.json()
+        assert body["role"] == "player"
+        assert body["is_admin"] is False
+        assert body["is_owner"] is False
+
+
+def test_owner_can_assign_roles_and_promotion_grants_admin_tools():
+    with TestClient(app) as client:
+        owner_token = login(client, "admin", "admin123")
+        owner_headers = {"Authorization": f"Bearer {owner_token}"}
+
+        user_id = _register(client, "promote-me")
+        player_headers = {
+            "Authorization": f"Bearer {login(client, 'promote-me', 'secret123')}"
+        }
+
+        # Player cannot reach admin-only endpoints before promotion.
+        denied = client.get("/api/admin/users", headers=player_headers)
+        assert denied.status_code == 403
+
+        promoted = client.post(
+            f"/api/admin/users/{user_id}/role",
+            headers=owner_headers,
+            json={"role": "admin"}
+        )
+        assert promoted.status_code == 200, promoted.text
+        assert promoted.json()["role"] == "admin"
+        assert promoted.json()["is_admin"] is True
+        assert promoted.json()["is_owner"] is False
+
+        # After promotion the user can use the admin tools.
+        allowed = client.get("/api/admin/users", headers=player_headers)
+        assert allowed.status_code == 200, allowed.text
+        roles = {row["username"]: row["role"] for row in allowed.json()}
+        assert roles["promote-me"] == "admin"
+        assert roles["admin"] == "owner"
+
+
+def test_admin_role_cannot_manage_roles_only_owner_can():
+    with TestClient(app) as client:
+        owner_token = login(client, "admin", "admin123")
+        owner_headers = {"Authorization": f"Bearer {owner_token}"}
+
+        admin_id = _register(client, "an-admin")
+        target_id = _register(client, "a-target")
+
+        client.post(
+            f"/api/admin/users/{admin_id}/role",
+            headers=owner_headers,
+            json={"role": "admin"}
+        )
+        admin_headers = {
+            "Authorization": f"Bearer {login(client, 'an-admin', 'secret123')}"
+        }
+
+        # Admins keep their game-master powers (karma) ...
+        karma = client.post(
+            f"/api/admin/users/{target_id}/karma/add",
+            headers=admin_headers,
+            json={"amount": 2}
+        )
+        assert karma.status_code == 200, karma.text
+
+        # ... but cannot change roles (owner only).
+        forbidden = client.post(
+            f"/api/admin/users/{target_id}/role",
+            headers=admin_headers,
+            json={"role": "admin"}
+        )
+        assert forbidden.status_code == 403
+
+
+def test_role_endpoint_validates_role_and_blocks_self_demotion():
+    with TestClient(app) as client:
+        owner_token = login(client, "admin", "admin123")
+        owner_headers = {"Authorization": f"Bearer {owner_token}"}
+        owner_id = client.get("/api/me", headers=owner_headers).json()["id"]
+
+        user_id = _register(client, "role-validate")
+
+        unknown = client.post(
+            f"/api/admin/users/{user_id}/role",
+            headers=owner_headers,
+            json={"role": "superuser"}
+        )
+        assert unknown.status_code == 400
+
+        self_demote = client.post(
+            f"/api/admin/users/{owner_id}/role",
+            headers=owner_headers,
+            json={"role": "player"}
+        )
+        assert self_demote.status_code == 400
+
+        missing = client.post(
+            "/api/admin/users/999999/role",
+            headers=owner_headers,
+            json={"role": "admin"}
+        )
+        assert missing.status_code == 404

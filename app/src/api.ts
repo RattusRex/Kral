@@ -2,12 +2,22 @@ import axios from "axios";
 
 export const TOKEN_KEY = "access_token";
 
+export type UserRole = "owner" | "admin" | "player";
+
+export const ROLE_LABELS: Record<UserRole, string> = {
+  owner: "👑 Владелец",
+  admin: "🛠 Администратор",
+  player: "🎮 Игрок"
+};
+
 export interface User {
   id: number;
   username: string;
   email: string;
   karma: number;
+  role?: UserRole;
   is_admin?: boolean;
+  is_owner?: boolean;
 }
 
 export interface Character {
@@ -160,7 +170,9 @@ export interface MagicItem {
 
 export interface AdminUser extends User {
   character_count: number;
+  role: UserRole;
   is_admin: boolean;
+  is_owner: boolean;
 }
 
 export interface ShopTransactionLog {
