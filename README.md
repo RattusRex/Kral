@@ -14,9 +14,15 @@ Prototype web application for D&D 2014 open-table bookkeeping: characters, inven
    ```bash
    pip install -r requirements.txt
    ```
-4. Create PostgreSQL database `EpohaTruda` or set a custom `DATABASE_URL`:
+4. Create PostgreSQL database `EpohaTruda` or set a custom `DATABASE_URL`.
+   You can either export it in your shell:
    ```bash
    export DATABASE_URL="postgresql://postgres:password@localhost:5432/EpohaTruda"
+   ```
+   or copy `.env.example` to `.env` and edit it (the backend and `npm run dev`
+   both load `.env` automatically):
+   ```bash
+   cp .env.example .env
    ```
 5. Run FastAPI:
    ```bash
@@ -46,7 +52,7 @@ Notable protected API routes:
    npm run dev
    ```
 
-`npm run dev` starts FastAPI on `http://localhost:8000`, waits for it to be reachable, then starts Vite. If `DATABASE_URL` is not set, this command uses a local SQLite database at `dev.db` so login and registration work without extra setup.
+`npm run dev` starts FastAPI on `http://localhost:8000`, waits for it to be reachable, then starts Vite. It loads variables from a project-level `.env` file automatically, so defining `DATABASE_URL` there is enough. If `DATABASE_URL` is not set in the environment or in `.env`, it falls back to the default development database `postgresql://postgres:GalU5TA1@localhost:5432/EpohaTruda` (which must be running locally).
 
 The Vite dev server proxies `/api` requests to `http://127.0.0.1:8000`. To use a different API target, set `VITE_API_TARGET`.
 
@@ -78,5 +84,6 @@ Recommended extensions:
 
 ```bash
 pytest
+npm test
 npm run build
 ```
