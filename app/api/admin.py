@@ -16,7 +16,8 @@ from app.schemas.inventory import (
     ShopTransactionLogResponse,
     TransferLogResponse,
 )
-from app.schemas.user import KarmaUpdate
+from app.schemas.user import KarmaUpdate, RoleUpdate
+from app.core.roles import Role, VALID_ROLES, normalize_role
 
 
 router = APIRouter(prefix="/admin")
@@ -27,6 +28,15 @@ def require_admin(current_user: User = Depends(get_current_user)) -> User:
         raise HTTPException(
             status_code=403,
             detail="Admin permissions required"
+        )
+    return current_user
+
+
+def require_owner(current_user: User = Depends(get_current_user)) -> User:
+    if not current_user.is_owner:
+        raise HTTPException(
+            status_code=403,
+            detail="Owner permissions required"
         )
     return current_user
 
@@ -143,7 +153,9 @@ def list_users(
         "username": user.username,
         "email": user.email,
         "karma": user.karma,
+        "role": user.role,
         "is_admin": user.is_admin,
+        "is_owner": user.is_owner,
         "character_count": len(user.characters)
     } for user in users]
 
@@ -363,13 +375,52 @@ def update_user_karma(
     user.karma = max(0, user.karma + amount)
     db.commit()
     db.refresh(user)
+    return serialize_user(user)
+
+
+def serialize_user(user: User) -> dict:
     return {
         "id": user.id,
         "username": user.username,
         "email": user.email,
         "karma": user.karma,
-        "is_admin": user.is_admin
+        "role": user.role,
+        "is_admin": user.is_admin,
+        "is_owner": user.is_owner
     }
+
+
+@router.post("/users/{user_id}/role")
+def change_user_role(
+    user_id: int,
+    role_data: RoleUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_owner)
+):
+    requested_role = normalize_role(role_data.role)
+    if role_data.role.strip().lower() not in VALID_ROLES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Role must be one of: {', '.join(VALID_ROLES)}"
+        )
+
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(
+            status_code=404,
+            detail="User not found"
+        )
+
+    if user.id == current_user.id and requested_role != Role.OWNER:
+        raise HTTPException(
+            status_code=400,
+            detail="Owners cannot demote themselves"
+        )
+
+    user.role = requested_role
+    db.commit()
+    db.refresh(user)
+    return serialize_user(user)
 
 
 @router.post("/users/{user_id}/karma")

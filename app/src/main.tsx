@@ -1,8 +1,8 @@
-import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { Link, Navigate, Route, BrowserRouter as Router, Routes, useNavigate, useParams } from "react-router-dom";
 import { Check, Dice5, LogOut, MessageSquare, Plus, RefreshCw, Save, ScrollText, Search, Send, Shield, ShoppingBag, Swords, Trash2, Trophy, UserRound, UsersRound } from "lucide-react";
-import { AbilityRoll, AdminUser, api, AttackRoll, Character, CharacterAttack, ChatMessage, DamageRoll, Inventory, InventoryItem, LeaderboardEntry, MagicItem, SavingThrowRoll, ShopResult, ShopTransactionLog, TOKEN_KEY, TransferLog, TransferTarget, User } from "./api";
+import { AbilityRoll, AdminUser, api, AttackRoll, Character, CharacterAttack, ChatMessage, DamageRoll, Inventory, InventoryItem, LeaderboardEntry, MagicItem, ROLE_LABELS, SavingThrowRoll, ShopResult, ShopTransactionLog, TOKEN_KEY, TransferLog, TransferTarget, User, UserRole } from "./api";
 import "./styles.css";
 
 const rarities = ["Обычный", "Необычный", "Редкий"];
@@ -174,6 +174,7 @@ function HomePage() {
       <aside className="panel p-5">
         <h2 className="text-lg font-semibold text-ember">{user.username}</h2>
         <p className="mt-2 text-white/70">{user.email}</p>
+        <p className="mt-3 text-sm text-white/80">Роль: {ROLE_LABELS[user.role ?? "player"]}</p>
         <p className="mt-4 text-xl font-semibold">Карма: {user.karma}</p>
       </aside>
     </div>
@@ -1111,8 +1112,13 @@ function ChatPage() {
     loadMessages(channel);
   }, [channel]);
 
-  useEffect(() => {
-    if (pendingScrollToBottom.current && listRef.current) {
+  useLayoutEffect(() => {
+    // Only scroll once the freshly loaded messages have actually rendered.
+    // The initial mount renders with an empty list, so guarding on
+    // messages.length keeps the pending flag set until real content arrives
+    // (otherwise the empty render would consume it and the view would stay
+    // pinned at the oldest message).
+    if (pendingScrollToBottom.current && listRef.current && messages.length > 0) {
       listRef.current.scrollTop = listRef.current.scrollHeight;
       pendingScrollToBottom.current = false;
     }
@@ -1163,7 +1169,7 @@ function ChatPage() {
   }
 
   return (
-    <section className="panel flex min-h-[70vh] flex-col p-5">
+    <section className="panel flex h-[calc(100vh-7rem)] flex-col p-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2">
           <MessageSquare size={20} className="text-ember" />
@@ -1175,7 +1181,7 @@ function ChatPage() {
         </div>
       </div>
 
-      <div ref={listRef} className="mt-5 flex-1 space-y-3 overflow-y-auto rounded-md border border-white/10 p-3">
+      <div ref={listRef} className="mt-5 min-h-0 flex-1 space-y-3 overflow-y-auto rounded-md border border-white/10 p-3">
         {hasMore && (
           <div className="flex justify-center pb-2">
             <button className="btn-secondary" onClick={loadOlderMessages} disabled={loadingMore}>
@@ -1213,7 +1219,10 @@ function ChatPage() {
   );
 }
 
+const ROLE_OPTIONS: UserRole[] = ["owner", "admin", "player"];
+
 function AdminPage() {
+  const { user } = useAuth();
   const [characters, setCharacters] = useState<Character[]>([]);
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [selected, setSelected] = useState("");
@@ -1221,6 +1230,7 @@ function AdminPage() {
   const [karmaUserId, setKarmaUserId] = useState("");
   const [karmaAmount, setKarmaAmount] = useState(1);
   const [item, setItem] = useState({ name: "", rarity: "Обычный", is_consumable: false });
+  const [roleError, setRoleError] = useState("");
 
   const selectedCharacter = useMemo(() => characters.find((character) => String(character.id) === selected), [characters, selected]);
   const selectedUser = useMemo(() => users.find((user) => String(user.id) === karmaUserId), [users, karmaUserId]);
@@ -1247,6 +1257,16 @@ function AdminPage() {
   async function applyKarma() {
     await api.post(`/admin/users/${karmaUserId}/karma`, { amount: karmaAmount });
     load();
+  }
+
+  async function changeRole(userId: number, role: UserRole) {
+    setRoleError("");
+    try {
+      await api.post(`/admin/users/${userId}/role`, { role });
+      load();
+    } catch (error) {
+      setRoleError(apiErrorDetail(error, "Не удалось изменить роль"));
+    }
   }
 
   return (
@@ -1296,6 +1316,33 @@ function AdminPage() {
           <p className="text-sm text-white/65">{selectedUser?.username ?? "Игрок"}: {selectedUser?.karma ?? 0}</p>
           <button className="btn" onClick={applyKarma}>Применить</button>
         </section>
+        {user?.is_owner && (
+          <section className="panel flex flex-col gap-3 p-5">
+            <div className="flex items-center gap-2">
+              <Shield size={18} className="text-ember" />
+              <h2 className="text-lg font-semibold text-ember">Роли пользователей</h2>
+            </div>
+            <p className="text-sm text-white/55">Назначайте роли. Доступно только владельцу.</p>
+            <div className="flex flex-col gap-2">
+              {users.map((row) => (
+                <div className="flex items-center justify-between gap-2 rounded-md bg-black/25 px-3 py-2" key={row.id}>
+                  <span className="text-sm font-semibold text-ember">{row.username}</span>
+                  <select
+                    className="field max-w-[180px]"
+                    value={row.role}
+                    disabled={row.id === user.id}
+                    onChange={(event) => changeRole(row.id, event.target.value as UserRole)}
+                  >
+                    {ROLE_OPTIONS.map((role) => (
+                      <option value={role} key={role}>{ROLE_LABELS[role]}</option>
+                    ))}
+                  </select>
+                </div>
+              ))}
+            </div>
+            {roleError && <p className="text-sm text-red-300">{roleError}</p>}
+          </section>
+        )}
       </div>
       <section className="panel p-5">
         <h2 className="text-lg font-semibold text-ember">Все персонажи</h2>

@@ -13,6 +13,7 @@ from app.api.attacks import router as attacks_router
 from app.api.chat import router as chat_router
 from app.models.chat import ChatMessage
 from app.core.security import hash_password
+from app.core.roles import Role
 from sqlalchemy import inspect, text
 from sqlalchemy.orm import Session
 
@@ -20,8 +21,8 @@ from sqlalchemy.orm import Session
 def seed_admin(db: Session) -> None:
     admin = db.query(User).filter(User.username == "admin").first()
     if admin:
-        if not admin.is_admin:
-            admin.is_admin = True
+        if admin.role != Role.OWNER:
+            admin.role = Role.OWNER
             db.commit()
         return
 
@@ -29,7 +30,7 @@ def seed_admin(db: Session) -> None:
         username="admin",
         email="admin@example.com",
         hashed_password=hash_password("admin123"),
-        is_admin=True
+        role=Role.OWNER
     ))
     db.commit()
 
@@ -46,10 +47,36 @@ def ensure_column(table_name: str, column_name: str, column_definition: str) -> 
         ))
 
 
+def migrate_user_roles() -> None:
+    """Add the ``role`` column and backfill it from the legacy ``is_admin``.
+
+    Older databases stored privileges in a boolean ``is_admin`` column. The
+    role system replaces it with a string ``role`` column, so any existing
+    administrators are migrated to the ``admin`` role and everyone else to
+    ``player``.
+    """
+    ensure_column("users", "role", f"VARCHAR(20) NOT NULL DEFAULT '{Role.PLAYER}'")
+
+    inspector = inspect(engine)
+    columns = {column["name"] for column in inspector.get_columns("users")}
+    if "is_admin" not in columns:
+        return
+
+    with engine.begin() as connection:
+        connection.execute(text(
+            "UPDATE users SET role = :admin "
+            "WHERE is_admin = 1 AND (role IS NULL OR role = '' OR role = :player)"
+        ), {"admin": Role.ADMIN, "player": Role.PLAYER})
+        connection.execute(text(
+            "UPDATE users SET role = :player WHERE role IS NULL OR role = ''"
+        ), {"player": Role.PLAYER})
+
+
 def ensure_schema_columns() -> None:
     ensure_column("characters", "temp_hp", "INTEGER NOT NULL DEFAULT 0")
     ensure_column("characters", "speed", "INTEGER NOT NULL DEFAULT 30")
     ensure_column("inventories", "notes", "TEXT NOT NULL DEFAULT ''")
+    migrate_user_roles()
 
 
 @asynccontextmanager
