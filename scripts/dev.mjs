@@ -6,7 +6,6 @@ import { fileURLToPath } from "node:url";
 const projectRoot = new URL("..", import.meta.url);
 const projectRootPath = fileURLToPath(projectRoot);
 const apiTarget = process.env.VITE_API_TARGET ?? "http://127.0.0.1:8000";
-const defaultDatabaseUrl = "sqlite:///./dev.db";
 const children = new Set();
 let shuttingDown = false;
 
@@ -140,8 +139,11 @@ async function startBackend() {
       ? [localPython, "py", "python"]
       : [localPython, "python3", "python"];
   const args = ["-m", "uvicorn", "app.main:app", "--reload", "--host", "0.0.0.0", "--port", "8000"];
+  if (!process.env.DATABASE_URL) {
+    throw new Error("DATABASE_URL is not set. PostgreSQL is required.");
+  }
   const env = {
-    DATABASE_URL: process.env.DATABASE_URL ?? defaultDatabaseUrl
+    DATABASE_URL: process.env.DATABASE_URL
   };
   let lastError;
 
