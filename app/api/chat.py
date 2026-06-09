@@ -110,6 +110,8 @@ def get_leaderboard(
 @router.get("/chat/messages", response_model=list[ChatMessageResponse])
 def list_chat_messages(
     channel: str = Query(default="general"),
+    limit: int = Query(default=50, ge=1, le=200),
+    before_id: int | None = Query(default=None),
     db: Session = Depends(get_db),
     _: User = Depends(get_current_user)
 ):
@@ -119,9 +121,11 @@ def list_chat_messages(
             detail="Unknown chat channel"
         )
 
-    return db.query(ChatMessage).filter(
-        ChatMessage.channel == channel
-    ).order_by(ChatMessage.created_at.asc(), ChatMessage.id.asc()).all()
+    query = db.query(ChatMessage).filter(ChatMessage.channel == channel)
+    if before_id is not None:
+        query = query.filter(ChatMessage.id < before_id)
+    rows = query.order_by(ChatMessage.created_at.desc(), ChatMessage.id.desc()).limit(limit).all()
+    return list(reversed(rows))
 
 
 @router.post("/chat/messages", response_model=ChatMessageResponse)

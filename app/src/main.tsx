@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { Link, Navigate, Route, BrowserRouter as Router, Routes, useNavigate, useParams } from "react-router-dom";
 import { Check, Dice5, LogOut, MessageSquare, Plus, RefreshCw, Save, ScrollText, Search, Send, Shield, ShoppingBag, Swords, Trash2, Trophy, UserRound, UsersRound } from "lucide-react";
@@ -1079,22 +1079,63 @@ function LeaderboardPage() {
   );
 }
 
+const CHAT_PAGE_SIZE = 50;
+
 function ChatPage() {
   const [channel, setChannel] = useState<"general" | "rolls">("general");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [content, setContent] = useState("");
   const [error, setError] = useState("");
+  const [hasMore, setHasMore] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const listRef = useRef<HTMLDivElement>(null);
 
-  function loadMessages(nextChannel = channel) {
-    api.get<ChatMessage[]>("/chat/messages", { params: { channel: nextChannel } })
-      .then((response) => setMessages(response.data))
-      .catch((loadError) => setError(apiErrorDetail(loadError, "Не удалось загрузить чат")));
+  async function loadMessages(nextChannel = channel) {
+    try {
+      const response = await api.get<ChatMessage[]>("/chat/messages", {
+        params: { channel: nextChannel, limit: CHAT_PAGE_SIZE }
+      });
+      setMessages(response.data);
+      setHasMore(response.data.length === CHAT_PAGE_SIZE);
+    } catch (loadError) {
+      setError(apiErrorDetail(loadError, "Не удалось загрузить чат"));
+    }
   }
 
   useEffect(() => {
     setError("");
+    setHasMore(false);
     loadMessages(channel);
   }, [channel]);
+
+  useEffect(() => {
+    if (listRef.current) {
+      listRef.current.scrollTop = listRef.current.scrollHeight;
+    }
+  }, [channel]);
+
+  async function loadOlderMessages() {
+    if (!messages.length) return;
+    setLoadingMore(true);
+    try {
+      const oldestId = messages[0].id;
+      const response = await api.get<ChatMessage[]>("/chat/messages", {
+        params: { channel, limit: CHAT_PAGE_SIZE, before_id: oldestId }
+      });
+      const previousScrollHeight = listRef.current?.scrollHeight ?? 0;
+      setMessages((current) => [...response.data, ...current]);
+      setHasMore(response.data.length === CHAT_PAGE_SIZE);
+      requestAnimationFrame(() => {
+        if (listRef.current) {
+          listRef.current.scrollTop = listRef.current.scrollHeight - previousScrollHeight;
+        }
+      });
+    } catch (loadError) {
+      setError(apiErrorDetail(loadError, "Не удалось загрузить сообщения"));
+    } finally {
+      setLoadingMore(false);
+    }
+  }
 
   async function sendMessage(event: FormEvent) {
     event.preventDefault();
@@ -1106,6 +1147,11 @@ function ChatPage() {
         setChannel(response.data.channel);
       } else {
         setMessages((current) => [...current, response.data]);
+        requestAnimationFrame(() => {
+          if (listRef.current) {
+            listRef.current.scrollTop = listRef.current.scrollHeight;
+          }
+        });
       }
     } catch (sendError) {
       setError(apiErrorDetail(sendError, "Не удалось отправить сообщение"));
@@ -1125,7 +1171,14 @@ function ChatPage() {
         </div>
       </div>
 
-      <div className="mt-5 flex-1 space-y-3 overflow-y-auto rounded-md border border-white/10 p-3">
+      <div ref={listRef} className="mt-5 flex-1 space-y-3 overflow-y-auto rounded-md border border-white/10 p-3">
+        {hasMore && (
+          <div className="flex justify-center pb-2">
+            <button className="btn-secondary" onClick={loadOlderMessages} disabled={loadingMore}>
+              {loadingMore ? "Загрузка..." : "Загрузить ещё"}
+            </button>
+          </div>
+        )}
         {messages.map((message) => (
           <article className="rounded-md bg-black/25 p-3" key={message.id}>
             <div className="flex flex-wrap items-center justify-between gap-2 text-sm">

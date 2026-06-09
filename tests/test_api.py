@@ -1114,3 +1114,58 @@ def test_saving_throw_roll_returns_d20_plus_modifier_and_logs():
             and message["total"] == payload["total"]
             for message in roll_messages.json()
         )
+
+
+def test_chat_messages_pagination_with_limit_and_before_id():
+    with TestClient(app) as client:
+        token = login(client, "admin", "admin123")
+        headers = {"Authorization": f"Bearer {token}"}
+
+        for i in range(5):
+            resp = client.post(
+                "/api/chat/messages",
+                headers=headers,
+                json={"content": f"Сообщение {i + 1}"}
+            )
+            assert resp.status_code == 200, resp.text
+
+        all_messages = client.get(
+            "/api/chat/messages",
+            headers=headers,
+            params={"channel": "general", "limit": 200}
+        )
+        assert all_messages.status_code == 200, all_messages.text
+        all_data = all_messages.json()
+        assert len(all_data) == 5
+
+        first_two = client.get(
+            "/api/chat/messages",
+            headers=headers,
+            params={"channel": "general", "limit": 2}
+        )
+        assert first_two.status_code == 200, first_two.text
+        page_data = first_two.json()
+        assert len(page_data) == 2
+        assert page_data[0]["content"] == "Сообщение 4"
+        assert page_data[1]["content"] == "Сообщение 5"
+
+        oldest_id = page_data[0]["id"]
+        older = client.get(
+            "/api/chat/messages",
+            headers=headers,
+            params={"channel": "general", "limit": 200, "before_id": oldest_id}
+        )
+        assert older.status_code == 200, older.text
+        older_data = older.json()
+        assert len(older_data) == 3
+        assert all(m["id"] < oldest_id for m in older_data)
+        assert older_data[0]["content"] == "Сообщение 1"
+        assert older_data[1]["content"] == "Сообщение 2"
+        assert older_data[2]["content"] == "Сообщение 3"
+
+        invalid = client.get(
+            "/api/chat/messages",
+            headers=headers,
+            params={"channel": "general", "limit": 0}
+        )
+        assert invalid.status_code == 422
