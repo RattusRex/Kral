@@ -2,10 +2,8 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, DeclarativeBase
 import os
 
-<<<<<<< HEAD
 
-=======
-DATABASE_URL = os.getenv("DATABASE_URL")
+DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://postgres:GalU5TA1@localhost:5432/EpohaTruda")
 if not DATABASE_URL:
     raise RuntimeError("DATABASE_URL is not set. PostgreSQL is required.")
 
