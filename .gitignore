@@ -7,3 +7,5 @@ node_modules/
 dist/
 *.db
 .playwright-mcp/
+.env
+!.env.example
