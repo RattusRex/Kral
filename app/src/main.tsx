@@ -1089,8 +1089,10 @@ function ChatPage() {
   const [hasMore, setHasMore] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
+  const pendingScrollToBottom = useRef(false);
 
   async function loadMessages(nextChannel = channel) {
+    pendingScrollToBottom.current = true;
     try {
       const response = await api.get<ChatMessage[]>("/chat/messages", {
         params: { channel: nextChannel, limit: CHAT_PAGE_SIZE }
@@ -1098,6 +1100,7 @@ function ChatPage() {
       setMessages(response.data);
       setHasMore(response.data.length === CHAT_PAGE_SIZE);
     } catch (loadError) {
+      pendingScrollToBottom.current = false;
       setError(apiErrorDetail(loadError, "Не удалось загрузить чат"));
     }
   }
@@ -1109,10 +1112,11 @@ function ChatPage() {
   }, [channel]);
 
   useEffect(() => {
-    if (listRef.current) {
+    if (pendingScrollToBottom.current && listRef.current) {
       listRef.current.scrollTop = listRef.current.scrollHeight;
+      pendingScrollToBottom.current = false;
     }
-  }, [channel]);
+  }, [messages, channel]);
 
   async function loadOlderMessages() {
     if (!messages.length) return;
