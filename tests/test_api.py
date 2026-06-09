@@ -1,7 +1,7 @@
 import os
 from datetime import date
 
-os.environ["DATABASE_URL"] = "sqlite:///./test.db"
+os.environ["DATABASE_URL"] = "sqlite://"
 
 from fastapi.testclient import TestClient
 
