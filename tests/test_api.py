@@ -119,6 +119,43 @@ def test_unique_user_registers_successfully():
         assert data["email"] == "brandnewuser@example.com"
 
 
+def test_password_hashing_uses_bcrypt_directly_without_passlib():
+    """Registration must succeed with no passlib-related bcrypt version error.
+
+    passlib 1.7.4 tried to read bcrypt.__about__.__version__, which was removed
+    in bcrypt 4.1+, causing a trapped AttributeError and sometimes a cascading
+    409 Conflict on valid registrations.  The fix replaces passlib with direct
+    bcrypt calls so no version detection runs at all.
+    """
+    import logging
+    import bcrypt as _bcrypt
+    from app.core.security import hash_password, verify_password
+
+    # Simulate an environment where bcrypt no longer exposes __about__
+    original_about = getattr(_bcrypt, "__about__", None)
+    try:
+        if hasattr(_bcrypt, "__about__"):
+            del _bcrypt.__about__
+
+        hashed = hash_password("mypassword")
+        assert hashed.startswith("$2b$"), "hash must be a valid bcrypt hash"
+        assert verify_password("mypassword", hashed) is True
+        assert verify_password("wrongpassword", hashed) is False
+    finally:
+        if original_about is not None:
+            _bcrypt.__about__ = original_about
+
+    # Confirm that registration itself returns 200 for a unique user
+    with TestClient(app) as client:
+        response = client.post("/api/users", json={
+            "username": "bcrypt-compat-user",
+            "email": "bcrypt-compat@example.com",
+            "password": "secret123"
+        })
+        assert response.status_code == 200, response.text
+        assert response.json()["username"] == "bcrypt-compat-user"
+
+
 def test_character_xp_rolls_over_remaining_xp():
     with TestClient(app) as client:
         token = login(client, "admin", "admin123")
