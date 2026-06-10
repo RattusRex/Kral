@@ -55,19 +55,68 @@ def test_create_user_then_login_with_username_and_email():
         assert email_response.json()["username"] == "player-one"
 
 
-def test_duplicate_user_returns_conflict():
+def test_duplicate_username_returns_conflict():
     with TestClient(app) as client:
-        payload = {
+        assert client.post("/api/users", json={
             "username": "player-two",
             "email": "player-two@example.com",
             "password": "secret123"
-        }
-        assert client.post("/api/users", json=payload).status_code == 200
+        }).status_code == 200
 
-        duplicate = client.post("/api/users", json=payload)
-
+        duplicate = client.post("/api/users", json={
+            "username": "player-two",
+            "email": "different@example.com",
+            "password": "secret123"
+        })
         assert duplicate.status_code == 409
-        assert duplicate.json()["detail"] == "Username or email already exists"
+        assert duplicate.json()["detail"] == "Username already taken"
+
+
+def test_duplicate_email_returns_conflict():
+    with TestClient(app) as client:
+        assert client.post("/api/users", json={
+            "username": "player-three",
+            "email": "player-three@example.com",
+            "password": "secret123"
+        }).status_code == 200
+
+        duplicate = client.post("/api/users", json={
+            "username": "differentuser",
+            "email": "player-three@example.com",
+            "password": "secret123"
+        })
+        assert duplicate.status_code == 409
+        assert duplicate.json()["detail"] == "Email already registered"
+
+
+def test_duplicate_email_case_insensitive_returns_conflict():
+    with TestClient(app) as client:
+        assert client.post("/api/users", json={
+            "username": "player-four",
+            "email": "player-four@example.com",
+            "password": "secret123"
+        }).status_code == 200
+
+        duplicate = client.post("/api/users", json={
+            "username": "player-four-v2",
+            "email": "PLAYER-FOUR@EXAMPLE.COM",
+            "password": "secret123"
+        })
+        assert duplicate.status_code == 409
+        assert duplicate.json()["detail"] == "Email already registered"
+
+
+def test_unique_user_registers_successfully():
+    with TestClient(app) as client:
+        response = client.post("/api/users", json={
+            "username": "brandnewuser",
+            "email": "brandnewuser@example.com",
+            "password": "secret123"
+        })
+        assert response.status_code == 200, response.text
+        data = response.json()
+        assert data["username"] == "brandnewuser"
+        assert data["email"] == "brandnewuser@example.com"
 
 
 def test_character_xp_rolls_over_remaining_xp():

@@ -1,4 +1,7 @@
+import logging
+
 from fastapi import APIRouter, Depends, status
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 from app.core.security import hash_password
@@ -19,6 +22,8 @@ from app.core.security import (
     verify_access_token
 )
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter()
 
 
@@ -35,20 +40,31 @@ def create_user(
     user_data: UserCreate,
     db: Session = Depends(get_db)
 ):
-    existing_user = db.query(User).filter(
-        (User.username == user_data.username) |
-        (User.email == user_data.email)
-    ).first()
+    normalized_email = user_data.email.lower()
 
-    if existing_user:
+    existing_username = db.query(User).filter(
+        User.username == user_data.username
+    ).first()
+    if existing_username:
+        logger.warning("Registration conflict: username %r already exists", user_data.username)
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="Username or email already exists"
+            detail="Username already taken"
+        )
+
+    existing_email = db.query(User).filter(
+        func.lower(User.email) == normalized_email
+    ).first()
+    if existing_email:
+        logger.warning("Registration conflict: email %r already exists", normalized_email)
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Email already registered"
         )
 
     user = User(
         username=user_data.username,
-        email=user_data.email,
+        email=normalized_email,
         hashed_password=hash_password(user_data.password)
     )
 
@@ -57,12 +73,17 @@ def create_user(
         db.commit()
     except IntegrityError:
         db.rollback()
+        logger.warning(
+            "Registration integrity error for username=%r email=%r",
+            user_data.username,
+            normalized_email,
+        )
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Username or email already exists"
         )
     db.refresh(user)
-    
+
     return {
         "id": user.id,
         "username": user.username,
@@ -75,7 +96,7 @@ def login(
     db: Session = Depends(get_db)
 ):
     user = db.query(User).filter(
-        (User.email == form_data.username) |
+        (func.lower(User.email) == form_data.username.lower()) |
         (User.username == form_data.username)
     ).first()
 
