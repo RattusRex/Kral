@@ -154,7 +154,8 @@ async function startBackend() {
   const args = ["-m", "uvicorn", "app.main:app", "--reload", "--host", "0.0.0.0", "--port", "8000"];
   const databaseUrl = process.env.DATABASE_URL ?? DEFAULT_DATABASE_URL;
   if (!process.env.DATABASE_URL) {
-    console.log("[dev] DATABASE_URL is not set; using the default development database.");
+    console.log(`[dev] DATABASE_URL is not set; using the default development database: ${DEFAULT_DATABASE_URL}`);
+    console.log("[dev] To use a different database, copy .env.example to .env and set DATABASE_URL there.");
   }
   const env = {
     DATABASE_URL: databaseUrl
