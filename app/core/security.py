@@ -1,3 +1,4 @@
+import os
 from datetime import datetime, timedelta, timezone
 from jose import JWTError
 from jose import jwt
@@ -5,13 +6,23 @@ import bcrypt
 from fastapi import Depends, HTTPException
 from fastapi.security import OAuth2PasswordBearer
 
+from app.core.env import load_env
+
+load_env()
+
 oauth2_scheme = OAuth2PasswordBearer(
     tokenUrl="/api/login"
 )
 
-SECRET_KEY = "SUPER_SECRET_KEY"
+_secret = os.getenv("SECRET_KEY", "")
+if not _secret:
+    raise RuntimeError(
+        "SECRET_KEY environment variable is not set. "
+        "Generate a strong random key and add it to your .env file."
+    )
+SECRET_KEY = _secret
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 30
+ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "30"))
 
 
 def hash_password(password: str) -> str:

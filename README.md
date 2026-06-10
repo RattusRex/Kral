@@ -15,16 +15,19 @@ Prototype web application for D&D 2014 open-table bookkeeping: characters, inven
    pip install -r requirements.txt
    ```
 4. Create PostgreSQL database `EpohaTruda` or set a custom `DATABASE_URL`.
-   You can either export it in your shell:
-   ```bash
-   export DATABASE_URL="postgresql://postgres:password@localhost:5432/EpohaTruda"
-   ```
-   or copy `.env.example` to `.env` and edit it (the backend and `npm run dev`
-   both load `.env` automatically):
+   Copy `.env.example` to `.env` and fill in all required values:
    ```bash
    cp .env.example .env
    ```
-5. Run FastAPI:
+   The required variables are:
+   - `DATABASE_URL` — PostgreSQL connection string.
+   - `SECRET_KEY` — secret used to sign JWT tokens. Generate one with:
+     ```bash
+     python -c "import secrets; print(secrets.token_hex(32))"
+     ```
+   - `ADMIN_PASSWORD` — password for the default `admin` owner account.
+   - `ALLOWED_ORIGINS` — comma-separated list of allowed CORS origins (e.g. `https://yourdomain.com`).
+5. Run FastAPI (development):
    ```bash
    uvicorn app.main:app --reload
    ```
@@ -74,13 +77,36 @@ npm run dev:backend
 npm run dev:frontend
 ```
 
-## Test Admin Account
+## Production Deployment
 
-Username: `admin`
+1. Build the frontend:
+   ```bash
+   npm run build
+   ```
+2. Fill in all variables in `.env` (see Backend Setup step 4 above).
+   In production `ALLOWED_ORIGINS` must list only your actual domain(s).
+3. Start the backend without `--reload`:
+   ```bash
+   npm run start:backend
+   # or directly:
+   uvicorn app.main:app --host 0.0.0.0 --port 8000
+   # or with gunicorn for multi-worker production:
+   gunicorn app.main:app -w 4 -k uvicorn.workers.UvicornWorker --bind 0.0.0.0:8000
+   ```
+4. Serve the built frontend from `dist/` with nginx (or another static server)
+   and proxy `/api` requests to the backend.
 
-Password: `admin123`
+> **Security checklist before going live:**
+> - `SECRET_KEY` is a long random string (≥32 bytes), not `CHANGE_ME`.
+> - `ADMIN_PASSWORD` is a strong unique password, not `CHANGE_ME`.
+> - `ALLOWED_ORIGINS` lists only your production domain — no wildcards.
+> - `.env` is not committed to git (it is already in `.gitignore`).
 
-The account is created automatically when the backend starts.
+## Admin Account
+
+The `admin` account is created automatically on first backend start using the
+password from the `ADMIN_PASSWORD` environment variable. Set a strong password
+in `.env` before the first run.
 
 ## VS Code
 

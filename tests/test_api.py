@@ -2,6 +2,8 @@ import os
 from datetime import date
 
 os.environ["DATABASE_URL"] = "sqlite://"
+os.environ.setdefault("SECRET_KEY", "test-secret-key-for-pytest-only")
+os.environ.setdefault("ADMIN_PASSWORD", "admin123")
 
 from fastapi.testclient import TestClient
 
