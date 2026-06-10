@@ -1,4 +1,6 @@
+import os
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 import uvicorn
 from app.api.users import router as users_router
@@ -14,8 +16,18 @@ from app.api.chat import router as chat_router
 from app.models.chat import ChatMessage
 from app.core.security import hash_password
 from app.core.roles import Role
+from app.core.env import load_env
 from sqlalchemy import inspect, text
 from sqlalchemy.orm import Session
+
+load_env()
+
+_ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "")
+if not _ADMIN_PASSWORD:
+    raise RuntimeError(
+        "ADMIN_PASSWORD environment variable is not set. "
+        "Set a strong password for the default admin account in your .env file."
+    )
 
 
 def seed_admin(db: Session) -> None:
@@ -29,7 +41,7 @@ def seed_admin(db: Session) -> None:
     db.add(User(
         username="admin",
         email="admin@example.com",
-        hashed_password=hash_password("admin123"),
+        hashed_password=hash_password(_ADMIN_PASSWORD),
         role=Role.OWNER
     ))
     db.commit()
@@ -90,7 +102,19 @@ async def lifespan(app: FastAPI):
         db.close()
     yield
 
+_raw_origins = os.getenv("ALLOWED_ORIGINS", "")
+_allowed_origins = [o.strip() for o in _raw_origins.split(",") if o.strip()]
+
 app = FastAPI(lifespan=lifespan)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=_allowed_origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 app.include_router(inventory_router, prefix="/api")
 app.include_router(character_router, prefix="/api")
 app.include_router(admin_router, prefix="/api")
@@ -104,4 +128,5 @@ def root():
 
 
 if __name__ == "__main__":
-    uvicorn.run("app.main:app", reload=True)
+    _reload = os.getenv("UVICORN_RELOAD", "false").lower() == "true"
+    uvicorn.run("app.main:app", reload=_reload)
