@@ -1298,3 +1298,48 @@ def test_role_endpoint_validates_role_and_blocks_self_demotion():
             json={"role": "admin"}
         )
         assert missing.status_code == 404
+
+
+def test_migrate_user_roles_uses_boolean_true_comparison():
+    """migrate_user_roles must compare is_admin with TRUE, not 1.
+
+    PostgreSQL rejects ``is_admin = 1`` on a boolean column, so the
+    comparison must use ``is_admin = TRUE`` to be compatible with both
+    PostgreSQL and SQLite.
+    """
+    from sqlalchemy import text
+    from app.db.database import engine
+    from app.main import migrate_user_roles
+    from app.core.roles import Role
+
+    with engine.begin() as conn:
+        conn.execute(text("DROP TABLE IF EXISTS users"))
+        conn.execute(text(
+            "CREATE TABLE users ("
+            "  id INTEGER PRIMARY KEY,"
+            "  username TEXT NOT NULL,"
+            "  email TEXT NOT NULL,"
+            "  hashed_password TEXT NOT NULL,"
+            "  karma INTEGER NOT NULL DEFAULT 0,"
+            "  is_admin BOOLEAN NOT NULL DEFAULT 0"
+            ")"
+        ))
+        conn.execute(text(
+            "INSERT INTO users (id, username, email, hashed_password, is_admin) VALUES "
+            "(1, 'legacy-admin', 'la@example.com', 'x', TRUE),"
+            "(2, 'legacy-player', 'lp@example.com', 'x', FALSE)"
+        ))
+
+    migrate_user_roles()
+
+    with engine.connect() as conn:
+        rows = conn.execute(
+            text("SELECT username, role FROM users ORDER BY id")
+        ).fetchall()
+
+    assert rows[0] == ("legacy-admin", Role.ADMIN), (
+        "Legacy admin with is_admin=TRUE should be migrated to 'admin' role"
+    )
+    assert rows[1] == ("legacy-player", Role.PLAYER), (
+        "Legacy player with is_admin=FALSE should be migrated to 'player' role"
+    )

@@ -65,7 +65,7 @@ def migrate_user_roles() -> None:
     with engine.begin() as connection:
         connection.execute(text(
             "UPDATE users SET role = :admin "
-            "WHERE is_admin = 1 AND (role IS NULL OR role = '' OR role = :player)"
+            "WHERE is_admin = TRUE AND (role IS NULL OR role = '' OR role = :player)"
         ), {"admin": Role.ADMIN, "player": Role.PLAYER})
         connection.execute(text(
             "UPDATE users SET role = :player WHERE role IS NULL OR role = ''"
