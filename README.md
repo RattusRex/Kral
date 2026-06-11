@@ -68,7 +68,7 @@ The seeded `admin` account is an **owner**. New accounts are created as **player
 
 `npm run dev` starts FastAPI on `http://localhost:8000`, waits for it to be reachable, then starts Vite. It loads variables from a project-level `.env` file automatically, so defining `DATABASE_URL` there is enough. If `DATABASE_URL` is not set in the environment or in `.env`, it falls back to the default development database `postgresql://postgres:GalU5TA1@localhost:5432/EpohaTruda` (which must be running locally).
 
-The Vite dev server proxies `/api` requests to `http://127.0.0.1:8000`. To use a different API target, set `VITE_API_TARGET`.
+The Vite dev server proxies `/api` requests to `http://127.0.0.1:8000`. To use a different backend origin, set `VITE_API_TARGET`.
 
 If you want to run services separately:
 
@@ -85,6 +85,11 @@ npm run dev:frontend
    ```
 2. Fill in all variables in `.env` (see Backend Setup step 4 above).
    In production `ALLOWED_ORIGINS` must list only your actual domain(s).
+   The frontend build reads project-level `.env` values too:
+   - same-origin deployments can keep the default `/api` base and proxy `/api` to FastAPI;
+   - static builds served locally from `localhost` automatically call `http://127.0.0.1:8000/api`;
+   - static builds served from a different origin can set `VITE_API_TARGET=https://backend.example.com`;
+   - non-standard API paths can set `VITE_API_BASE_URL=https://backend.example.com/api`.
 3. Start the backend without `--reload`:
    ```bash
    npm run start:backend
@@ -95,6 +100,15 @@ npm run dev:frontend
    ```
 4. Serve the built frontend from `dist/` with nginx (or another static server)
    and proxy `/api` requests to the backend.
+
+For a local production smoke test without a reverse proxy, set `ALLOWED_ORIGINS`
+to the static frontend origin, start the backend, build the frontend, and serve `dist/`:
+
+```bash
+ALLOWED_ORIGINS=http://localhost:3000 npm run start:backend
+npm run build
+npx serve -s dist -l 3000
+```
 
 > **Security checklist before going live:**
 > - `SECRET_KEY` is a long random string (≥32 bytes), not `CHANGE_ME`.

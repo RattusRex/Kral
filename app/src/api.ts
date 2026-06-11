@@ -1,4 +1,5 @@
 import axios from "axios";
+import { API_BASE_URL } from "./apiBase";
 
 export const TOKEN_KEY = "access_token";
 
@@ -209,8 +210,12 @@ export interface TransferLog {
 }
 
 export const api = axios.create({
-  baseURL: "/api"
+  baseURL: API_BASE_URL
 });
+
+function isHtmlResponse(data: unknown) {
+  return typeof data === "string" && /^\s*(?:<!doctype html|<html[\s>])/i.test(data);
+}
 
 api.interceptors.request.use((config) => {
   const token = localStorage.getItem(TOKEN_KEY);
@@ -221,7 +226,14 @@ api.interceptors.request.use((config) => {
 });
 
 api.interceptors.response.use(
-  (response) => response,
+  (response) => {
+    if (isHtmlResponse(response.data)) {
+      return Promise.reject(new Error(
+        `API request ${response.config.url ?? ""} returned HTML. Check VITE_API_TARGET or your /api reverse proxy.`
+      ));
+    }
+    return response;
+  },
   (error) => {
     if (error.response?.status === 401) {
       localStorage.removeItem(TOKEN_KEY);
