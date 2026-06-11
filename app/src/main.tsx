@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { Component, FormEvent, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { Link, Navigate, Route, BrowserRouter as Router, Routes, useNavigate, useParams } from "react-router-dom";
 import { Check, Dice5, LogOut, MessageSquare, Plus, RefreshCw, Save, ScrollText, Search, Send, Shield, ShoppingBag, Swords, Trash2, Trophy, UserRound, UsersRound } from "lucide-react";
@@ -183,6 +183,14 @@ function HomePage() {
 
 function Protected({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
+  const [, forceUpdate] = useState(0);
+
+  useEffect(() => {
+    function handleLogout() { forceUpdate(n => n + 1); }
+    window.addEventListener("auth:logout", handleLogout);
+    return () => window.removeEventListener("auth:logout", handleLogout);
+  }, []);
+
   if (loading) return <div className="p-6 text-parchment">Загрузка...</div>;
   if (!localStorage.getItem(TOKEN_KEY)) return <Navigate to="/login" replace />;
   return <Shell user={user}>{children}</Shell>;
@@ -1774,6 +1782,32 @@ function Stat({ label, value }: { label: string; value: string | number }) {
   return <div className="rounded-md bg-black/25 p-3"><dt className="text-xs uppercase text-white/45">{label}</dt><dd className="mt-1 text-lg font-semibold">{value}</dd></div>;
 }
 
+class ErrorBoundary extends Component<{ children: React.ReactNode }, { error: Error | null }> {
+  constructor(props: { children: React.ReactNode }) {
+    super(props);
+    this.state = { error: null };
+  }
+
+  static getDerivedStateFromError(error: Error) {
+    return { error };
+  }
+
+  render() {
+    if (this.state.error) {
+      return (
+        <div className="grid min-h-screen place-items-center bg-[#101217] px-4 text-parchment">
+          <div className="panel flex w-full max-w-sm flex-col gap-3 p-6">
+            <h1 className="text-2xl font-bold text-ember">Что-то пошло не так</h1>
+            <p className="text-sm text-white/70">Произошла ошибка. Попробуйте обновить страницу.</p>
+            <button className="btn" onClick={() => window.location.reload()}>Обновить</button>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 function App() {
   return (
     <Router>
@@ -1799,4 +1833,4 @@ function App() {
   );
 }
 
-createRoot(document.getElementById("root")!).render(<App />);
+createRoot(document.getElementById("root")!).render(<ErrorBoundary><App /></ErrorBoundary>);
