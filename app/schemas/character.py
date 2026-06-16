@@ -1,3 +1,5 @@
+from datetime import date
+
 from pydantic import BaseModel, ConfigDict
 from typing import Optional
 
@@ -6,6 +8,7 @@ class CharacterCreate(BaseModel):
     class_name: str
     level: int
     route: str
+    game_created_at: Optional[date] = None
     subclass: str = ""
     race: str = ""
     background: str = ""
@@ -97,3 +100,30 @@ class SavingThrowRollResponse(BaseModel):
     bonus: int
     roll: int
     total: int
+
+
+class DowntimeEntryCreate(BaseModel):
+    start_date: date
+    days: int
+    reason: str = ""
+
+
+class DowntimeEntryResponse(BaseModel):
+    id: int
+    character_id: int
+    start_date: date
+    days: int
+    reason: str
+    source: str
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class CalendarSummaryResponse(BaseModel):
+    game_epoch: date
+    created_at: date
+    current_date: date
+    total_days: int
+    busy_days: int
+    free_days: int
+    entries: list[DowntimeEntryResponse]

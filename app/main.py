@@ -6,14 +6,16 @@ import uvicorn
 from app.api.users import router as users_router
 from app.db.database import Base, engine, SessionLocal
 from app.models.user import User
-from app.models.character import Character, CharacterAttack
+from app.models.character import Character, CharacterAttack, DowntimeEntry
 from app.api.characters import router as character_router
 from app.models.inventory import Inventory, InventoryItem
 from app.api.inventory import router as inventory_router
+from app.api.calendar import router as calendar_router
 from app.api.admin import router as admin_router
 from app.api.attacks import router as attacks_router
 from app.api.chat import router as chat_router
 from app.models.chat import ChatMessage
+from app.core.calendar import GAME_EPOCH
 from app.core.security import hash_password
 from app.core.roles import Role
 from app.core.env import load_env
@@ -87,6 +89,11 @@ def migrate_user_roles() -> None:
 def ensure_schema_columns() -> None:
     ensure_column("characters", "temp_hp", "INTEGER NOT NULL DEFAULT 0")
     ensure_column("characters", "speed", "INTEGER NOT NULL DEFAULT 30")
+    ensure_column(
+        "characters",
+        "game_created_at",
+        f"DATE NOT NULL DEFAULT '{GAME_EPOCH.isoformat()}'"
+    )
     ensure_column("inventories", "notes", "TEXT NOT NULL DEFAULT ''")
     migrate_user_roles()
 
@@ -116,6 +123,7 @@ app.add_middleware(
 )
 
 app.include_router(inventory_router, prefix="/api")
+app.include_router(calendar_router, prefix="/api")
 app.include_router(character_router, prefix="/api")
 app.include_router(admin_router, prefix="/api")
 app.include_router(attacks_router, prefix="/api")

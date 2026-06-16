@@ -42,10 +42,30 @@ export interface Character {
   level: number;
   xp: number;
   route: string;
+  game_created_at?: string;
   user_id?: number;
   owner_username?: string;
   owner_email?: string;
   is_dead?: boolean;
+}
+
+export interface DowntimeEntry {
+  id: number;
+  character_id: number;
+  start_date: string;
+  days: number;
+  reason: string;
+  source: string;
+}
+
+export interface CalendarSummary {
+  game_epoch: string;
+  created_at: string;
+  current_date: string;
+  total_days: number;
+  busy_days: number;
+  free_days: number;
+  entries: DowntimeEntry[];
 }
 
 export interface TransferTarget {
