@@ -1431,3 +1431,214 @@ def test_migrate_user_roles_uses_boolean_true_comparison():
     assert rows[1] == ("legacy-player", Role.PLAYER), (
         "Legacy player with is_admin=FALSE should be migrated to 'player' role"
     )
+
+
+# ---------------------------------------------------------------------------
+# Game calendar / free-day tracking
+# ---------------------------------------------------------------------------
+
+from datetime import timedelta
+
+from app.core.calendar import GAME_EPOCH
+
+
+def _make_character(client, headers, **overrides):
+    payload = {
+        "name": "Calendar Hero",
+        "class_name": "Wizard",
+        "level": 1,
+        "route": "Market",
+        "investigation": 20,
+    }
+    payload.update(overrides)
+    created = client.post("/api/characters", headers=headers, json=payload)
+    assert created.status_code == 200, created.text
+    return created.json()
+
+
+def test_character_defaults_to_game_epoch_creation_date():
+    with TestClient(app) as client:
+        headers = {"Authorization": f"Bearer {login(client, 'admin', 'admin123')}"}
+        character = _make_character(client, headers)
+        assert character["game_created_at"] == GAME_EPOCH.isoformat()
+
+
+def test_character_accepts_custom_creation_date():
+    with TestClient(app) as client:
+        headers = {"Authorization": f"Bearer {login(client, 'admin', 'admin123')}"}
+        character = _make_character(client, headers, game_created_at="2025-09-15")
+        assert character["game_created_at"] == "2025-09-15"
+
+
+def test_character_rejects_creation_date_before_epoch():
+    with TestClient(app) as client:
+        headers = {"Authorization": f"Bearer {login(client, 'admin', 'admin123')}"}
+        created = client.post("/api/characters", headers=headers, json={
+            "name": "Too Early",
+            "class_name": "Wizard",
+            "level": 1,
+            "route": "Market",
+            "game_created_at": "2025-05-31",
+        })
+        assert created.status_code == 400, created.text
+
+
+def test_calendar_summary_reports_total_busy_and_free_days():
+    with TestClient(app) as client:
+        headers = {"Authorization": f"Bearer {login(client, 'admin', 'admin123')}"}
+        character = _make_character(client, headers)
+        cid = character["id"]
+
+        summary = client.get(
+            f"/api/characters/{cid}/calendar", headers=headers
+        ).json()
+        assert summary["created_at"] == GAME_EPOCH.isoformat()
+        assert summary["busy_days"] == 0
+        assert summary["free_days"] == summary["total_days"]
+        assert summary["total_days"] > 0
+
+
+def test_manual_downtime_entry_reduces_free_days():
+    with TestClient(app) as client:
+        headers = {"Authorization": f"Bearer {login(client, 'admin', 'admin123')}"}
+        cid = _make_character(client, headers)["id"]
+
+        response = client.post(
+            f"/api/characters/{cid}/calendar/downtime",
+            headers=headers,
+            json={"start_date": "2025-06-01", "days": 5, "reason": "Крафт"},
+        )
+        assert response.status_code == 200, response.text
+        summary = response.json()
+        assert summary["busy_days"] == 5
+        assert summary["free_days"] == summary["total_days"] - 5
+        assert len(summary["entries"]) == 1
+        assert summary["entries"][0]["source"] == "manual"
+        assert summary["entries"][0]["reason"] == "Крафт"
+
+
+def test_manual_downtime_cannot_start_before_creation_date():
+    with TestClient(app) as client:
+        headers = {"Authorization": f"Bearer {login(client, 'admin', 'admin123')}"}
+        cid = _make_character(client, headers, game_created_at="2025-09-15")["id"]
+
+        rejected = client.post(
+            f"/api/characters/{cid}/calendar/downtime",
+            headers=headers,
+            json={"start_date": "2025-09-10", "days": 1, "reason": "Слишком рано"},
+        )
+        assert rejected.status_code == 400, rejected.text
+
+        accepted = client.post(
+            f"/api/characters/{cid}/calendar/downtime",
+            headers=headers,
+            json={"start_date": "2025-09-20", "days": 1, "reason": "Норм"},
+        )
+        assert accepted.status_code == 200, accepted.text
+
+
+def test_manual_downtime_rejects_non_positive_days():
+    with TestClient(app) as client:
+        headers = {"Authorization": f"Bearer {login(client, 'admin', 'admin123')}"}
+        cid = _make_character(client, headers)["id"]
+        rejected = client.post(
+            f"/api/characters/{cid}/calendar/downtime",
+            headers=headers,
+            json={"start_date": "2025-06-01", "days": 0, "reason": "Ничего"},
+        )
+        assert rejected.status_code == 400, rejected.text
+
+
+def test_downtime_entry_can_be_deleted():
+    with TestClient(app) as client:
+        headers = {"Authorization": f"Bearer {login(client, 'admin', 'admin123')}"}
+        cid = _make_character(client, headers)["id"]
+        summary = client.post(
+            f"/api/characters/{cid}/calendar/downtime",
+            headers=headers,
+            json={"start_date": "2025-06-01", "days": 3, "reason": "Крафт"},
+        ).json()
+        entry_id = summary["entries"][0]["id"]
+
+        deleted = client.delete(
+            f"/api/characters/{cid}/calendar/downtime/{entry_id}",
+            headers=headers,
+        )
+        assert deleted.status_code == 200, deleted.text
+        assert deleted.json()["busy_days"] == 0
+        assert deleted.json()["entries"] == []
+
+
+def test_shop_search_spends_oldest_free_days_first():
+    with TestClient(app) as client:
+        headers = {"Authorization": f"Bearer {login(client, 'admin', 'admin123')}"}
+        cid = _make_character(client, headers)["id"]
+        client.post(
+            f"/api/admin/characters/{cid}/currency/add",
+            headers=headers,
+            json={"gold": 10000, "silver": 0, "copper": 0},
+        )
+
+        search = client.post(
+            f"/api/characters/{cid}/shop/search",
+            headers=headers,
+            json={
+                "mode": "buy",
+                "item_name": "Healing Potion",
+                "rarity": "Обычный",
+                "is_consumable": True,
+                "searcher_type": "character",
+            },
+        )
+        assert search.status_code == 200, search.text
+        spent_days = search.json()["days"]
+        assert spent_days > 0
+
+        summary = client.get(
+            f"/api/characters/{cid}/calendar", headers=headers
+        ).json()
+        assert summary["busy_days"] == spent_days
+        # Oldest days are spent first, so the run begins at the game epoch.
+        shop_entries = [e for e in summary["entries"] if e["source"] == "shop"]
+        assert shop_entries
+        assert shop_entries[0]["start_date"] == GAME_EPOCH.isoformat()
+
+
+def test_shop_search_blocked_when_not_enough_free_days():
+    with TestClient(app) as client:
+        headers = {"Authorization": f"Bearer {login(client, 'admin', 'admin123')}"}
+        yesterday = (date.today() - timedelta(days=1)).isoformat()
+        cid = _make_character(
+            client, headers, game_created_at=yesterday
+        )["id"]
+        client.post(
+            f"/api/admin/characters/{cid}/currency/add",
+            headers=headers,
+            json={"gold": 10000, "silver": 0, "copper": 0},
+        )
+        # Occupy the single available free day so none remain.
+        client.post(
+            f"/api/characters/{cid}/calendar/downtime",
+            headers=headers,
+            json={"start_date": yesterday, "days": 1, "reason": "Занят"},
+        )
+
+        search = client.post(
+            f"/api/characters/{cid}/shop/search",
+            headers=headers,
+            json={
+                "mode": "buy",
+                "item_name": "Healing Potion",
+                "rarity": "Обычный",
+                "is_consumable": True,
+                "searcher_type": "character",
+            },
+        )
+        assert search.status_code == 400, search.text
+        assert "свободных дней" in search.json()["detail"]
+
+        # The blocked search must not have charged gold.
+        inventory = client.get(
+            f"/api/characters/{cid}/inventory", headers=headers
+        ).json()
+        assert inventory["gold"] == 10000

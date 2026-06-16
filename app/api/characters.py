@@ -4,6 +4,7 @@ from fastapi import APIRouter
 from fastapi import Depends
 from sqlalchemy.orm import Session
 from fastapi import HTTPException
+from app.core.calendar import GAME_EPOCH
 from app.db.database import SessionLocal
 from app.models.character import Character
 from app.models.user import User
@@ -54,9 +55,20 @@ def create_character(
             detail="Достигнут лимит персонажей (10 из 10)."
         )
 
+    game_created_at = character_data.game_created_at or GAME_EPOCH
+    if game_created_at < GAME_EPOCH:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Дата создания персонажа не может быть раньше начала игры "
+                f"({GAME_EPOCH.strftime('%d.%m.%Y')})."
+            )
+        )
+
     character = Character(
         name=character_data.name,
         class_name=character_data.class_name,
+        game_created_at=game_created_at,
         subclass=character_data.subclass,
         race=character_data.race,
         background=character_data.background,
@@ -89,6 +101,7 @@ def create_character(
         "level": character.level,
         "xp": character.xp,
         "route": character.route,
+        "game_created_at": character.game_created_at,
         "subclass": character.subclass,
         "race": character.race,
         "background": character.background,

@@ -1,8 +1,11 @@
+from datetime import date, datetime
+
 from sqlalchemy import ForeignKey
 from sqlalchemy.orm import Mapped
 from sqlalchemy.orm import mapped_column
 from sqlalchemy.orm import relationship
-from sqlalchemy import Column, Integer, String, Boolean
+from sqlalchemy import Column, Date, DateTime, Integer, String, Boolean
+from app.core.calendar import GAME_EPOCH
 from app.db.database import Base
 
 
@@ -88,6 +91,13 @@ class Character(Base):
 
     route: Mapped[str]
 
+    # In-world creation date — the starting point for the free-day calendar.
+    # Defaults to the game epoch so existing characters keep a sensible value.
+    game_created_at: Mapped[date] = mapped_column(
+        Date,
+        default=GAME_EPOCH
+    )
+
 
     user_id: Mapped[int] = mapped_column(
         ForeignKey("users.id")
@@ -113,6 +123,61 @@ class Character(Base):
         "CharacterAttack",
         back_populates="character",
         cascade="all, delete-orphan"
+    )
+
+    downtime_entries = relationship(
+        "DowntimeEntry",
+        back_populates="character",
+        cascade="all, delete-orphan",
+        order_by="DowntimeEntry.start_date"
+    )
+
+
+class DowntimeEntry(Base):
+    """A span of in-world days a character spent on out-of-game activities."""
+
+    __tablename__ = "downtime_entries"
+
+    id: Mapped[int] = mapped_column(
+        primary_key=True
+    )
+
+    character_id: Mapped[int] = mapped_column(
+        ForeignKey("characters.id")
+    )
+
+    # First busy day of the span.
+    start_date: Mapped[date] = mapped_column(
+        Date
+    )
+
+    # Number of consecutive busy days, starting at ``start_date``.
+    days: Mapped[int] = mapped_column(
+        Integer,
+        default=1
+    )
+
+    # Human-readable reason ("крафт", "поиск покупателя", ...).
+    reason: Mapped[str] = mapped_column(
+        String(255),
+        default=""
+    )
+
+    # Origin of the entry: "manual" for journal entries, "shop" for
+    # automatic deductions made by the shop mechanics.
+    source: Mapped[str] = mapped_column(
+        String(32),
+        default="manual"
+    )
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime,
+        default=datetime.utcnow
+    )
+
+    character = relationship(
+        "Character",
+        back_populates="downtime_entries"
     )
 
 

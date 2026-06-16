@@ -8,6 +8,7 @@ from app.db.database import SessionLocal
 from app.models.character import Character
 from app.models.inventory import Inventory, InventoryItem, ShopQuote, ShopTransactionLog, TransferLog
 from app.models.user import User
+from app.api.calendar import charge_character_downtime
 from app.api.users import get_current_user
 from app.schemas.inventory import (
     AddItemRequest,
@@ -912,6 +913,19 @@ def search_shop_item(
         search_data.searcher_type,
         search_data.hireling_level
     )
+
+    # Searching the market consumes in-world time. Spend the character's
+    # oldest free days first (raising 400 if there are not enough) before
+    # charging gold, so a failed time check leaves the inventory untouched.
+    mode_label = "покупателя" if item_data["mode"] == "sell" else "продавца"
+    charge_character_downtime(
+        character,
+        db,
+        search_result["days"],
+        reason=f"Поиск {mode_label}: {item_data['item_name']}",
+        source="shop",
+    )
+
     subtract_gold_amount(
         inventory,
         search_result["hireling_cost"],

@@ -1,11 +1,14 @@
 import { Component, FormEvent, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { Link, Navigate, Route, BrowserRouter as Router, Routes, useNavigate, useParams } from "react-router-dom";
-import { Check, Dice5, LogOut, MessageSquare, Plus, RefreshCw, Save, ScrollText, Search, Send, Shield, ShoppingBag, Swords, Trash2, Trophy, UserRound, UsersRound } from "lucide-react";
-import { AbilityRoll, AdminUser, api, AttackRoll, Character, CharacterAttack, ChatMessage, DamageRoll, Inventory, InventoryItem, LeaderboardEntry, MagicItem, ROLE_LABELS, SavingThrowRoll, ShopResult, ShopTransactionLog, TOKEN_KEY, TransferLog, TransferTarget, User, UserRole } from "./api";
+import { CalendarDays, Check, Dice5, LogOut, MessageSquare, Plus, RefreshCw, Save, ScrollText, Search, Send, Shield, ShoppingBag, Swords, Trash2, Trophy, UserRound, UsersRound } from "lucide-react";
+import { AbilityRoll, AdminUser, api, AttackRoll, CalendarSummary, Character, CharacterAttack, ChatMessage, DamageRoll, Inventory, InventoryItem, LeaderboardEntry, MagicItem, ROLE_LABELS, SavingThrowRoll, ShopResult, ShopTransactionLog, TOKEN_KEY, TransferLog, TransferTarget, User, UserRole } from "./api";
 import "./styles.css";
 
 const rarities = ["Обычный", "Необычный", "Редкий"];
+// The game world started counting in-world time on this date; characters
+// cannot be created (or spend downtime) earlier than it.
+const GAME_EPOCH = "2025-06-01";
 const hirelings = [
   { level: "Плохой", bonus: 0, cost: 1 },
   { level: "Хороший", bonus: 4, cost: 5 },
@@ -68,6 +71,7 @@ const blankCharacter = {
   race: "",
   background: "",
   route: "",
+  game_created_at: GAME_EPOCH,
   level: 1,
   hp: 1,
   temp_hp: 0,
@@ -86,6 +90,13 @@ const maxCharacters = 10;
 function apiErrorDetail(error: unknown, fallback: string) {
   const detail = (error as { response?: { data?: { detail?: unknown } } }).response?.data?.detail;
   return typeof detail === "string" ? detail : fallback;
+}
+
+function formatGameDate(value: string | undefined) {
+  if (!value) return "-";
+  const [year, month, day] = value.split("-");
+  if (!year || !month || !day) return value;
+  return `${day}.${month}.${year}`;
 }
 
 function abilityModifier(score: number) {
@@ -335,6 +346,134 @@ function CharactersPage() {
   );
 }
 
+function CalendarPanel({ characterId }: { characterId: number }) {
+  const [summary, setSummary] = useState<CalendarSummary | null>(null);
+  const [form, setForm] = useState({ start_date: GAME_EPOCH, days: 1, reason: "" });
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let active = true;
+    setLoading(true);
+    api.get<CalendarSummary>(`/characters/${characterId}/calendar`)
+      .then((response) => {
+        if (!active) return;
+        setSummary(response.data);
+        setForm((current) => ({ ...current, start_date: response.data.created_at }));
+      })
+      .catch((loadError) => active && setError(apiErrorDetail(loadError, "Не удалось загрузить календарь")))
+      .finally(() => active && setLoading(false));
+    return () => {
+      active = false;
+    };
+  }, [characterId]);
+
+  async function addEntry(event: FormEvent) {
+    event.preventDefault();
+    setError("");
+    try {
+      const response = await api.post<CalendarSummary>(`/characters/${characterId}/calendar/downtime`, {
+        start_date: form.start_date,
+        days: Number(form.days),
+        reason: form.reason
+      });
+      setSummary(response.data);
+      setForm({ start_date: response.data.created_at, days: 1, reason: "" });
+    } catch (addError) {
+      setError(apiErrorDetail(addError, "Не удалось добавить запись"));
+    }
+  }
+
+  async function removeEntry(entryId: number) {
+    setError("");
+    try {
+      const response = await api.delete<CalendarSummary>(`/characters/${characterId}/calendar/downtime/${entryId}`);
+      setSummary(response.data);
+    } catch (removeError) {
+      setError(apiErrorDetail(removeError, "Не удалось удалить запись"));
+    }
+  }
+
+  return (
+    <section className="panel p-5">
+      <div className="mb-4 flex items-center gap-2">
+        <CalendarDays size={18} className="text-ember" />
+        <h2 className="text-lg font-semibold text-ember">📅 Календарь персонажа</h2>
+      </div>
+      {loading && !summary ? (
+        <p className="text-sm text-white/55">Загрузка...</p>
+      ) : summary ? (
+        <>
+          <dl className="grid grid-cols-2 gap-3 md:grid-cols-3">
+            <Stat label="Дата создания" value={formatGameDate(summary.created_at)} />
+            <Stat label="Текущая игровая дата" value={formatGameDate(summary.current_date)} />
+            <Stat label="Всего дней" value={summary.total_days} />
+            <Stat label="Занятые дни" value={summary.busy_days} />
+            <Stat label="Свободные дни" value={summary.free_days} />
+          </dl>
+
+          <form className="mt-5 grid gap-3 md:grid-cols-[150px_110px_1fr_auto]" onSubmit={addEntry}>
+            <label className="field-label">
+              <span>Дата начала</span>
+              <input
+                className="field"
+                type="date"
+                min={summary.created_at}
+                max={summary.current_date}
+                value={form.start_date}
+                onChange={(event) => setForm({ ...form, start_date: event.target.value })}
+              />
+            </label>
+            <label className="field-label">
+              <span>Дней</span>
+              <input
+                className="field"
+                type="number"
+                min={1}
+                value={form.days}
+                onChange={(event) => setForm({ ...form, days: Number(event.target.value) })}
+              />
+            </label>
+            <label className="field-label">
+              <span>Причина</span>
+              <input
+                className="field"
+                placeholder="Крафт, исследование, обучение..."
+                value={form.reason}
+                onChange={(event) => setForm({ ...form, reason: event.target.value })}
+              />
+            </label>
+            <button className="btn self-end" type="submit"><Plus size={16} />Занять дни</button>
+          </form>
+          {error && <p className="mt-3 text-sm text-red-300">{error}</p>}
+
+          <div className="mt-4 space-y-2">
+            <h3 className="text-sm font-semibold text-white/70">Журнал занятых дней</h3>
+            {summary.entries.length === 0 ? (
+              <p className="text-sm text-white/55">Занятых дней пока нет.</p>
+            ) : (
+              summary.entries.map((entry) => (
+                <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-white/10 px-3 py-2" key={entry.id}>
+                  <div>
+                    <div className="font-semibold">
+                      {formatGameDate(entry.start_date)} · {entry.days} дн.
+                      {entry.source === "shop" && <span className="ml-2 rounded bg-amber-400/15 px-2 py-0.5 text-xs text-amber-200">магазин</span>}
+                    </div>
+                    <div className="text-sm text-white/60">{entry.reason || "Без описания"}</div>
+                  </div>
+                  <button className="btn-secondary" onClick={() => removeEntry(entry.id)} type="button"><Trash2 size={16} />Удалить</button>
+                </div>
+              ))
+            )}
+          </div>
+        </>
+      ) : (
+        <p className="text-sm text-red-300">{error || "Календарь недоступен"}</p>
+      )}
+    </section>
+  );
+}
+
 function CharacterPage() {
   const { id: idParam } = useParams();
   const id = Number(idParam);
@@ -472,6 +611,8 @@ function CharacterPage() {
               <Stat label="Investigation" value={signed(character.investigation)} />
             </dl>
           </section>
+
+          <CalendarPanel characterId={id} />
 
           <section className="panel p-5">
             <div className="flex flex-wrap items-center justify-between gap-3">
@@ -632,6 +773,22 @@ function CharacterFormPage({ edit = false }: { edit?: boolean }) {
       <div className="md:col-span-2">
         <ClassSelect value={form.class_name} onChange={(value) => setForm({ ...form, class_name: value })} />
       </div>
+      <label className="field-label md:col-span-2">
+        <span>📅 Дата создания персонажа</span>
+        <input
+          className="field"
+          type="date"
+          min={GAME_EPOCH}
+          value={form.game_created_at ?? GAME_EPOCH}
+          disabled={edit}
+          onChange={(event) => setForm({ ...form, game_created_at: event.target.value })}
+        />
+        <span className="text-xs text-white/45">
+          {edit
+            ? "Дату создания нельзя изменить после создания персонажа."
+            : `Начало игрового мира — ${formatGameDate(GAME_EPOCH)}. Эта дата используется для подсчёта свободных дней.`}
+        </span>
+      </label>
       {textFields.map(({ field, label }) => (
         <label className="field-label" key={field}>
           <span>{label}</span>
@@ -868,8 +1025,8 @@ function ShopPage() {
       const response = await api.post<ShopResult>(`/characters/${characterId}/shop/search`, payload);
       setResult(response.data);
       setInventory(response.data.inventory);
-    } catch {
-      setError("Поиск не выполнен");
+    } catch (searchError) {
+      setError(apiErrorDetail(searchError, "Поиск не выполнен"));
     }
   }
 
