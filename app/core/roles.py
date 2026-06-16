@@ -1,26 +1,35 @@
 """User role definitions and helpers.
 
-The application recognises three roles, ordered from most to least privileged:
+The application recognises four roles, ordered from most to least privileged:
 
-* ``owner``  - full control, including user and role management.
-* ``admin``  - game master tools (karma, currency, items, logs) but no
+* ``owner``       - full control of the system. Only the owner may manage the
+  ``head_admin`` role or touch other owners.
+* ``head_admin``  - "Главный Администратор". A trusted deputy of the owner that
+  wields every administrative power of the owner *except* the ability to manage
+  the owner (changing, blocking, deleting or appointing owners) or to grant the
+  ``head_admin``/``owner`` roles themselves.
+* ``admin``       - game master tools (karma, currency, items, logs) but no
   ability to manage users or roles.
-* ``player`` - default role, may only manage their own characters and
+* ``player``      - default role, may only manage their own characters and
   participate in the chat.
 """
 
 
 class Role:
     OWNER = "owner"
+    HEAD_ADMIN = "head_admin"
     ADMIN = "admin"
     PLAYER = "player"
 
 
 # All valid role identifiers.
-VALID_ROLES = (Role.OWNER, Role.ADMIN, Role.PLAYER)
+VALID_ROLES = (Role.OWNER, Role.HEAD_ADMIN, Role.ADMIN, Role.PLAYER)
 
 # Roles that may use the game-master / administrative endpoints.
-ADMIN_ROLES = (Role.OWNER, Role.ADMIN)
+ADMIN_ROLES = (Role.OWNER, Role.HEAD_ADMIN, Role.ADMIN)
+
+# Roles that may manage other users' roles.
+ROLE_MANAGER_ROLES = (Role.OWNER, Role.HEAD_ADMIN)
 
 
 def normalize_role(role: str | None) -> str:
@@ -37,3 +46,12 @@ def is_admin_role(role: str | None) -> bool:
 
 def is_owner_role(role: str | None) -> bool:
     return normalize_role(role) == Role.OWNER
+
+
+def is_head_admin_role(role: str | None) -> bool:
+    return normalize_role(role) == Role.HEAD_ADMIN
+
+
+def can_manage_roles(role: str | None) -> bool:
+    """True for roles allowed to change other users' roles (owner, head admin)."""
+    return normalize_role(role) in ROLE_MANAGER_ROLES

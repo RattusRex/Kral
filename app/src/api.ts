@@ -3,10 +3,11 @@ import { API_BASE_URL } from "./apiBase";
 
 export const TOKEN_KEY = "access_token";
 
-export type UserRole = "owner" | "admin" | "player";
+export type UserRole = "owner" | "head_admin" | "admin" | "player";
 
 export const ROLE_LABELS: Record<UserRole, string> = {
   owner: "👑 Владелец",
+  head_admin: "🛡 Главный Администратор",
   admin: "🛠 Администратор",
   player: "🎮 Игрок"
 };
@@ -19,6 +20,7 @@ export interface User {
   role?: UserRole;
   is_admin?: boolean;
   is_owner?: boolean;
+  is_head_admin?: boolean;
 }
 
 export interface Character {
@@ -194,6 +196,7 @@ export interface AdminUser extends User {
   role: UserRole;
   is_admin: boolean;
   is_owner: boolean;
+  is_head_admin: boolean;
 }
 
 export interface ShopTransactionLog {

@@ -1384,7 +1384,11 @@ function ChatPage() {
   );
 }
 
-const ROLE_OPTIONS: UserRole[] = ["owner", "admin", "player"];
+const ROLE_OPTIONS: UserRole[] = ["owner", "head_admin", "admin", "player"];
+
+// Roles that a head administrator is allowed to assign. Owners may assign any
+// role, while head admins can only manage admins and players.
+const HEAD_ADMIN_ASSIGNABLE_ROLES: UserRole[] = ["admin", "player"];
 
 function AdminPage() {
   const { user } = useAuth();
@@ -1434,6 +1438,23 @@ function AdminPage() {
     }
   }
 
+  const canManageRoles = Boolean(user?.is_owner || user?.is_head_admin);
+
+  // Head admins may not touch owners or other head admins, and they may never
+  // grant the owner or head-admin roles. Owners have unrestricted control.
+  function canEditRole(row: AdminUser): boolean {
+    if (row.id === user?.id) return false;
+    if (user?.is_owner) return true;
+    return !row.is_owner && !row.is_head_admin;
+  }
+
+  function roleOptionsFor(row: AdminUser): UserRole[] {
+    const assignable = user?.is_owner ? ROLE_OPTIONS : HEAD_ADMIN_ASSIGNABLE_ROLES;
+    // Always keep the row's current role visible in the dropdown, even when it
+    // is one the current actor is not allowed to assign.
+    return assignable.includes(row.role) ? assignable : [row.role, ...assignable];
+  }
+
   return (
     <div className="grid gap-4 xl:grid-cols-[360px_1fr]">
       <div className="space-y-4">
@@ -1481,24 +1502,28 @@ function AdminPage() {
           <p className="text-sm text-white/65">{selectedUser?.username ?? "Игрок"}: {selectedUser?.karma ?? 0}</p>
           <button className="btn" onClick={applyKarma}>Применить</button>
         </section>
-        {user?.is_owner && (
+        {canManageRoles && (
           <section className="panel flex flex-col gap-3 p-5">
             <div className="flex items-center gap-2">
               <Shield size={18} className="text-ember" />
               <h2 className="text-lg font-semibold text-ember">Роли пользователей</h2>
             </div>
-            <p className="text-sm text-white/55">Назначайте роли. Доступно только владельцу.</p>
+            <p className="text-sm text-white/55">
+              {user?.is_owner
+                ? "Назначайте роли. Доступно только владельцу и главному администратору."
+                : "Главный администратор управляет ролями администраторов и игроков. Роль владельца недоступна."}
+            </p>
             <div className="flex flex-col gap-2">
               {users.map((row) => (
                 <div className="flex items-center justify-between gap-2 rounded-md bg-black/25 px-3 py-2" key={row.id}>
                   <span className="text-sm font-semibold text-ember">{row.username}</span>
                   <select
-                    className="field max-w-[180px]"
+                    className="field max-w-[220px]"
                     value={row.role}
-                    disabled={row.id === user.id}
+                    disabled={!canEditRole(row)}
                     onChange={(event) => changeRole(row.id, event.target.value as UserRole)}
                   >
-                    {ROLE_OPTIONS.map((role) => (
+                    {roleOptionsFor(row).map((role) => (
                       <option value={role} key={role}>{ROLE_LABELS[role]}</option>
                     ))}
                   </select>

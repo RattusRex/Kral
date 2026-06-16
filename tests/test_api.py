@@ -1388,6 +1388,144 @@ def test_role_endpoint_validates_role_and_blocks_self_demotion():
         assert missing.status_code == 404
 
 
+def _promote(client, owner_headers, user_id, role):
+    response = client.post(
+        f"/api/admin/users/{user_id}/role",
+        headers=owner_headers,
+        json={"role": role}
+    )
+    assert response.status_code == 200, response.text
+    return response
+
+
+def test_owner_can_appoint_head_admin_with_full_admin_tools():
+    with TestClient(app) as client:
+        owner_headers = {
+            "Authorization": f"Bearer {login(client, 'admin', 'admin123')}"
+        }
+
+        user_id = _register(client, "deputy")
+        promoted = _promote(client, owner_headers, user_id, "head_admin")
+        body = promoted.json()
+        assert body["role"] == "head_admin"
+        assert body["is_head_admin"] is True
+        assert body["is_admin"] is True
+        assert body["is_owner"] is False
+
+        head_headers = {
+            "Authorization": f"Bearer {login(client, 'deputy', 'secret123')}"
+        }
+        me = client.get("/api/me", headers=head_headers).json()
+        assert me["role"] == "head_admin"
+        assert me["is_head_admin"] is True
+        assert me["is_admin"] is True
+        assert me["is_owner"] is False
+
+        # Head admins have access to the game-master endpoints.
+        users = client.get("/api/admin/users", headers=head_headers)
+        assert users.status_code == 200, users.text
+
+
+def test_head_admin_can_manage_admins_and_players():
+    with TestClient(app) as client:
+        owner_headers = {
+            "Authorization": f"Bearer {login(client, 'admin', 'admin123')}"
+        }
+
+        head_id = _register(client, "deputy")
+        target_id = _register(client, "regular")
+        _promote(client, owner_headers, head_id, "head_admin")
+
+        head_headers = {
+            "Authorization": f"Bearer {login(client, 'deputy', 'secret123')}"
+        }
+
+        promoted = client.post(
+            f"/api/admin/users/{target_id}/role",
+            headers=head_headers,
+            json={"role": "admin"}
+        )
+        assert promoted.status_code == 200, promoted.text
+        assert promoted.json()["role"] == "admin"
+
+        demoted = client.post(
+            f"/api/admin/users/{target_id}/role",
+            headers=head_headers,
+            json={"role": "player"}
+        )
+        assert demoted.status_code == 200, demoted.text
+        assert demoted.json()["role"] == "player"
+
+
+def test_head_admin_cannot_touch_owner_or_grant_privileged_roles():
+    with TestClient(app) as client:
+        owner_headers = {
+            "Authorization": f"Bearer {login(client, 'admin', 'admin123')}"
+        }
+        owner_id = client.get("/api/me", headers=owner_headers).json()["id"]
+
+        head_id = _register(client, "deputy")
+        other_head_id = _register(client, "deputy-two")
+        target_id = _register(client, "regular")
+        _promote(client, owner_headers, head_id, "head_admin")
+        _promote(client, owner_headers, other_head_id, "head_admin")
+
+        head_headers = {
+            "Authorization": f"Bearer {login(client, 'deputy', 'secret123')}"
+        }
+
+        # Cannot change the owner's role in any way.
+        demote_owner = client.post(
+            f"/api/admin/users/{owner_id}/role",
+            headers=head_headers,
+            json={"role": "player"}
+        )
+        assert demote_owner.status_code == 403, demote_owner.text
+
+        # Cannot appoint a new owner.
+        appoint_owner = client.post(
+            f"/api/admin/users/{target_id}/role",
+            headers=head_headers,
+            json={"role": "owner"}
+        )
+        assert appoint_owner.status_code == 403, appoint_owner.text
+
+        # Cannot grant the head-admin role (owner-only privilege).
+        grant_head = client.post(
+            f"/api/admin/users/{target_id}/role",
+            headers=head_headers,
+            json={"role": "head_admin"}
+        )
+        assert grant_head.status_code == 403, grant_head.text
+
+        # Cannot change another head admin's role.
+        touch_head = client.post(
+            f"/api/admin/users/{other_head_id}/role",
+            headers=head_headers,
+            json={"role": "admin"}
+        )
+        assert touch_head.status_code == 403, touch_head.text
+
+        # The owner is untouched and the targets keep their roles.
+        owner_me = client.get("/api/me", headers=owner_headers).json()
+        assert owner_me["role"] == "owner"
+
+
+def test_owner_can_revoke_head_admin_role():
+    with TestClient(app) as client:
+        owner_headers = {
+            "Authorization": f"Bearer {login(client, 'admin', 'admin123')}"
+        }
+
+        head_id = _register(client, "deputy")
+        _promote(client, owner_headers, head_id, "head_admin")
+
+        revoked = _promote(client, owner_headers, head_id, "player")
+        assert revoked.json()["role"] == "player"
+        assert revoked.json()["is_head_admin"] is False
+        assert revoked.json()["is_admin"] is False
+
+
 def test_migrate_user_roles_uses_boolean_true_comparison():
     """migrate_user_roles must compare is_admin with TRUE, not 1.
 
