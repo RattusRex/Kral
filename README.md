@@ -42,17 +42,27 @@ Notable protected API routes:
 - `PATCH /api/characters/{id}/inventory/notes` saves free-form inventory notes.
 - `GET/POST /api/characters/{id}/attacks` manages attack rows, and `POST /api/characters/{id}/attacks/{attack_id}/roll` records attack rolls.
 - `GET /api/shop/magic-items` searches `magicvariants.json` and returns shop-eligible common, uncommon, and rare magic items.
-- `POST /api/admin/users/{id}/role` lets an **owner** assign a user role (`owner`, `admin`, or `player`).
+- `POST /api/admin/users/{id}/role` lets an **owner** assign any user role (`owner`, `head_admin`, `admin`, or `player`). A **head admin** may use the same endpoint to manage `admin` and `player` roles only.
 
 ## User Roles
 
-Access is controlled by three roles:
+Access is controlled by four roles, from most to least privileged:
 
-- **👑 Owner** — full control, including managing users and assigning roles, plus everything an admin can do.
+- **👑 Owner** — full, unrestricted control, including managing every user, assigning and revoking the head-admin role, plus everything a head admin and admin can do.
+- **🛡 Head Admin** (Главный Администратор) — a trusted deputy of the owner. Has every administrative power of the owner **except** managing the owner (cannot change, block, delete, or appoint owners) and cannot grant the `owner` or `head_admin` roles. Can grant and revoke the `admin` role and manage players.
 - **🛠 Admin** — game-master tools: add/remove karma, grant items and currency, view logs, and manage game data. Cannot manage roles.
 - **🎮 Player** — default role for new accounts: manage own characters, chat, roll dice, and use the inventory.
 
-The seeded `admin` account is an **owner**. New accounts are created as **players**. Only an owner can change another user's role from the admin panel.
+The hierarchy is:
+
+```text
+Owner
+└── Head Admin
+    └── Admin
+        └── Player
+```
+
+The seeded `admin` account is an **owner**. New accounts are created as **players**. Owners and head admins can change another user's role from the admin panel, subject to the restrictions above. These restrictions are enforced on the backend, so a direct API call cannot bypass them.
 
 ## Frontend Setup
 

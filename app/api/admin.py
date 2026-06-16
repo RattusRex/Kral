@@ -17,7 +17,7 @@ from app.schemas.inventory import (
     TransferLogResponse,
 )
 from app.schemas.user import KarmaUpdate, RoleUpdate
-from app.core.roles import Role, VALID_ROLES, normalize_role
+from app.core.roles import Role, VALID_ROLES, normalize_role, can_manage_roles
 
 
 router = APIRouter(prefix="/admin")
@@ -37,6 +37,16 @@ def require_owner(current_user: User = Depends(get_current_user)) -> User:
         raise HTTPException(
             status_code=403,
             detail="Owner permissions required"
+        )
+    return current_user
+
+
+def require_role_manager(current_user: User = Depends(get_current_user)) -> User:
+    """Allow owners and head administrators to manage user roles."""
+    if not can_manage_roles(current_user.role):
+        raise HTTPException(
+            status_code=403,
+            detail="Role management permissions required"
         )
     return current_user
 
@@ -156,6 +166,7 @@ def list_users(
         "role": user.role,
         "is_admin": user.is_admin,
         "is_owner": user.is_owner,
+        "is_head_admin": user.is_head_admin,
         "character_count": len(user.characters)
     } for user in users]
 
@@ -386,7 +397,8 @@ def serialize_user(user: User) -> dict:
         "karma": user.karma,
         "role": user.role,
         "is_admin": user.is_admin,
-        "is_owner": user.is_owner
+        "is_owner": user.is_owner,
+        "is_head_admin": user.is_head_admin
     }
 
 
@@ -395,7 +407,7 @@ def change_user_role(
     user_id: int,
     role_data: RoleUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_owner)
+    current_user: User = Depends(require_role_manager)
 ):
     requested_role = normalize_role(role_data.role)
     if role_data.role.strip().lower() not in VALID_ROLES:
@@ -411,11 +423,38 @@ def change_user_role(
             detail="User not found"
         )
 
-    if user.id == current_user.id and requested_role != Role.OWNER:
-        raise HTTPException(
-            status_code=400,
-            detail="Owners cannot demote themselves"
-        )
+    if current_user.is_owner:
+        # The owner has unrestricted control but may not demote themselves,
+        # otherwise the system could be left without an owner.
+        if user.id == current_user.id and requested_role != Role.OWNER:
+            raise HTTPException(
+                status_code=400,
+                detail="Owners cannot demote themselves"
+            )
+    else:
+        # Head administrators may manage admins and players, but they can never
+        # touch the owner or the head-admin role. These checks must live on the
+        # backend so a direct API call cannot bypass the UI restrictions.
+        if user.is_owner:
+            raise HTTPException(
+                status_code=403,
+                detail="Главный администратор не может изменять роль владельца"
+            )
+        if user.is_head_admin:
+            raise HTTPException(
+                status_code=403,
+                detail="Только владелец может изменять роль главного администратора"
+            )
+        if requested_role == Role.OWNER:
+            raise HTTPException(
+                status_code=403,
+                detail="Только владелец может назначать владельца"
+            )
+        if requested_role == Role.HEAD_ADMIN:
+            raise HTTPException(
+                status_code=403,
+                detail="Только владелец может назначать главного администратора"
+            )
 
     user.role = requested_role
     db.commit()

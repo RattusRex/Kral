@@ -2,7 +2,12 @@ from sqlalchemy import String, Integer
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.orm import relationship
 from app.db.database import Base
-from app.core.roles import Role, is_admin_role, is_owner_role
+from app.core.roles import (
+    Role,
+    is_admin_role,
+    is_owner_role,
+    is_head_admin_role,
+)
 
 
 
@@ -36,12 +41,16 @@ class User(Base):
 
     @property
     def is_admin(self) -> bool:
-        """True for owners and admins (game-master tools access)."""
+        """True for owners, head admins and admins (game-master tools access)."""
         return is_admin_role(self.role)
 
     @property
     def is_owner(self) -> bool:
         return is_owner_role(self.role)
+
+    @property
+    def is_head_admin(self) -> bool:
+        return is_head_admin_role(self.role)
 
     characters = relationship(
         "Character",
