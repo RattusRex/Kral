@@ -1,0 +1,82 @@
+# Docker Compose stack for the Epoch of Catastrophe Assistant.
+#
+#   frontend (nginx) ──/api──▶ backend (FastAPI) ──▶ db (PostgreSQL)
+#
+# Quick start:
+#   cp .env.example .env   # then fill in SECRET_KEY, ADMIN_PASSWORD, POSTGRES_PASSWORD
+#   docker compose up -d --build
+#
+# The app is then available at http://localhost:8080
+# Swagger docs (direct backend) at http://localhost:8000/docs
+#
+# Optional Cloudflare Tunnel:
+#   docker compose --profile tunnel up -d --build
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-EpohaTruda}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-EpohaTruda}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    # Not published to the host by default. Uncomment to connect a local client.
+    # ports:
+    #   - "5432:5432"
+
+  backend:
+    build:
+      context: .
+      dockerfile: docker/backend.Dockerfile
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      # DATABASE_URL is assembled from the POSTGRES_* values and points at the
+      # `db` service over the compose network (overrides any value in .env).
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-EpohaTruda}
+      SECRET_KEY: ${SECRET_KEY:?set SECRET_KEY in .env}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?set ADMIN_PASSWORD in .env}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:8080}
+      ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-30}
+      WEB_CONCURRENCY: ${WEB_CONCURRENCY:-2}
+    # Exposes the API directly for debugging / Swagger. Remove for hardened
+    # deployments where only nginx should reach the backend.
+    ports:
+      - "8000:8000"
+
+  frontend:
+    build:
+      context: .
+      dockerfile: docker/frontend.Dockerfile
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "8080:80"
+
+  # Optional: publish the stack through a Cloudflare Tunnel without opening
+  # inbound ports. Enable with `--profile tunnel` and set CLOUDFLARE_TUNNEL_TOKEN.
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    profiles: ["tunnel"]
+    command: tunnel --no-autoupdate run
+    environment:
+      # Required when the `tunnel` profile is enabled. Left without a `:?` guard
+      # so `docker compose config` and the default (non-tunnel) stack validate
+      # even when the token is unset.
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:-}
+    depends_on:
+      - frontend
+
+volumes:
+  pgdata:
