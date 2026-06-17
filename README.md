@@ -43,6 +43,23 @@ Notable protected API routes:
 - `GET/POST /api/characters/{id}/attacks` manages attack rows, and `POST /api/characters/{id}/attacks/{attack_id}/roll` records attack rolls.
 - `GET /api/shop/magic-items` searches `magicvariants.json` and returns shop-eligible common, uncommon, and rare magic items.
 - `POST /api/admin/users/{id}/role` lets an **owner** assign any user role (`owner`, `head_admin`, `admin`, or `player`). A **head admin** may use the same endpoint to manage `admin` and `player` roles only.
+- `GET /api/characters/{id}/calendar` and `POST /api/characters/{id}/calendar/downtime` let players view their calendar and **add** busy days. `PATCH`/`DELETE /api/characters/{id}/calendar/downtime/{entry_id}` edit or remove entries and are **restricted to administrators** — a player request is rejected with `403`. Admins may manage the calendar of *any* character.
+- `GET /api/admin/calendar-logs` returns the audit trail of administrative calendar changes (who, which character, action type, timestamp), filterable by `character_id`, `user_id`, `action`, and date range.
+
+## Calendar Permissions
+
+The character calendar (busy/free-day tracking) keeps the game timeline
+immutable for players so already-spent time cannot be rewritten:
+
+- **🎮 Player** — may view their calendar, free days and busy-day history, and
+  **add** busy days, but **cannot** delete or edit existing entries.
+- **🛠 Admin / 🛡 Head Admin / 👑 Owner** — may add, edit and delete busy days
+  for **any** character in order to correct calendar mistakes.
+
+These rules are enforced on the backend, so hiding the buttons in the UI is not
+the only safeguard — a direct API call from a player is rejected. Every
+administrative change (create, edit, delete) is written to a calendar audit log
+recording who acted, on which character, the action type, and the timestamp.
 
 ## User Roles
 

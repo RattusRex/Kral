@@ -1780,3 +1780,173 @@ def test_shop_search_blocked_when_not_enough_free_days():
             f"/api/characters/{cid}/inventory", headers=headers
         ).json()
         assert inventory["gold"] == 10000
+
+
+# ---------------------------------------------------------------------------
+# Calendar permissions and audit log (issue #51)
+# ---------------------------------------------------------------------------
+
+def _make_player_with_character(client, username, character_name="Calendar Hero"):
+    """Create a player account + one character, returning (headers, character_id)."""
+    created = client.post("/api/users", json={
+        "username": username,
+        "email": f"{username}@example.com",
+        "password": "secret123",
+    })
+    assert created.status_code == 200, created.text
+    token = login(client, username, "secret123")
+    headers = {"Authorization": f"Bearer {token}"}
+    character = client.post("/api/characters", headers=headers, json={
+        "name": character_name,
+        "class_name": "Wizard",
+        "level": 3,
+        "route": "Arcane",
+    })
+    assert character.status_code == 200, character.text
+    return headers, character.json()["id"]
+
+
+def _add_downtime(client, headers, character_id, start="2025-06-01", days=3, reason="Крафт"):
+    response = client.post(
+        f"/api/characters/{character_id}/calendar/downtime",
+        headers=headers,
+        json={"start_date": start, "days": days, "reason": reason},
+    )
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+def test_player_can_add_and_view_but_cannot_edit_or_delete_downtime():
+    with TestClient(app) as client:
+        headers, cid = _make_player_with_character(client, "calendar-player")
+
+        summary = _add_downtime(client, headers, cid)
+        assert summary["busy_days"] == 3
+        assert summary["can_manage"] is False
+        assert len(summary["entries"]) == 1
+        entry_id = summary["entries"][0]["id"]
+
+        # Viewing is allowed and reports the player cannot manage entries.
+        view = client.get(f"/api/characters/{cid}/calendar", headers=headers)
+        assert view.status_code == 200, view.text
+        assert view.json()["can_manage"] is False
+
+        # Editing is forbidden for players.
+        edited = client.patch(
+            f"/api/characters/{cid}/calendar/downtime/{entry_id}",
+            headers=headers,
+            json={"days": 1},
+        )
+        assert edited.status_code == 403, edited.text
+
+        # Deleting is forbidden for players.
+        deleted = client.delete(
+            f"/api/characters/{cid}/calendar/downtime/{entry_id}",
+            headers=headers,
+        )
+        assert deleted.status_code == 403, deleted.text
+
+        # The entry must still be intact after the rejected attempts.
+        view = client.get(f"/api/characters/{cid}/calendar", headers=headers)
+        assert len(view.json()["entries"]) == 1
+        assert view.json()["entries"][0]["days"] == 3
+
+
+def test_admin_can_add_edit_and_delete_any_character_downtime():
+    with TestClient(app) as client:
+        admin_token = login(client, "admin", "admin123")
+        admin_headers = {"Authorization": f"Bearer {admin_token}"}
+        player_headers, cid = _make_player_with_character(client, "managed-player")
+
+        # Admin adds downtime to another player's character.
+        added = client.post(
+            f"/api/characters/{cid}/calendar/downtime",
+            headers=admin_headers,
+            json={"start_date": "2025-06-01", "days": 2, "reason": "Исправление"},
+        )
+        assert added.status_code == 200, added.text
+        assert added.json()["can_manage"] is True
+        entry_id = added.json()["entries"][0]["id"]
+
+        # Admin edits the entry.
+        edited = client.patch(
+            f"/api/characters/{cid}/calendar/downtime/{entry_id}",
+            headers=admin_headers,
+            json={"days": 5, "reason": "Скорректировано"},
+        )
+        assert edited.status_code == 200, edited.text
+        assert edited.json()["entries"][0]["days"] == 5
+        assert edited.json()["entries"][0]["reason"] == "Скорректировано"
+
+        # Admin deletes the entry.
+        deleted = client.delete(
+            f"/api/characters/{cid}/calendar/downtime/{entry_id}",
+            headers=admin_headers,
+        )
+        assert deleted.status_code == 200, deleted.text
+        assert deleted.json()["entries"] == []
+
+        # The player can still see their (now empty) calendar.
+        view = client.get(f"/api/characters/{cid}/calendar", headers=player_headers)
+        assert view.status_code == 200, view.text
+        assert view.json()["entries"] == []
+
+
+def test_calendar_admin_actions_are_recorded_in_audit_log():
+    with TestClient(app) as client:
+        admin_token = login(client, "admin", "admin123")
+        admin_headers = {"Authorization": f"Bearer {admin_token}"}
+        player_headers, cid = _make_player_with_character(
+            client, "audited-player", character_name="Audited Hero"
+        )
+
+        # A player's own add must NOT be audited (only admin corrections are).
+        _add_downtime(client, player_headers, cid, days=2)
+
+        logs = client.get("/api/admin/calendar-logs", headers=admin_headers)
+        assert logs.status_code == 200, logs.text
+        assert logs.json() == []
+
+        # Admin create / update / delete are all audited.
+        created = client.post(
+            f"/api/characters/{cid}/calendar/downtime",
+            headers=admin_headers,
+            json={"start_date": "2025-07-01", "days": 1, "reason": "Аудит"},
+        )
+        entry_id = created.json()["entries"][-1]["id"]
+        client.patch(
+            f"/api/characters/{cid}/calendar/downtime/{entry_id}",
+            headers=admin_headers,
+            json={"days": 2},
+        )
+        client.delete(
+            f"/api/characters/{cid}/calendar/downtime/{entry_id}",
+            headers=admin_headers,
+        )
+
+        logs = client.get("/api/admin/calendar-logs", headers=admin_headers)
+        assert logs.status_code == 200, logs.text
+        actions = [row["action"] for row in logs.json()]
+        assert sorted(actions) == ["create", "delete", "update"]
+        for row in logs.json():
+            assert row["username"] == "admin"
+            assert row["character_id"] == cid
+            assert row["character_name"] == "Audited Hero"
+            assert row["details"]
+
+        # The audit log can be filtered by action and character.
+        deletes = client.get(
+            "/api/admin/calendar-logs",
+            headers=admin_headers,
+            params={"action": "delete", "character_id": cid},
+        )
+        assert deletes.status_code == 200, deletes.text
+        assert len(deletes.json()) == 1
+        assert deletes.json()[0]["action"] == "delete"
+
+
+def test_calendar_logs_require_admin():
+    with TestClient(app) as client:
+        player_headers, _ = _make_player_with_character(client, "nosy-player")
+        forbidden = client.get("/api/admin/calendar-logs", headers=player_headers)
+        assert forbidden.status_code == 403, forbidden.text

@@ -181,6 +181,68 @@ class DowntimeEntry(Base):
     )
 
 
+class CalendarAuditLog(Base):
+    """Audit trail of administrative changes to a character's calendar.
+
+    Every time an administrator (or owner / head admin) creates, edits or
+    deletes a downtime entry the change is recorded here so the history of
+    calendar corrections can be reviewed.  The log captures *who* performed the
+    action, on *which* character, the *type* of action and *when* it happened.
+    """
+
+    __tablename__ = "calendar_audit_logs"
+
+    id: Mapped[int] = mapped_column(
+        primary_key=True
+    )
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime,
+        default=datetime.utcnow
+    )
+
+    # Who performed the action.
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id")
+    )
+
+    username: Mapped[str] = mapped_column(
+        String(50)
+    )
+
+    # Acting user's role at the time of the action ("owner", "admin", ...).
+    role: Mapped[str] = mapped_column(
+        String(20),
+        default=""
+    )
+
+    # Which character's calendar was affected.
+    character_id: Mapped[int] = mapped_column(
+        ForeignKey("characters.id")
+    )
+
+    character_name: Mapped[str] = mapped_column(
+        String(255)
+    )
+
+    # Type of action: "create", "update" or "delete".
+    action: Mapped[str] = mapped_column(
+        String(20)
+    )
+
+    # The affected downtime entry id (may be null after a delete).
+    entry_id: Mapped[int] = mapped_column(
+        Integer,
+        nullable=True
+    )
+
+    # Human-readable summary of what changed.
+    details: Mapped[str] = mapped_column(
+        String(512),
+        default=""
+    )
+
+
 class CharacterAttack(Base):
     __tablename__ = "character_attacks"
 

@@ -67,6 +67,7 @@ export interface CalendarSummary {
   total_days: number;
   busy_days: number;
   free_days: number;
+  can_manage: boolean;
   entries: DowntimeEntry[];
 }
 
