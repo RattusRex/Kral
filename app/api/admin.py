@@ -5,10 +5,10 @@ from sqlalchemy.orm import Session
 
 from app.api.inventory import add_currency, get_character_inventory, validate_rarity
 from app.api.users import get_current_user, get_db
-from app.models.character import Character
+from app.models.character import CalendarAuditLog, Character
 from app.models.inventory import InventoryItem, ShopTransactionLog, TransferLog
 from app.models.user import User
-from app.schemas.character import CharacterUpdate
+from app.schemas.character import CalendarAuditLogResponse, CharacterUpdate
 from app.schemas.inventory import (
     AddItemRequest,
     CurrencyUpdateRequest,
@@ -315,6 +315,54 @@ def list_transfer_logs(
             )
 
     return query.order_by(TransferLog.created_at.desc()).all()
+
+
+@router.get("/calendar-logs", response_model=list[CalendarAuditLogResponse])
+def list_calendar_logs(
+    character_id: int | None = None,
+    user_id: int | None = None,
+    action: str | None = None,
+    operation_date: date | None = Query(default=None, alias="date"),
+    date_from: date | None = None,
+    date_to: date | None = None,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_admin)
+):
+    """Return the audit trail of administrative calendar changes."""
+    query = db.query(CalendarAuditLog)
+
+    if character_id is not None:
+        query = query.filter(CalendarAuditLog.character_id == character_id)
+    if user_id is not None:
+        query = query.filter(CalendarAuditLog.user_id == user_id)
+    if action:
+        if action not in {"create", "update", "delete"}:
+            raise HTTPException(
+                status_code=400,
+                detail="Unknown calendar action type"
+            )
+        query = query.filter(CalendarAuditLog.action == action)
+
+    if operation_date is not None:
+        start = datetime.combine(operation_date, time.min)
+        end = start + timedelta(days=1)
+        query = query.filter(
+            CalendarAuditLog.created_at >= start,
+            CalendarAuditLog.created_at < end
+        )
+    else:
+        if date_from is not None:
+            query = query.filter(
+                CalendarAuditLog.created_at >= datetime.combine(date_from, time.min)
+            )
+        if date_to is not None:
+            query = query.filter(
+                CalendarAuditLog.created_at < (
+                    datetime.combine(date_to, time.min) + timedelta(days=1)
+                )
+            )
+
+    return query.order_by(CalendarAuditLog.created_at.desc()).all()
 
 
 @router.post("/characters/{character_id}/revive")

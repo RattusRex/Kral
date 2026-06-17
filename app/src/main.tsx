@@ -1,7 +1,7 @@
 import { Component, FormEvent, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { Link, Navigate, Route, BrowserRouter as Router, Routes, useNavigate, useParams } from "react-router-dom";
-import { CalendarDays, Check, Dice5, LogOut, MessageSquare, Plus, RefreshCw, Save, ScrollText, Search, Send, Shield, ShoppingBag, Swords, Trash2, Trophy, UserRound, UsersRound } from "lucide-react";
+import { CalendarDays, Check, Dice5, LogOut, MessageSquare, Pencil, Plus, RefreshCw, Save, ScrollText, Search, Send, Shield, ShoppingBag, Swords, Trash2, Trophy, UserRound, UsersRound, X } from "lucide-react";
 import { AbilityRoll, AdminUser, api, AttackRoll, CalendarSummary, Character, CharacterAttack, ChatMessage, DamageRoll, Inventory, InventoryItem, LeaderboardEntry, MagicItem, ROLE_LABELS, SavingThrowRoll, ShopResult, ShopTransactionLog, TOKEN_KEY, TransferLog, TransferTarget, User, UserRole } from "./api";
 import "./styles.css";
 
@@ -351,6 +351,9 @@ function CalendarPanel({ characterId }: { characterId: number }) {
   const [form, setForm] = useState({ start_date: GAME_EPOCH, days: 1, reason: "" });
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [editForm, setEditForm] = useState({ start_date: GAME_EPOCH, days: 1, reason: "" });
+  const canManage = summary?.can_manage ?? false;
 
   useEffect(() => {
     let active = true;
@@ -389,8 +392,32 @@ function CalendarPanel({ characterId }: { characterId: number }) {
     try {
       const response = await api.delete<CalendarSummary>(`/characters/${characterId}/calendar/downtime/${entryId}`);
       setSummary(response.data);
+      if (editingId === entryId) setEditingId(null);
     } catch (removeError) {
       setError(apiErrorDetail(removeError, "Не удалось удалить запись"));
+    }
+  }
+
+  function startEdit(entry: { id: number; start_date: string; days: number; reason: string }) {
+    setError("");
+    setEditingId(entry.id);
+    setEditForm({ start_date: entry.start_date, days: entry.days, reason: entry.reason });
+  }
+
+  async function saveEdit(event: FormEvent) {
+    event.preventDefault();
+    if (editingId === null) return;
+    setError("");
+    try {
+      const response = await api.patch<CalendarSummary>(`/characters/${characterId}/calendar/downtime/${editingId}`, {
+        start_date: editForm.start_date,
+        days: Number(editForm.days),
+        reason: editForm.reason
+      });
+      setSummary(response.data);
+      setEditingId(null);
+    } catch (editError) {
+      setError(apiErrorDetail(editError, "Не удалось изменить запись"));
     }
   }
 
@@ -449,19 +476,64 @@ function CalendarPanel({ characterId }: { characterId: number }) {
 
           <div className="mt-4 space-y-2">
             <h3 className="text-sm font-semibold text-white/70">Журнал занятых дней</h3>
+            {!canManage && (
+              <p className="text-xs text-white/45">Занятые дни нельзя удалять или редактировать. За исправлениями обратитесь к администратору.</p>
+            )}
             {summary.entries.length === 0 ? (
               <p className="text-sm text-white/55">Занятых дней пока нет.</p>
             ) : (
               summary.entries.map((entry) => (
-                <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-white/10 px-3 py-2" key={entry.id}>
-                  <div>
-                    <div className="font-semibold">
-                      {formatGameDate(entry.start_date)} · {entry.days} дн.
-                      {entry.source === "shop" && <span className="ml-2 rounded bg-amber-400/15 px-2 py-0.5 text-xs text-amber-200">магазин</span>}
+                <div className="rounded-md border border-white/10 px-3 py-2" key={entry.id}>
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <div className="font-semibold">
+                        {formatGameDate(entry.start_date)} · {entry.days} дн.
+                        {entry.source === "shop" && <span className="ml-2 rounded bg-amber-400/15 px-2 py-0.5 text-xs text-amber-200">магазин</span>}
+                      </div>
+                      <div className="text-sm text-white/60">{entry.reason || "Без описания"}</div>
                     </div>
-                    <div className="text-sm text-white/60">{entry.reason || "Без описания"}</div>
+                    {canManage && (
+                      <div className="flex gap-2">
+                        <button className="btn-secondary" onClick={() => startEdit(entry)} type="button"><Pencil size={16} />Изменить</button>
+                        <button className="btn-secondary" onClick={() => removeEntry(entry.id)} type="button"><Trash2 size={16} />Удалить</button>
+                      </div>
+                    )}
                   </div>
-                  <button className="btn-secondary" onClick={() => removeEntry(entry.id)} type="button"><Trash2 size={16} />Удалить</button>
+                  {canManage && editingId === entry.id && (
+                    <form className="mt-3 grid gap-3 md:grid-cols-[150px_110px_1fr_auto_auto]" onSubmit={saveEdit}>
+                      <label className="field-label">
+                        <span>Дата начала</span>
+                        <input
+                          className="field"
+                          type="date"
+                          min={summary.created_at}
+                          max={summary.current_date}
+                          value={editForm.start_date}
+                          onChange={(event) => setEditForm({ ...editForm, start_date: event.target.value })}
+                        />
+                      </label>
+                      <label className="field-label">
+                        <span>Дней</span>
+                        <input
+                          className="field"
+                          type="number"
+                          min={1}
+                          value={editForm.days}
+                          onChange={(event) => setEditForm({ ...editForm, days: Number(event.target.value) })}
+                        />
+                      </label>
+                      <label className="field-label">
+                        <span>Причина</span>
+                        <input
+                          className="field"
+                          value={editForm.reason}
+                          onChange={(event) => setEditForm({ ...editForm, reason: event.target.value })}
+                        />
+                      </label>
+                      <button className="btn self-end" type="submit"><Save size={16} />Сохранить</button>
+                      <button className="btn-secondary self-end" type="button" onClick={() => setEditingId(null)}><X size={16} />Отмена</button>
+                    </form>
+                  )}
                 </div>
               ))
             )}

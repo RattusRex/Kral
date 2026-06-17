@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, datetime
 
 from pydantic import BaseModel, ConfigDict
 from typing import Optional
@@ -108,6 +108,12 @@ class DowntimeEntryCreate(BaseModel):
     reason: str = ""
 
 
+class DowntimeEntryUpdate(BaseModel):
+    start_date: Optional[date] = None
+    days: Optional[int] = None
+    reason: Optional[str] = None
+
+
 class DowntimeEntryResponse(BaseModel):
     id: int
     character_id: int
@@ -126,4 +132,20 @@ class CalendarSummaryResponse(BaseModel):
     total_days: int
     busy_days: int
     free_days: int
+    can_manage: bool = False
     entries: list[DowntimeEntryResponse]
+
+
+class CalendarAuditLogResponse(BaseModel):
+    id: int
+    created_at: datetime
+    user_id: int
+    username: str
+    role: str
+    character_id: int
+    character_name: str
+    action: str
+    entry_id: Optional[int] = None
+    details: str
+
+    model_config = ConfigDict(from_attributes=True)

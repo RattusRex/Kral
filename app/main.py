@@ -6,7 +6,12 @@ import uvicorn
 from app.api.users import router as users_router
 from app.db.database import Base, engine, SessionLocal
 from app.models.user import User
-from app.models.character import Character, CharacterAttack, DowntimeEntry
+from app.models.character import (
+    CalendarAuditLog,
+    Character,
+    CharacterAttack,
+    DowntimeEntry,
+)
 from app.api.characters import router as character_router
 from app.models.inventory import Inventory, InventoryItem
 from app.api.inventory import router as inventory_router
