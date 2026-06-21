@@ -143,6 +143,100 @@ npx serve -s dist -l 3000
 > - `ALLOWED_ORIGINS` lists only your production domain — no wildcards.
 > - `.env` is not committed to git (it is already in `.gitignore`).
 
+## Docker Deployment
+
+The whole stack — PostgreSQL, the FastAPI backend, and the nginx‑served
+frontend — can be run with Docker Compose. The browser talks to a single origin
+(nginx), which serves the built SPA and reverse‑proxies `/api` to the backend,
+so no CORS configuration or API‑URL build flags are needed.
+
+```text
+frontend (nginx) ──/api──▶ backend (FastAPI) ──▶ db (PostgreSQL, volume: pgdata)
+```
+
+For the full analysis, container architecture, risks, and the rollout plan see
+[`docs/docker-plan.md`](docs/docker-plan.md).
+
+### Requirements
+
+- Docker Engine 24+
+- Docker Compose v2 (`docker compose`, bundled with recent Docker)
+
+### First run
+
+1. Create your environment file and fill in the secrets:
+   ```bash
+   cp .env.example .env
+   ```
+   At minimum set strong values for:
+   - `SECRET_KEY` — `python -c "import secrets; print(secrets.token_hex(32))"`
+   - `ADMIN_PASSWORD` — password for the seeded `admin` owner account
+   - `POSTGRES_PASSWORD` — password for the bundled PostgreSQL service
+
+   When running via Docker you do **not** edit `DATABASE_URL` — the backend
+   container builds it from the `POSTGRES_*` values and targets the `db`
+   service automatically.
+
+2. Build and start the stack:
+   ```bash
+   docker compose up -d --build
+   ```
+
+3. Open the app:
+   - Frontend: <http://localhost:8080>
+   - Swagger (direct backend): <http://localhost:8000/docs>
+
+   The database schema and the `admin` account are created automatically on the
+   first backend start. PostgreSQL data is persisted in the named volume
+   `pgdata` and survives container recreation.
+
+### Updating after code changes
+
+Rebuild the affected images and restart:
+
+```bash
+docker compose up -d --build
+```
+
+To stop the stack (data is kept):
+
+```bash
+docker compose down
+```
+
+To also remove the database volume (**deletes all data**):
+
+```bash
+docker compose down -v
+```
+
+### Required environment variables
+
+| Variable | Required | Purpose |
+| --- | --- | --- |
+| `SECRET_KEY` | yes | Signs JWT tokens; backend refuses to start if empty |
+| `ADMIN_PASSWORD` | yes | Password for the seeded `admin` owner account |
+| `POSTGRES_PASSWORD` | yes | Password for the bundled PostgreSQL service |
+| `POSTGRES_USER` | no (default `postgres`) | PostgreSQL user |
+| `POSTGRES_DB` | no (default `EpohaTruda`) | PostgreSQL database name |
+| `ALLOWED_ORIGINS` | recommended | CORS origins; for local Docker use `http://localhost:8080`, in production your domain |
+| `WEB_CONCURRENCY` | no (default `2`) | Number of uvicorn workers in the backend container |
+| `CLOUDFLARE_TUNNEL_TOKEN` | only for `tunnel` profile | Cloudflare Tunnel token |
+
+### Production via Cloudflare Tunnel
+
+Publish the stack without opening inbound ports by enabling the optional
+`cloudflared` service. Create a tunnel in the Cloudflare Zero Trust dashboard,
+point its public hostname at `http://frontend:80`, put the token in `.env` as
+`CLOUDFLARE_TUNNEL_TOKEN`, set `ALLOWED_ORIGINS` to your public domain, then:
+
+```bash
+docker compose --profile tunnel up -d --build
+```
+
+The same `docker-compose.yml` moves unchanged to a VPS or a home server — only
+the `.env` (domain and secrets) differs.
+
 ## Admin Account
 
 The `admin` account is created automatically on first backend start using the
