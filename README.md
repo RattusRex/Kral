@@ -148,7 +148,11 @@ npx serve -s dist -l 3000
 The whole stack — PostgreSQL, the FastAPI backend, and the nginx‑served
 frontend — can be run with Docker Compose. The browser talks to a single origin
 (nginx), which serves the built SPA and reverse‑proxies `/api` to the backend,
-so no CORS configuration or API‑URL build flags are needed.
+so no CORS configuration or API‑URL build flags are needed. To guarantee this,
+the frontend image is built with `VITE_API_BASE_URL=/api` (a build arg in
+`docker-compose.yml`) so the bundle always uses the same-origin `/api` proxy
+instead of the loopback heuristic that would otherwise point a `localhost`-served
+build straight at `http://127.0.0.1:8000` and break authentication.
 
 ```text
 frontend (nginx) ──/api──▶ backend (FastAPI) ──▶ db (PostgreSQL, volume: pgdata)

@@ -57,6 +57,12 @@ services:
     build:
       context: .
       dockerfile: docker/frontend.Dockerfile
+      args:
+        # Bake the same-origin "/api" base into the bundle so the browser talks
+        # through the nginx reverse proxy instead of the loopback heuristic that
+        # would otherwise point it straight at http://127.0.0.1:8000 and break
+        # authentication. Override only if the SPA is served from a path prefix.
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-/api}
     restart: unless-stopped
     depends_on:
       - backend
