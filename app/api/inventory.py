@@ -9,7 +9,7 @@ from app.models.character import Character
 from app.models.inventory import Inventory, InventoryItem, ShopQuote, ShopTransactionLog, TransferLog
 from app.models.user import User
 from app.api.calendar import charge_character_downtime
-from app.api.users import get_current_user
+from app.api.users import get_current_user, require_admin_user
 from app.schemas.inventory import (
     AddItemRequest,
     CurrencyTransferRequest,
@@ -77,6 +77,9 @@ MAGIC_ITEM_RARITY_FILTERS = {
 } | {
     value.casefold(): key
     for key, value in MAGIC_ITEM_RARITY_LABELS.items()
+}
+BLOCKED_MAGIC_ITEM_NAMES = {
+    "vorpal sword",
 }
 
 
@@ -289,6 +292,14 @@ def require_available_magic_item(item: dict | None) -> dict:
             detail="Magic item is not available in the shop"
         )
     return item
+
+
+def reject_blocked_magic_item_name(item_name: str):
+    if normalize_catalog_text(item_name) in BLOCKED_MAGIC_ITEM_NAMES:
+        raise HTTPException(
+            status_code=400,
+            detail="Magic item is not available in the shop"
+        )
 
 
 def selected_magic_item_payload(item: dict, mode: str) -> dict:
@@ -520,6 +531,7 @@ def resolve_search_item(
             item = require_available_magic_item(catalog_item)
             return selected_magic_item_payload(item, mode)
 
+        reject_blocked_magic_item_name(search_data.item_name)
         validate_rarity(search_data.rarity)
         return {
             "mode": mode,
@@ -688,6 +700,7 @@ def add_item(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
+    require_admin_user(current_user)
     validate_rarity(item_data.rarity)
     inventory = get_character_inventory(character_id, current_user, db)
 
@@ -753,6 +766,7 @@ def add_gold(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
+    require_admin_user(current_user)
     if gold_data.amount <= 0:
         raise HTTPException(
             status_code=400,
@@ -802,6 +816,7 @@ def add_inventory_currency(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
+    require_admin_user(current_user)
     require_non_negative_currency(currency_data)
     inventory = get_character_inventory(character_id, current_user, db)
     add_currency(

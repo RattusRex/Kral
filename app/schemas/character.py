@@ -47,6 +47,28 @@ class CharacterUpdate(BaseModel):
     is_dead: Optional[bool] = None
 
 
+class CharacterPlayerUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: Optional[str] = None
+    class_name: Optional[str] = None
+    route: Optional[str] = None
+    subclass: Optional[str] = None
+    race: Optional[str] = None
+    background: Optional[str] = None
+    strength: Optional[int] = None
+    dexterity: Optional[int] = None
+    constitution: Optional[int] = None
+    intelligence: Optional[int] = None
+    wisdom: Optional[int] = None
+    charisma: Optional[int] = None
+    investigation: Optional[int] = None
+    hp: Optional[int] = None
+    temp_hp: Optional[int] = None
+    armor_class: Optional[int] = None
+    speed: Optional[int] = None
+
+
 class CharacterAttackCreate(BaseModel):
     name: str
     attack_bonus: int = 0

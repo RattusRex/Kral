@@ -157,12 +157,22 @@ def get_me(
         "is_head_admin": current_user.is_head_admin
     }
 
+
+def require_admin_user(current_user: User) -> None:
+    if not current_user.is_admin:
+        raise HTTPException(
+            status_code=403,
+            detail="Admin permissions required"
+        )
+
+
 @router.post("/me/karma/add")
 def add_karma(
     karma_data: KarmaUpdate,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
+    require_admin_user(current_user)
     if karma_data.amount <= 0:
         raise HTTPException(
             status_code=400,
@@ -185,6 +195,7 @@ def subtract_karma(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
+    require_admin_user(current_user)
     if karma_data.amount <= 0:
         raise HTTPException(
             status_code=400,

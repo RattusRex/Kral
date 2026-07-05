@@ -32,12 +32,31 @@ def current_game_date() -> date:
     return date.today()
 
 
-def occupied_days(entries: Iterable["DowntimeLike"]) -> set[date]:
-    """Return the set of individual days marked as busy by ``entries``."""
+def occupied_days(
+    entries: Iterable["DowntimeLike"],
+    created_at: date | None = None,
+    current_date: date | None = None,
+) -> set[date]:
+    """Return busy days, optionally clamped to ``[created_at, current_date)``."""
     days: set[date] = set()
     for entry in entries:
-        for offset in range(max(0, entry.days)):
-            days.add(entry.start_date + timedelta(days=offset))
+        length = max(0, entry.days)
+        if length == 0:
+            continue
+
+        start = entry.start_date
+        end = entry.start_date + timedelta(days=length)
+        if created_at is not None:
+            start = max(start, created_at)
+        if current_date is not None:
+            end = min(end, current_date)
+        if start >= end:
+            continue
+
+        day = start
+        while day < end:
+            days.add(day)
+            day += timedelta(days=1)
     return days
 
 
@@ -51,11 +70,7 @@ def count_busy_days(
     Days outside ``[created_at, current_date)`` are ignored so that a stray
     entry can never make the busy total exceed the elapsed total.
     """
-    return sum(
-        1
-        for day in occupied_days(entries)
-        if created_at <= day < current_date
-    )
+    return len(occupied_days(entries, created_at, current_date))
 
 
 def total_elapsed_days(created_at: date, current_date: date) -> int:
@@ -69,7 +84,7 @@ def free_day_dates(
     current_date: date,
 ) -> list[date]:
     """Return the ordered list of still-free days, oldest first."""
-    busy = occupied_days(entries)
+    busy = occupied_days(entries, created_at, current_date)
     free: list[date] = []
     day = created_at
     while day < current_date:

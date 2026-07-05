@@ -12,7 +12,7 @@ Every administrative modification (create / update / delete) is recorded in the
 :class:`CalendarAuditLog` so corrections can be audited later.
 """
 
-from datetime import date
+from datetime import date, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
@@ -33,6 +33,7 @@ from app.schemas.character import (
 )
 
 router = APIRouter()
+MAX_DOWNTIME_ENTRY_DAYS = 365
 
 
 def get_db():
@@ -194,6 +195,12 @@ def validate_downtime_window(
             detail="Количество дней должно быть больше нуля."
         )
 
+    if days > MAX_DOWNTIME_ENTRY_DAYS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Запись занятых дней не может превышать {MAX_DOWNTIME_ENTRY_DAYS} дней."
+        )
+
     if start_date < character.game_created_at:
         raise HTTPException(
             status_code=400,
@@ -208,6 +215,12 @@ def validate_downtime_window(
         raise HTTPException(
             status_code=400,
             detail="Нельзя занять дни в будущем."
+        )
+
+    if start_date + timedelta(days=days) > current:
+        raise HTTPException(
+            status_code=400,
+            detail="Запись занятых дней не может уходить в будущем."
         )
 
 

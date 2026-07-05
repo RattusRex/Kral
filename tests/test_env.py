@@ -1,4 +1,7 @@
 import os
+import subprocess
+import sys
+from pathlib import Path
 
 from app.core.env import load_env, parse_env
 
@@ -49,3 +52,24 @@ def test_load_env_sets_missing_and_preserves_existing(tmp_path):
 
 def test_load_env_missing_file_returns_empty(tmp_path):
     assert load_env(start=tmp_path) == {}
+
+
+def test_database_config_requires_explicit_database_url_without_env_file():
+    repo_root = Path(__file__).resolve().parents[1]
+    env = {
+        key: value
+        for key, value in os.environ.items()
+        if key not in {"DATABASE_URL", "PYTHONPATH"}
+    }
+    env["PYTHONPATH"] = str(repo_root)
+
+    result = subprocess.run(
+        [sys.executable, "-c", "import app.db.database"],
+        cwd=repo_root,
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode != 0
+    assert "DATABASE_URL is not set" in result.stderr

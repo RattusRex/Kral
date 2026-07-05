@@ -11,7 +11,7 @@ from app.core.env import load_env
 # scripts/dev.mjs, or by the test suite) always take precedence.
 load_env()
 
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://postgres:GalU5TA1@localhost:5432/EpohaTruda")
+DATABASE_URL = os.getenv("DATABASE_URL")
 if not DATABASE_URL:
     raise RuntimeError("DATABASE_URL is not set. PostgreSQL is required.")
 

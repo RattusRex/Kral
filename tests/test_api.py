@@ -171,10 +171,169 @@ def test_character_xp_rolls_over_remaining_xp():
         assert created.status_code == 200, created.text
         character_id = created.json()["id"]
 
-        response = client.patch(f"/api/characters/{character_id}", headers=headers, json={"xp": 6})
+        response = client.post(
+            f"/api/admin/characters/{character_id}/xp",
+            headers=headers,
+            json={"amount": 6}
+        )
         assert response.status_code == 200, response.text
         assert response.json()["level"] == 4
         assert response.json()["xp"] == 2
+
+
+def test_player_cannot_self_modify_karma():
+    with TestClient(app) as client:
+        created_user = client.post("/api/users", json={
+            "username": "karma-cheat",
+            "email": "karma-cheat@example.com",
+            "password": "secret123"
+        })
+        assert created_user.status_code == 200, created_user.text
+        token = login(client, "karma-cheat", "secret123")
+        headers = {"Authorization": f"Bearer {token}"}
+
+        added = client.post(
+            "/api/me/karma/add",
+            headers=headers,
+            json={"amount": 77}
+        )
+        assert added.status_code == 403, added.text
+
+        subtracted = client.post(
+            "/api/me/karma/subtract",
+            headers=headers,
+            json={"amount": 1}
+        )
+        assert subtracted.status_code == 403, subtracted.text
+
+        me = client.get("/api/me", headers=headers)
+        assert me.status_code == 200, me.text
+        assert me.json()["karma"] == 0
+
+
+def test_player_cannot_directly_mint_inventory_currency_or_items():
+    with TestClient(app) as client:
+        created_user = client.post("/api/users", json={
+            "username": "inventory-cheat",
+            "email": "inventory-cheat@example.com",
+            "password": "secret123"
+        })
+        assert created_user.status_code == 200, created_user.text
+        player_headers = {
+            "Authorization": f"Bearer {login(client, 'inventory-cheat', 'secret123')}"
+        }
+        character = client.post("/api/characters", headers=player_headers, json={
+            "name": "Mint Target",
+            "class_name": "Rogue",
+            "level": 1,
+            "route": "Market"
+        })
+        assert character.status_code == 200, character.text
+        character_id = character.json()["id"]
+
+        currency = client.post(
+            f"/api/characters/{character_id}/inventory/currency/add",
+            headers=player_headers,
+            json={"gold": 1000, "silver": 0, "copper": 0}
+        )
+        assert currency.status_code == 403, currency.text
+
+        gold = client.post(
+            f"/api/characters/{character_id}/inventory/gold/add",
+            headers=player_headers,
+            json={"amount": 1000}
+        )
+        assert gold.status_code == 403, gold.text
+
+        item = client.post(
+            f"/api/characters/{character_id}/inventory/items",
+            headers=player_headers,
+            json={"name": "Unreviewed Wand", "rarity": "Обычный", "is_consumable": False}
+        )
+        assert item.status_code == 403, item.text
+
+        inventory = client.get(
+            f"/api/characters/{character_id}/inventory",
+            headers=player_headers
+        )
+        assert inventory.status_code == 200, inventory.text
+        assert inventory.json()["gold"] == 0
+        assert inventory.json()["silver"] == 0
+        assert inventory.json()["copper"] == 0
+        assert inventory.json()["items"] == []
+
+        admin_headers = {"Authorization": f"Bearer {login(client, 'admin', 'admin123')}"}
+        granted_currency = client.post(
+            f"/api/admin/characters/{character_id}/currency/add",
+            headers=admin_headers,
+            json={"gold": 5, "silver": 4, "copper": 3}
+        )
+        assert granted_currency.status_code == 200, granted_currency.text
+        granted_item = client.post(
+            f"/api/admin/characters/{character_id}/item",
+            headers=admin_headers,
+            json={"name": "Reviewed Wand", "rarity": "Обычный", "is_consumable": False}
+        )
+        assert granted_item.status_code == 200, granted_item.text
+        assert granted_item.json()["gold"] == 5
+        assert granted_item.json()["items"][0]["name"] == "Reviewed Wand"
+
+
+def test_player_character_patch_cannot_change_progression_or_death_state():
+    with TestClient(app) as client:
+        created_user = client.post("/api/users", json={
+            "username": "progression-cheat",
+            "email": "progression-cheat@example.com",
+            "password": "secret123"
+        })
+        assert created_user.status_code == 200, created_user.text
+        player_headers = {
+            "Authorization": f"Bearer {login(client, 'progression-cheat', 'secret123')}"
+        }
+        admin_headers = {"Authorization": f"Bearer {login(client, 'admin', 'admin123')}"}
+        character = client.post("/api/characters", headers=player_headers, json={
+            "name": "Progression Target",
+            "class_name": "Fighter",
+            "level": 3,
+            "route": "Steel"
+        })
+        assert character.status_code == 200, character.text
+        character_id = character.json()["id"]
+
+        marked_dead = client.patch(
+            f"/api/admin/characters/{character_id}",
+            headers=admin_headers,
+            json={"is_dead": True, "hp": 0}
+        )
+        assert marked_dead.status_code == 200, marked_dead.text
+        assert marked_dead.json()["is_dead"] is True
+
+        for payload in ({"xp": 99}, {"level": 20}, {"is_dead": False}):
+            response = client.patch(
+                f"/api/characters/{character_id}",
+                headers=player_headers,
+                json=payload
+            )
+            assert response.status_code == 422, response.text
+
+        allowed = client.patch(
+            f"/api/characters/{character_id}",
+            headers=player_headers,
+            json={"name": "Allowed Rename", "hp": 7}
+        )
+        assert allowed.status_code == 200, allowed.text
+        assert allowed.json()["name"] == "Allowed Rename"
+        assert allowed.json()["hp"] == 7
+
+        loaded = client.get(
+            f"/api/admin/characters/{character_id}",
+            headers=admin_headers
+        )
+        assert loaded.status_code == 200, loaded.text
+        payload = loaded.json()
+        assert payload["level"] == 3
+        assert payload["xp"] == 0
+        assert payload["is_dead"] is True
 
 
 def test_shop_search_charges_hireling_in_gold_before_buy_confirmation():
@@ -1109,6 +1268,34 @@ def test_damage_roll_fails_for_attack_without_damage():
         assert response.status_code == 400
 
 
+def test_damage_roll_rejects_oversized_damage_formula_without_expanding_rolls():
+    with TestClient(app) as client:
+        token = login(client, "admin", "admin123")
+        headers = {"Authorization": f"Bearer {token}"}
+        created = client.post("/api/characters", headers=headers, json={
+            "name": "Huge Damage Hero",
+            "class_name": "Воин",
+            "level": 1,
+            "route": "Frontline"
+        })
+        assert created.status_code == 200, created.text
+        character_id = created.json()["id"]
+        attack = client.post(
+            f"/api/characters/{character_id}/attacks",
+            headers=headers,
+            json={"name": "Oversized", "attack_bonus": 3, "damage": "5000d1"}
+        )
+        assert attack.status_code == 200, attack.text
+        attack_id = attack.json()["id"]
+
+        response = client.post(
+            f"/api/characters/{character_id}/attacks/{attack_id}/roll-damage",
+            headers=headers
+        )
+        assert response.status_code == 400, response.text
+        assert "Dice count" in response.json()["detail"]
+
+
 def test_ability_roll_returns_d20_plus_modifier_and_logs():
     with TestClient(app) as client:
         token = login(client, "admin", "admin123")
@@ -1685,6 +1872,32 @@ def test_manual_downtime_rejects_non_positive_days():
             json={"start_date": "2025-06-01", "days": 0, "reason": "Ничего"},
         )
         assert rejected.status_code == 400, rejected.text
+
+
+def test_manual_downtime_rejects_oversized_and_future_spanning_entries():
+    with TestClient(app) as client:
+        headers = {"Authorization": f"Bearer {login(client, 'admin', 'admin123')}"}
+        cid = _make_character(client, headers)["id"]
+
+        oversized = client.post(
+            f"/api/characters/{cid}/calendar/downtime",
+            headers=headers,
+            json={"start_date": "2025-06-01", "days": 10000, "reason": "Too large"},
+        )
+        assert oversized.status_code == 400, oversized.text
+        assert "не может превышать" in oversized.json()["detail"]
+
+        future_spanning = client.post(
+            f"/api/characters/{cid}/calendar/downtime",
+            headers=headers,
+            json={
+                "start_date": (date.today() - timedelta(days=1)).isoformat(),
+                "days": 2,
+                "reason": "Future span",
+            },
+        )
+        assert future_spanning.status_code == 400, future_spanning.text
+        assert "будущем" in future_spanning.json()["detail"]
 
 
 def test_downtime_entry_can_be_deleted():

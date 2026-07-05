@@ -14,10 +14,6 @@ for (const key of Object.keys(loadedEnv)) {
   console.log(`[dev] Loaded ${key} from .env`);
 }
 
-// Default development database. Keep this in sync with the fallback in
-// app/db/database.py so the backend and the dev launcher agree.
-const DEFAULT_DATABASE_URL = "postgresql://postgres:GalU5TA1@localhost:5432/EpohaTruda";
-
 const apiTarget = process.env.VITE_API_TARGET ?? "http://127.0.0.1:8000";
 const children = new Set();
 let shuttingDown = false;
@@ -152,12 +148,13 @@ async function startBackend() {
       ? [localPython, "py", "python"]
       : [localPython, "python3", "python"];
   const args = ["-m", "uvicorn", "app.main:app", "--reload", "--host", "0.0.0.0", "--port", "8000"];
-  const databaseUrl = process.env.DATABASE_URL ?? DEFAULT_DATABASE_URL;
   if (!process.env.DATABASE_URL) {
-    console.log("[dev] DATABASE_URL is not set; using the default development database.");
+    throw new Error(
+      "DATABASE_URL is not set. Copy .env.example to .env and set your local PostgreSQL connection string."
+    );
   }
   const env = {
-    DATABASE_URL: databaseUrl
+    DATABASE_URL: process.env.DATABASE_URL
   };
   let lastError;
 
