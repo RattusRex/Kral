@@ -2,7 +2,7 @@
 
 Destination requested: `RattusRex/Kral` GitHub issues.
 
-Approval is required before these are created because they disclose security details in GitHub issues. The current token only has `READ` permission on `RattusRex/Kral`, so issue creation in the upstream repository also requires a token/account with write permission. Exact duplicate searches for all six finding IDs returned no matches on 2026-07-05.
+The repository owner approved these payloads in issue and pull request comments on 2026-07-05. Fresh exact duplicate searches and readback on 2026-07-05 found that all six finding IDs and fingerprints are already tracked in `RattusRex/Kral#60`, so no duplicate issues were created.
 
 ## 1. [Security] Players can self-modify karma through authenticated `/me` endpoints
 

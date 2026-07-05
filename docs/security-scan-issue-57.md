@@ -43,12 +43,23 @@ The bounded PoC returned:
 
 Full validation output is in the scan bundle at `artifacts/05_findings/validation_artifacts/runtime_poc_output.json`.
 
-## GitHub Issue Creation
+## GitHub Issue Tracking
 
-Exact proposed issue payloads are in `docs/security-issue-previews-issue-57.md` and in the scan bundle under `artifacts/05_findings/issue_previews/`. They were not created yet because the Codex Security tracking workflow requires approval of the exact payloads before writing GitHub issues.
+Exact proposed issue payloads are in `docs/security-issue-previews-issue-57.md` and in the scan bundle under `artifacts/05_findings/issue_previews/`.
 
-Tracking readiness:
+Tracking status on 2026-07-05:
 
 - Destination `RattusRex/Kral` has issues enabled.
-- Current GitHub token permission on `RattusRex/Kral`: `READ`, so upstream issue creation is not available from this environment without additional repository permission.
-- Exact duplicate searches for all six finding IDs returned no matches on 2026-07-05.
+- GitHub reported `viewerCanCreateIssues: true` for the authenticated `konard` account.
+- The repository owner approved the proposed payloads in issue and pull request comments.
+- Fresh exact duplicate searches for all six finding IDs and fingerprints resolved to the existing upstream issue `RattusRex/Kral#60`.
+- Readback of `RattusRex/Kral#60` confirmed all six canonical finding IDs and fingerprints are present, so no duplicate issues were created.
+
+| Finding ID | Tracking issue |
+| --- | --- |
+| `csf_fce24ba25df05bfd6c568a77` | `https://github.com/RattusRex/Kral/issues/60` |
+| `csf_ae69457a2652d52e4e9d74a0` | `https://github.com/RattusRex/Kral/issues/60` |
+| `csf_ee72b36158077bd9712e332f` | `https://github.com/RattusRex/Kral/issues/60` |
+| `csf_dc2d5b0c7163a53dcf656f97` | `https://github.com/RattusRex/Kral/issues/60` |
+| `csf_bc8c0a72d0653d1ec0706067` | `https://github.com/RattusRex/Kral/issues/60` |
+| `csf_6e6041873a58f334609ef647` | `https://github.com/RattusRex/Kral/issues/60` |
