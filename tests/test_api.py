@@ -177,6 +177,75 @@ def test_character_xp_rolls_over_remaining_xp():
         assert response.json()["xp"] == 2
 
 
+def test_players_cannot_directly_grant_inventory_currency_or_items():
+    with TestClient(app) as client:
+        admin_token = login(client, "admin", "admin123")
+        admin_headers = {"Authorization": f"Bearer {admin_token}"}
+        created_user = client.post("/api/users", json={
+            "username": "mint-blocked",
+            "email": "mint-blocked@example.com",
+            "password": "secret123"
+        })
+        assert created_user.status_code == 200, created_user.text
+        player_token = login(client, "mint-blocked", "secret123")
+        player_headers = {"Authorization": f"Bearer {player_token}"}
+
+        created_character = client.post("/api/characters", headers=player_headers, json={
+            "name": "Honest Ledger",
+            "class_name": "Bard",
+            "level": 1,
+            "route": "Market"
+        })
+        assert created_character.status_code == 200, created_character.text
+        character_id = created_character.json()["id"]
+
+        direct_currency = client.post(
+            f"/api/characters/{character_id}/inventory/currency/add",
+            headers=player_headers,
+            json={"gold": 50, "silver": 5, "copper": 4}
+        )
+        assert direct_currency.status_code == 403
+        direct_gold = client.post(
+            f"/api/characters/{character_id}/inventory/gold/add",
+            headers=player_headers,
+            json={"amount": 50}
+        )
+        assert direct_gold.status_code == 403
+        direct_item = client.post(
+            f"/api/characters/{character_id}/inventory/items",
+            headers=player_headers,
+            json={"name": "Unreviewed Wand", "rarity": "Обычный", "is_consumable": False}
+        )
+        assert direct_item.status_code == 403
+
+        inventory = client.get(
+            f"/api/characters/{character_id}/inventory",
+            headers=player_headers
+        )
+        assert inventory.status_code == 200, inventory.text
+        assert inventory.json()["gold"] == 0
+        assert inventory.json()["silver"] == 0
+        assert inventory.json()["copper"] == 0
+        assert inventory.json()["items"] == []
+
+        granted_currency = client.post(
+            f"/api/admin/characters/{character_id}/currency/add",
+            headers=admin_headers,
+            json={"gold": 5, "silver": 2, "copper": 1}
+        )
+        assert granted_currency.status_code == 200, granted_currency.text
+        granted_item = client.post(
+            f"/api/admin/characters/{character_id}/item",
+            headers=admin_headers,
+            json={"name": "Reviewed Wand", "rarity": "Обычный", "is_consumable": False}
+        )
+        assert granted_item.status_code == 200, granted_item.text
+        assert granted_item.json()["gold"] == 5
+        assert granted_item.json()["silver"] == 2
+        assert granted_item.json()["copper"] == 1
+        assert granted_item.json()["items"][0]["name"] == "Reviewed Wand"
+
+
 def test_shop_search_charges_hireling_in_gold_before_buy_confirmation():
     with TestClient(app) as client:
         token = login(client, "admin", "admin123")
