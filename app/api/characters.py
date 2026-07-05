@@ -40,6 +40,17 @@ def get_db():
     finally:
         db.close()
 
+
+def validate_not_before_epoch(value, label: str):
+    if value is not None and value < GAME_EPOCH:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"{label} не может быть раньше начала игры "
+                f"({GAME_EPOCH.strftime('%d.%m.%Y')})."
+            )
+        )
+
 @router.post("/characters")
 def create_character(
     character_data: CharacterCreate,
@@ -56,14 +67,19 @@ def create_character(
         )
 
     game_created_at = character_data.game_created_at or GAME_EPOCH
-    if game_created_at < GAME_EPOCH:
-        raise HTTPException(
-            status_code=400,
-            detail=(
-                "Дата создания персонажа не может быть раньше начала игры "
-                f"({GAME_EPOCH.strftime('%d.%m.%Y')})."
-            )
-        )
+    validate_not_before_epoch(game_created_at, "Дата создания персонажа")
+    personal_hireling_acquired_at = (
+        character_data.personal_hireling_acquired_at or GAME_EPOCH
+    )
+    simulacrum_created_at = character_data.simulacrum_created_at or GAME_EPOCH
+    validate_not_before_epoch(
+        personal_hireling_acquired_at,
+        "Дата появления личного наёмника"
+    )
+    validate_not_before_epoch(
+        simulacrum_created_at,
+        "Дата появления симулякра"
+    )
 
     character = Character(
         name=character_data.name,
@@ -79,6 +95,14 @@ def create_character(
         wisdom=character_data.wisdom,
         charisma=character_data.charisma,
         investigation=character_data.investigation,
+        personal_hireling_enabled=character_data.personal_hireling_enabled,
+        personal_hireling_acquired_at=personal_hireling_acquired_at,
+        personal_hireling_investigation=(
+            character_data.personal_hireling_investigation
+        ),
+        simulacrum_enabled=character_data.simulacrum_enabled,
+        simulacrum_created_at=simulacrum_created_at,
+        simulacrum_investigation=character_data.simulacrum_investigation,
         hp=character_data.hp,
         temp_hp=character_data.temp_hp,
         armor_class=character_data.armor_class,
@@ -112,6 +136,14 @@ def create_character(
         "wisdom": character.wisdom,
         "charisma": character.charisma,
         "investigation": character.investigation,
+        "personal_hireling_enabled": character.personal_hireling_enabled,
+        "personal_hireling_acquired_at": character.personal_hireling_acquired_at,
+        "personal_hireling_investigation": (
+            character.personal_hireling_investigation
+        ),
+        "simulacrum_enabled": character.simulacrum_enabled,
+        "simulacrum_created_at": character.simulacrum_created_at,
+        "simulacrum_investigation": character.simulacrum_investigation,
         "hp": character.hp,
         "temp_hp": character.temp_hp,
         "armor_class": character.armor_class,
@@ -163,6 +195,18 @@ def update_character(
         )
 
     update_data = character_data.model_dump(exclude_unset=True)
+    if "personal_hireling_acquired_at" in update_data:
+        value = update_data["personal_hireling_acquired_at"]
+        if value is None:
+            update_data["personal_hireling_acquired_at"] = GAME_EPOCH
+            value = GAME_EPOCH
+        validate_not_before_epoch(value, "Дата появления личного наёмника")
+    if "simulacrum_created_at" in update_data:
+        value = update_data["simulacrum_created_at"]
+        if value is None:
+            update_data["simulacrum_created_at"] = GAME_EPOCH
+            value = GAME_EPOCH
+        validate_not_before_epoch(value, "Дата появления симулякра")
 
     for key, value in update_data.items():
         setattr(character, key, value)

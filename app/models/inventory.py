@@ -120,6 +120,11 @@ class ShopQuote(Base):
         nullable=True
     )
 
+    searcher_type: Mapped[str] = mapped_column(
+        String(32),
+        default="character"
+    )
+
     success: Mapped[bool] = mapped_column(
         Boolean
     )

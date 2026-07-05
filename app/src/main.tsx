@@ -15,6 +15,13 @@ const hirelings = [
   { level: "Компетентный", bonus: 6, cost: 10 },
   { level: "Эксперт", bonus: 8, cost: 25 }
 ];
+type SearcherType = "character" | "paid_hireling" | "personal_hireling" | "simulacrum";
+const searcherOptions: { type: SearcherType; label: string }[] = [
+  { type: "character", label: "Персонаж" },
+  { type: "personal_hireling", label: "Личный наёмник" },
+  { type: "simulacrum", label: "Симулякр" },
+  { type: "paid_hireling", label: "Платный наёмник" }
+];
 const characterClasses = [
   { name: "Бард", hitDie: "d8" },
   { name: "Варвар", hitDie: "d12" },
@@ -57,12 +64,21 @@ const numberFields = [
   { field: "intelligence", label: "Интеллект (INT)" },
   { field: "wisdom", label: "Мудрость (WIS)" },
   { field: "charisma", label: "Харизма (CHA)" },
-  { field: "investigation", label: "Внимательность / Investigation" }
+  { field: "investigation", label: "Расследование" }
+] as const;
+const adminUnitNumberFields = [
+  { field: "personal_hireling_investigation", label: "Расследование личного наёмника" },
+  { field: "simulacrum_investigation", label: "Расследование симулякра" }
+] as const;
+const adminUnitDateFields = [
+  { field: "personal_hireling_acquired_at", label: "Дата появления личного наёмника" },
+  { field: "simulacrum_created_at", label: "Дата появления симулякра" }
 ] as const;
 const adminNumberFields = [
   { field: "level", label: "Уровень" },
   { field: "xp", label: "XP" },
-  ...numberFields.filter(({ field }) => field !== "level")
+  ...numberFields.filter(({ field }) => field !== "level"),
+  ...adminUnitNumberFields
 ] as const;
 const blankCharacter = {
   name: "",
@@ -680,7 +696,7 @@ function CharacterPage() {
               <Stat label="Временные HP" value={character.temp_hp} />
               <Stat label="КД" value={character.armor_class} />
               <Stat label="Скорость" value={`${character.speed} фт`} />
-              <Stat label="Investigation" value={signed(character.investigation)} />
+              <Stat label="Расследование" value={signed(character.investigation)} />
             </dl>
           </section>
 
@@ -1019,7 +1035,7 @@ function ShopPage() {
   const [characterId, setCharacterId] = useState("");
   const [mode, setMode] = useState<"buy" | "sell">(() => new URLSearchParams(window.location.search).get("mode") === "sell" ? "sell" : "buy");
   const [inventory, setInventory] = useState<Inventory | null>(null);
-  const [form, setForm] = useState({ magic_item_id: "", item_name: "", rarity: "Обычный", is_consumable: false, item_id: "", searcher_type: "hireling", hireling_level: "Плохой" });
+  const [form, setForm] = useState({ magic_item_id: "", item_name: "", rarity: "Обычный", is_consumable: false, item_id: "", searcher_type: "paid_hireling", hireling_level: "Плохой" });
   const [magicItems, setMagicItems] = useState<MagicItem[]>([]);
   const [magicItemSearch, setMagicItemSearch] = useState("");
   const [magicItemRarity, setMagicItemRarity] = useState("");
@@ -1153,6 +1169,13 @@ function ShopPage() {
   const selectedItem = inventory?.items.find((item) => String(item.id) === form.item_id);
   const selectedMagicItem = magicItems.find((item) => item.id === form.magic_item_id);
   const canSearch = Boolean(characterId) && (mode === "buy" ? Boolean(form.magic_item_id || form.item_name.trim()) : Boolean(form.item_id));
+  const paidHirelingSelected = form.searcher_type === "paid_hireling";
+
+  function searcherDisabled(searcherType: SearcherType) {
+    if (searcherType === "personal_hireling") return !selectedCharacter?.personal_hireling_enabled;
+    if (searcherType === "simulacrum") return !selectedCharacter?.simulacrum_enabled;
+    return false;
+  }
 
   return (
     <div className="grid gap-4 lg:grid-cols-[420px_1fr]">
@@ -1226,14 +1249,23 @@ function ShopPage() {
           </label>
         )}
         <div className="grid grid-cols-2 gap-2">
-          <button type="button" className={form.searcher_type === "character" ? "mode-tab-active" : "mode-tab"} onClick={() => setForm({ ...form, searcher_type: "character" })}>Персонаж</button>
-          <button type="button" className={form.searcher_type === "hireling" ? "mode-tab-active" : "mode-tab"} onClick={() => setForm({ ...form, searcher_type: "hireling" })}>Наёмник</button>
+          {searcherOptions.map((option) => (
+            <button
+              type="button"
+              className={form.searcher_type === option.type ? "mode-tab-active" : "mode-tab"}
+              disabled={searcherDisabled(option.type)}
+              key={option.type}
+              onClick={() => setForm({ ...form, searcher_type: option.type })}
+            >
+              {option.label}
+            </button>
+          ))}
         </div>
         <div className="grid gap-2 sm:grid-cols-2">
           {hirelings.map((hireling) => (
             <button
               className={form.hireling_level === hireling.level ? "hireling-option-active" : "hireling-option"}
-              disabled={form.searcher_type !== "hireling"}
+              disabled={!paidHirelingSelected}
               key={hireling.level}
               onClick={() => setForm({ ...form, hireling_level: hireling.level })}
               type="button"
@@ -1270,6 +1302,7 @@ function ResultPanel({ result, onConfirm, onContinue }: { result: ShopResult | n
         <Stat label="Модификатор" value={result.modifier >= 0 ? `+${result.modifier}` : result.modifier} />
         <Stat label="Итог" value={result.total_roll} />
         <Stat label="DC" value={result.dc} />
+        <Stat label="Ищет" value={result.searcher_label} />
         <Stat label="Дни" value={result.days} />
         <Stat label="Бросок цены" value={result.price_roll ?? "-"} />
         <Stat label="Множитель" value={result.multiplier ? `x${result.multiplier.toFixed(2)}` : "-"} />
@@ -1620,12 +1653,14 @@ function AdminPage() {
       <section className="panel p-5">
         <h2 className="text-lg font-semibold text-ember">Все персонажи</h2>
         <div className="mt-4 overflow-x-auto">
-          <table className="w-full min-w-[720px] text-left text-sm">
+          <table className="w-full min-w-[960px] text-left text-sm">
             <thead className="text-xs uppercase text-white/45">
               <tr>
                 <th className="py-2 pr-3">Имя</th>
                 <th className="py-2 pr-3">Владелец</th>
                 <th className="py-2 pr-3">Уровень</th>
+                <th className="py-2 pr-3">Дата сбора</th>
+                <th className="py-2 pr-3">Свободные дни</th>
                 <th className="py-2 pr-3">Раса</th>
                 <th className="py-2 pr-3">Подкласс</th>
                 <th className="py-2 pr-3">Путь</th>
@@ -1638,6 +1673,8 @@ function AdminPage() {
                   <td className="py-3 pr-3 font-semibold text-ember">{character.name}</td>
                   <td className="py-3 pr-3">{character.owner_username}</td>
                   <td className="py-3 pr-3">{character.level}</td>
+                  <td className="py-3 pr-3">{formatGameDate(character.game_created_at)}</td>
+                  <td className="py-3 pr-3">{character.free_days ?? "-"}</td>
                   <td className="py-3 pr-3">{character.race || "-"}</td>
                   <td className="py-3 pr-3">{character.subclass || "-"}</td>
                   <td className="py-3 pr-3">{character.route || "-"}</td>
@@ -1689,8 +1726,13 @@ function AdminCharacterPage() {
       payload[field] = form[field];
     });
     adminNumberFields.forEach(({ field }) => {
-      payload[field] = form[field];
+      payload[field] = form[field] ?? 0;
     });
+    adminUnitDateFields.forEach(({ field }) => {
+      payload[field] = form[field] ?? GAME_EPOCH;
+    });
+    payload.personal_hireling_enabled = form.personal_hireling_enabled ?? false;
+    payload.simulacrum_enabled = form.simulacrum_enabled ?? false;
 
     try {
       const response = await api.patch<Character>(`/admin/characters/${id}`, payload);
@@ -1754,7 +1796,7 @@ function AdminCharacterPage() {
               <input
                 className="field"
                 type="number"
-                value={form[field]}
+                value={form[field] ?? 0}
                 onChange={(event) => {
                   setSaved(false);
                   setForm({ ...form, [field]: Number(event.target.value) });
@@ -1762,6 +1804,45 @@ function AdminCharacterPage() {
               />
             </label>
           ))}
+          <div className="md:col-span-2 grid gap-3 rounded-md border border-white/10 p-3 md:grid-cols-2">
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={Boolean(form.personal_hireling_enabled)}
+                onChange={(event) => {
+                  setSaved(false);
+                  setForm({ ...form, personal_hireling_enabled: event.target.checked });
+                }}
+              />
+              Личный наёмник
+            </label>
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={Boolean(form.simulacrum_enabled)}
+                onChange={(event) => {
+                  setSaved(false);
+                  setForm({ ...form, simulacrum_enabled: event.target.checked });
+                }}
+              />
+              Симулякр
+            </label>
+            {adminUnitDateFields.map(({ field, label }) => (
+              <label className="field-label" key={field}>
+                <span>{label}</span>
+                <input
+                  className="field"
+                  min={GAME_EPOCH}
+                  type="date"
+                  value={form[field] ?? GAME_EPOCH}
+                  onChange={(event) => {
+                    setSaved(false);
+                    setForm({ ...form, [field]: event.target.value });
+                  }}
+                />
+              </label>
+            ))}
+          </div>
           {error && <p className="text-sm text-red-300 md:col-span-2">{error}</p>}
           {saved && <p className="text-sm text-emerald-200 md:col-span-2">Сохранено</p>}
           <button className="btn md:col-span-2" type="submit"><Save size={16} />Сохранить изменения</button>
@@ -1771,8 +1852,15 @@ function AdminCharacterPage() {
           <Stat label="XP" value={character.xp} />
           <Stat label="HP" value={character.hp} />
           <Stat label="КД" value={character.armor_class} />
+          <Stat label="Дата сбора" value={formatGameDate(character.game_created_at)} />
+          <Stat label="Свободные дни" value={character.free_days ?? 0} />
+          <Stat label="Личный наёмник" value={character.personal_hireling_enabled ? `${character.personal_hireling_free_days ?? 0} дн.` : "-"} />
+          <Stat label="Симулякр" value={character.simulacrum_enabled ? `${character.simulacrum_free_days ?? 0} дн.` : "-"} />
           {stats.map((stat) => <Stat key={stat.field} label={stat.label} value={character[stat.field]} />)}
         </dl>
+        <div className="mt-5">
+          <CalendarPanel characterId={id} />
+        </div>
         <div className="mt-5 rounded-md border border-red-400/30 p-4">
           <h2 className="font-semibold text-red-200">Удаление персонажа</h2>
           <div className="mt-3 flex flex-wrap gap-2">

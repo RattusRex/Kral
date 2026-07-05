@@ -65,6 +65,31 @@ HIRELING_ALIASES = {
     "Экспертный": "Эксперт",
 }
 
+SEARCHER_CHARACTER = "character"
+SEARCHER_PAID_HIRELING = "paid_hireling"
+SEARCHER_PERSONAL_HIRELING = "personal_hireling"
+SEARCHER_SIMULACRUM = "simulacrum"
+SEARCHER_ALIASES = {
+    "hireling": SEARCHER_PAID_HIRELING,
+    "paid-hireling": SEARCHER_PAID_HIRELING,
+    "paid_hireling": SEARCHER_PAID_HIRELING,
+    "character": SEARCHER_CHARACTER,
+    "personal_hireling": SEARCHER_PERSONAL_HIRELING,
+    "personal-hireling": SEARCHER_PERSONAL_HIRELING,
+    "simulacrum": SEARCHER_SIMULACRUM,
+}
+SEARCHER_LABELS = {
+    SEARCHER_CHARACTER: "Персонаж",
+    SEARCHER_PAID_HIRELING: "Платный наёмник",
+    SEARCHER_PERSONAL_HIRELING: "Личный наёмник",
+    SEARCHER_SIMULACRUM: "Симулякр",
+}
+DAY_SPENDING_SEARCHERS = {
+    SEARCHER_CHARACTER,
+    SEARCHER_PERSONAL_HIRELING,
+    SEARCHER_SIMULACRUM,
+}
+
 MAGIC_VARIANTS_PATH = Path(__file__).resolve().parents[2] / "magicvariants.json"
 MAGIC_ITEM_RARITY_LABELS = {
     "common": "Обычный",
@@ -452,6 +477,60 @@ def roll_sell_price_multiplier(rarity: str):
 def canonical_hireling_level(level: str) -> str:
     return HIRELING_ALIASES.get(level, level)
 
+
+def canonical_searcher_type(searcher_type: str) -> str:
+    normalized = SEARCHER_ALIASES.get(searcher_type.strip().casefold())
+    if not normalized:
+        raise HTTPException(
+            status_code=400,
+            detail="Unknown searcher type"
+        )
+    return normalized
+
+
+def require_search_unit(character: Character, searcher_type: str) -> None:
+    if (
+        searcher_type == SEARCHER_PERSONAL_HIRELING
+        and not character.personal_hireling_enabled
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail="У персонажа нет личного наёмника"
+        )
+    if searcher_type == SEARCHER_SIMULACRUM and not character.simulacrum_enabled:
+        raise HTTPException(
+            status_code=400,
+            detail="У персонажа нет симулякра"
+        )
+
+
+def search_modifier_for_actor(character: Character, searcher_type: str) -> int:
+    if searcher_type == SEARCHER_CHARACTER:
+        return character.investigation
+    if searcher_type == SEARCHER_PERSONAL_HIRELING:
+        return character.personal_hireling_investigation
+    if searcher_type == SEARCHER_SIMULACRUM:
+        return character.simulacrum_investigation
+    raise HTTPException(
+        status_code=400,
+        detail="Unknown searcher type"
+    )
+
+
+def searcher_created_at(character: Character, searcher_type: str):
+    if searcher_type == SEARCHER_CHARACTER:
+        return character.game_created_at
+    if searcher_type == SEARCHER_PERSONAL_HIRELING:
+        return character.personal_hireling_acquired_at
+    if searcher_type == SEARCHER_SIMULACRUM:
+        return character.simulacrum_created_at
+    return character.game_created_at
+
+
+def searcher_spends_days(searcher_type: str) -> bool:
+    return searcher_type in DAY_SPENDING_SEARCHERS
+
+
 def search_item(
     character: Character,
     rarity: str,
@@ -460,11 +539,13 @@ def search_item(
 ):
     validate_rarity(rarity)
     rarity_data = RARITY_DATA[rarity]
+    normalized_searcher_type = canonical_searcher_type(searcher_type)
 
-    if searcher_type == "character":
-        modifier = character.investigation
+    if normalized_searcher_type in DAY_SPENDING_SEARCHERS:
+        require_search_unit(character, normalized_searcher_type)
+        modifier = search_modifier_for_actor(character, normalized_searcher_type)
         daily_cost = 0
-    elif searcher_type == "hireling":
+    elif normalized_searcher_type == SEARCHER_PAID_HIRELING:
         normalized_level = canonical_hireling_level(hireling_level)
         if normalized_level not in HIRELING_BONUSES:
             raise HTTPException(
@@ -488,6 +569,7 @@ def search_item(
         days = rarity_data["days_dice"]
 
     return {
+        "searcher_type": normalized_searcher_type,
         "success": success,
         "search_roll": search_roll,
         "modifier": modifier,
@@ -590,9 +672,12 @@ def quote_total_cost(quote: ShopQuote) -> int:
     return quote.hireling_cost
 
 def serialize_quote(quote: ShopQuote, inventory: Inventory):
+    searcher_type = canonical_searcher_type(quote.searcher_type)
     return {
         "quote_id": quote.id,
         "mode": quote.mode,
+        "searcher_type": searcher_type,
+        "searcher_label": SEARCHER_LABELS[searcher_type],
         "item_name": quote.item_name,
         "rarity": quote.rarity,
         "is_consumable": quote.is_consumable,
@@ -943,17 +1028,20 @@ def search_shop_item(
         search_data.hireling_level
     )
 
-    # Searching the market consumes in-world time. Spend the character's
-    # oldest free days first (raising 400 if there are not enough) before
-    # charging gold, so a failed time check leaves the inventory untouched.
+    # Character-bound searchers spend their own in-world days. Paid hirelings
+    # are external services, so they only charge gold.
     mode_label = "покупателя" if item_data["mode"] == "sell" else "продавца"
-    charge_character_downtime(
-        character,
-        db,
-        search_result["days"],
-        reason=f"Поиск {mode_label}: {item_data['item_name']}",
-        source="shop",
-    )
+    searcher_type = search_result["searcher_type"]
+    if searcher_spends_days(searcher_type):
+        charge_character_downtime(
+            character,
+            db,
+            search_result["days"],
+            reason=f"Поиск {mode_label}: {item_data['item_name']}",
+            source="shop",
+            agent_type=searcher_type,
+            created_at=searcher_created_at(character, searcher_type),
+        )
 
     subtract_gold_amount(
         inventory,

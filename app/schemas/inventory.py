@@ -92,6 +92,8 @@ class MagicItemResponse(BaseModel):
 class ShopResult(BaseModel):
     quote_id: int | None = None
     mode: str
+    searcher_type: str
+    searcher_label: str
     item_name: str
     rarity: str
     is_consumable: bool
