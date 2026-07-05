@@ -4,7 +4,11 @@ import re
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from app.api.chat import create_roll_chat_message
+from app.api.chat import (
+    MAX_DICE_COUNT,
+    MAX_DICE_SIDES,
+    create_roll_chat_message,
+)
 from app.api.users import get_current_user, get_db
 from app.models.character import Character, CharacterAttack
 from app.models.user import User
@@ -71,6 +75,29 @@ def require_attack_name(name: str) -> str:
             detail="Attack name is required"
         )
     return normalized
+
+
+def parse_damage_formula(damage: str) -> tuple[int, int, str, int]:
+    match = DAMAGE_PATTERN.match(damage.strip())
+    if not match:
+        raise HTTPException(status_code=400, detail="Неверный формат урона")
+
+    count = int(match.group("count"))
+    sides = int(match.group("sides"))
+    if count < 1 or count > MAX_DICE_COUNT:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Dice count must be between 1 and {MAX_DICE_COUNT}"
+        )
+    if sides < 1 or sides > MAX_DICE_SIDES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Dice sides must be between 1 and {MAX_DICE_SIDES}"
+        )
+
+    mod_str = match.group("mod") or "+0"
+    modifier = int(mod_str)
+    return count, sides, mod_str, modifier
 
 
 @router.get(
@@ -204,15 +231,7 @@ def roll_damage(
     if not attack.damage:
         raise HTTPException(status_code=400, detail="У атаки не задан урон")
 
-    match = DAMAGE_PATTERN.match(attack.damage.strip())
-    if not match:
-        raise HTTPException(status_code=400, detail="Неверный формат урона")
-
-    count = int(match.group("count"))
-    sides = int(match.group("sides"))
-    mod_str = match.group("mod") or "+0"
-    modifier = int(mod_str)
-
+    count, sides, mod_str, modifier = parse_damage_formula(attack.damage)
     rolls = [random.randint(1, sides) for _ in range(count)]
     total = sum(rolls) + modifier
 
