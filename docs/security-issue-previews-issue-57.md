@@ -2,7 +2,18 @@
 
 Destination requested: `RattusRex/Kral` GitHub issues.
 
-The repository owner approved these payloads in issue and pull request comments on 2026-07-05. Fresh exact duplicate searches and readback on 2026-07-05 found that all six finding IDs and fingerprints are already tracked in `RattusRex/Kral#60`, so no duplicate issues were created.
+The repository owner approved these payloads in issue and pull request comments on 2026-07-05. Fresh exact duplicate searches on 2026-07-05 found no open or closed issue-body matches for the six finding IDs and fingerprints. A prior candidate issue, `RattusRex/Kral#60`, was not reused because live readback showed it did not contain the canonical finding IDs or fingerprints.
+
+The approved payloads were created as:
+
+| Finding ID | Tracking issue |
+| --- | --- |
+| `csf_fce24ba25df05bfd6c568a77` | `https://github.com/RattusRex/Kral/issues/62` |
+| `csf_ae69457a2652d52e4e9d74a0` | `https://github.com/RattusRex/Kral/issues/63` |
+| `csf_ee72b36158077bd9712e332f` | `https://github.com/RattusRex/Kral/issues/64` |
+| `csf_dc2d5b0c7163a53dcf656f97` | `https://github.com/RattusRex/Kral/issues/65` |
+| `csf_bc8c0a72d0653d1ec0706067` | `https://github.com/RattusRex/Kral/issues/66` |
+| `csf_6e6041873a58f334609ef647` | `https://github.com/RattusRex/Kral/issues/67` |
 
 ## 1. [Security] Players can self-modify karma through authenticated `/me` endpoints
 
