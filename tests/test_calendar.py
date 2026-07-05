@@ -53,6 +53,16 @@ def test_busy_days_outside_window_are_ignored():
     assert summary["busy_days"] == 2
 
 
+def test_occupied_days_can_be_bounded_to_active_window():
+    entries = [FakeEntry(date(2025, 6, 1), 10_000)]
+    days = game_calendar.occupied_days(
+        entries,
+        date(2025, 6, 1),
+        date(2025, 6, 10),
+    )
+    assert days == {date(2025, 6, day) for day in range(1, 10)}
+
+
 def test_overlapping_entries_count_each_day_once():
     entries = [
         FakeEntry(date(2025, 6, 1), 5),

@@ -210,6 +210,16 @@ def validate_downtime_window(
             detail="Нельзя занять дни в будущем."
         )
 
+    max_days = (current - start_date).days
+    if days > max_days:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Запись занятых дней выходит за текущую дату календаря. "
+                f"Максимум с выбранной даты: {max_days}."
+            )
+        )
+
 
 @router.get(
     "/characters/{character_id}/calendar",

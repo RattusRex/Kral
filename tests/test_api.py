@@ -1894,6 +1894,84 @@ def test_manual_downtime_rejects_non_positive_days():
         assert rejected.status_code == 400, rejected.text
 
 
+def test_manual_downtime_rejects_span_past_current_game_date(monkeypatch):
+    from app.core import calendar as game_calendar
+
+    monkeypatch.setattr(
+        game_calendar,
+        "current_game_date",
+        lambda: date(2025, 6, 10),
+    )
+
+    with TestClient(app) as client:
+        headers = {"Authorization": f"Bearer {login(client, 'admin', 'admin123')}"}
+        cid = _make_character(
+            client, headers, game_created_at="2025-06-01"
+        )["id"]
+
+        accepted = client.post(
+            f"/api/characters/{cid}/calendar/downtime",
+            headers=headers,
+            json={
+                "start_date": "2025-06-01",
+                "days": 9,
+                "reason": "В пределах календаря",
+            },
+        )
+        assert accepted.status_code == 200, accepted.text
+        assert accepted.json()["busy_days"] == 9
+
+        rejected = client.post(
+            f"/api/characters/{cid}/calendar/downtime",
+            headers=headers,
+            json={
+                "start_date": "2025-06-01",
+                "days": 10000,
+                "reason": "Слишком длинная запись",
+            },
+        )
+        assert rejected.status_code == 400, rejected.text
+
+        summary = client.get(f"/api/characters/{cid}/calendar", headers=headers)
+        assert summary.status_code == 200, summary.text
+        assert len(summary.json()["entries"]) == 1
+
+
+def test_admin_downtime_update_rejects_span_past_current_game_date(monkeypatch):
+    from app.core import calendar as game_calendar
+
+    monkeypatch.setattr(
+        game_calendar,
+        "current_game_date",
+        lambda: date(2025, 6, 10),
+    )
+
+    with TestClient(app) as client:
+        headers = {"Authorization": f"Bearer {login(client, 'admin', 'admin123')}"}
+        cid = _make_character(
+            client, headers, game_created_at="2025-06-01"
+        )["id"]
+        created = client.post(
+            f"/api/characters/{cid}/calendar/downtime",
+            headers=headers,
+            json={"start_date": "2025-06-01", "days": 1, "reason": "Крафт"},
+        )
+        assert created.status_code == 200, created.text
+        summary = created.json()
+        entry_id = summary["entries"][0]["id"]
+
+        rejected = client.patch(
+            f"/api/characters/{cid}/calendar/downtime/{entry_id}",
+            headers=headers,
+            json={"days": 10000},
+        )
+        assert rejected.status_code == 400, rejected.text
+
+        summary = client.get(f"/api/characters/{cid}/calendar", headers=headers)
+        assert summary.status_code == 200, summary.text
+        assert summary.json()["entries"][0]["days"] == 1
+
+
 def test_downtime_entry_can_be_deleted():
     with TestClient(app) as client:
         headers = {"Authorization": f"Bearer {login(client, 'admin', 'admin123')}"}
