@@ -1109,6 +1109,40 @@ def test_damage_roll_fails_for_attack_without_damage():
         assert response.status_code == 400
 
 
+def test_damage_roll_rejects_oversized_stored_damage_formulas():
+    with TestClient(app) as client:
+        token = login(client, "admin", "admin123")
+        headers = {"Authorization": f"Bearer {token}"}
+        created = client.post("/api/characters", headers=headers, json={
+            "name": "Bounded Damage Hero",
+            "class_name": "Воин",
+            "level": 1,
+            "route": "Frontline"
+        })
+        character_id = created.json()["id"]
+
+        cases = [
+            ("Too Many Dice", "5000d1", "Dice count must be between 1 and 100"),
+            ("Too Many Sides", "1d10001", "Dice sides must be between 1 and 10000"),
+        ]
+        for name, damage, detail in cases:
+            attack = client.post(
+                f"/api/characters/{character_id}/attacks",
+                headers=headers,
+                json={"name": name, "attack_bonus": 3, "damage": damage}
+            )
+            assert attack.status_code == 200, attack.text
+            attack_id = attack.json()["id"]
+
+            response = client.post(
+                f"/api/characters/{character_id}/attacks/{attack_id}/roll-damage",
+                headers=headers
+            )
+
+            assert response.status_code == 400
+            assert response.json()["detail"] == detail
+
+
 def test_ability_roll_returns_d20_plus_modifier_and_logs():
     with TestClient(app) as client:
         token = login(client, "admin", "admin123")
