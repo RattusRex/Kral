@@ -42,8 +42,8 @@
 
 **Обязательные переменные окружения** (без них backend не стартует):
 
-- `DATABASE_URL` — строка подключения к PostgreSQL (есть дефолт на `localhost`,
-  но для контейнера его нужно переопределить на хост `db`);
+- `DATABASE_URL` — строка подключения к PostgreSQL; для контейнера она должна
+  указывать на хост `db`;
 - `SECRET_KEY` — `app/core/security.py` бросает `RuntimeError`, если ключ пуст;
 - `ADMIN_PASSWORD` — `app/main.py` бросает `RuntimeError`, если пароль пуст;
 - `ALLOWED_ORIGINS` — список CORS‑origin через запятую (может быть пустым, но
@@ -103,8 +103,8 @@ origin** (фронтенд‑nginx проксирует `/api` на backend), б
 
 - Драйверы в `requirements.txt`: `psycopg` (3.x) и `psycopg2-binary`/`psycopg-binary`.
   SQLAlchemy для `postgresql://` по умолчанию использует `psycopg2`.
-- Строка подключения для локальной разработки задаётся через `DATABASE_URL`
-  в окружении или в `.env`; безопасного дефолта с паролем в коде нет.
+- Для локальной разработки строка подключения задаётся явно через
+  `DATABASE_URL` в `.env` или в окружении. Неявного дефолта в коде нет.
 - **Docker Volume нужен** для каталога данных PostgreSQL
   (`/var/lib/postgresql/data`), иначе данные теряются при пересоздании
   контейнера. В `docker-compose.yml` для этого заведён именованный том `pgdata`.
