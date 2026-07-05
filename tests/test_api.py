@@ -158,7 +158,7 @@ def test_password_hashing_uses_bcrypt_directly_without_passlib():
         assert response.json()["username"] == "bcrypt-compat-user"
 
 
-def test_character_xp_rolls_over_remaining_xp():
+def test_admin_character_xp_rolls_over_remaining_xp():
     with TestClient(app) as client:
         token = login(client, "admin", "admin123")
         headers = {"Authorization": f"Bearer {token}"}
@@ -171,10 +171,75 @@ def test_character_xp_rolls_over_remaining_xp():
         assert created.status_code == 200, created.text
         character_id = created.json()["id"]
 
-        response = client.patch(f"/api/characters/{character_id}", headers=headers, json={"xp": 6})
+        response = client.post(
+            f"/api/admin/characters/{character_id}/xp",
+            headers=headers,
+            json={"amount": 6}
+        )
         assert response.status_code == 200, response.text
         assert response.json()["level"] == 4
         assert response.json()["xp"] == 2
+
+
+def test_player_character_patch_rejects_progression_and_death_state_changes():
+    with TestClient(app) as client:
+        admin_token = login(client, "admin", "admin123")
+        admin_headers = {"Authorization": f"Bearer {admin_token}"}
+        created_user = client.post("/api/users", json={
+            "username": "patch-player",
+            "email": "patch-player@example.com",
+            "password": "secret123"
+        })
+        assert created_user.status_code == 200, created_user.text
+        player_token = login(client, "patch-player", "secret123")
+        player_headers = {"Authorization": f"Bearer {player_token}"}
+        created_character = client.post("/api/characters", headers=player_headers, json={
+            "name": "Grounded",
+            "class_name": "Fighter",
+            "level": 3,
+            "route": "Steel",
+            "hp": 0
+        })
+        assert created_character.status_code == 200, created_character.text
+        character_id = created_character.json()["id"]
+
+        seeded_state = client.patch(
+            f"/api/admin/characters/{character_id}",
+            headers=admin_headers,
+            json={"level": 3, "xp": 1, "is_dead": True}
+        )
+        assert seeded_state.status_code == 200, seeded_state.text
+        assert seeded_state.json()["is_dead"] is True
+
+        forbidden = client.patch(
+            f"/api/characters/{character_id}",
+            headers=player_headers,
+            json={"level": 20, "xp": 999, "is_dead": False}
+        )
+        assert forbidden.status_code == 422, forbidden.text
+
+        unchanged = client.get(
+            f"/api/admin/characters/{character_id}",
+            headers=admin_headers
+        )
+        assert unchanged.status_code == 200, unchanged.text
+        unchanged_payload = unchanged.json()
+        assert unchanged_payload["level"] == 3
+        assert unchanged_payload["xp"] == 1
+        assert unchanged_payload["is_dead"] is True
+
+        legitimate = client.patch(
+            f"/api/characters/{character_id}",
+            headers=player_headers,
+            json={"name": "Renamed", "hp": 8}
+        )
+        assert legitimate.status_code == 200, legitimate.text
+        legitimate_payload = legitimate.json()
+        assert legitimate_payload["name"] == "Renamed"
+        assert legitimate_payload["hp"] == 8
+        assert legitimate_payload["level"] == 3
+        assert legitimate_payload["xp"] == 1
+        assert legitimate_payload["is_dead"] is True
 
 
 def test_shop_search_charges_hireling_in_gold_before_buy_confirmation():
