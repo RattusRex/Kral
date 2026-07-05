@@ -241,6 +241,14 @@ def test_player_character_patch_rejects_progression_and_death_state_changes():
         assert legitimate_payload["xp"] == 1
         assert legitimate_payload["is_dead"] is True
 
+        revived = client.post(
+            f"/api/admin/characters/{character_id}/revive",
+            headers=admin_headers
+        )
+        assert revived.status_code == 200, revived.text
+        assert revived.json()["is_dead"] is False
+        assert revived.json()["hp"] == 8
+
 
 def test_shop_search_charges_hireling_in_gold_before_buy_confirmation():
     with TestClient(app) as client:

@@ -24,11 +24,9 @@ class CharacterCreate(BaseModel):
     armor_class: int = 9
     speed: int = 30
 
-class CharacterUpdate(BaseModel):
+class CharacterEditableFields(BaseModel):
     name: Optional[str] = None
     class_name: Optional[str] = None
-    level: Optional[int] = None
-    xp: Optional[int] = None
     route: Optional[str] = None
     subclass: Optional[str] = None
     race: Optional[str] = None
@@ -44,6 +42,15 @@ class CharacterUpdate(BaseModel):
     temp_hp: Optional[int] = None
     armor_class: Optional[int] = None
     speed: Optional[int] = None
+
+
+class PlayerCharacterUpdate(CharacterEditableFields):
+    model_config = ConfigDict(extra="forbid")
+
+
+class CharacterUpdate(CharacterEditableFields):
+    level: Optional[int] = None
+    xp: Optional[int] = None
     is_dead: Optional[bool] = None
 
 
