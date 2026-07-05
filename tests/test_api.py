@@ -486,6 +486,37 @@ def test_admin_can_change_karma_and_view_all_characters_with_owner():
         )
 
 
+def test_players_cannot_change_own_karma_through_me_endpoints():
+    with TestClient(app) as client:
+        admin_token = login(client, "admin", "admin123")
+        admin_headers = {"Authorization": f"Bearer {admin_token}"}
+        created_user = client.post("/api/users", json={
+            "username": "karma-self-service",
+            "email": "karma-self-service@example.com",
+            "password": "secret123"
+        })
+        assert created_user.status_code == 200, created_user.text
+        user_id = created_user.json()["id"]
+        player_token = login(client, "karma-self-service", "secret123")
+        player_headers = {"Authorization": f"Bearer {player_token}"}
+
+        for path in ("/api/me/karma/add", "/api/me/karma/subtract"):
+            blocked = client.post(path, headers=player_headers, json={"amount": 77})
+            assert blocked.status_code == 404
+
+        me = client.get("/api/me", headers=player_headers)
+        assert me.status_code == 200, me.text
+        assert me.json()["karma"] == 0
+
+        added = client.post(
+            f"/api/admin/users/{user_id}/karma/add",
+            headers=admin_headers,
+            json={"amount": 3}
+        )
+        assert added.status_code == 200, added.text
+        assert added.json()["karma"] == 3
+
+
 def test_admin_signed_adjustments_clamp_resources_to_zero():
     with TestClient(app) as client:
         admin_token = login(client, "admin", "admin123")
