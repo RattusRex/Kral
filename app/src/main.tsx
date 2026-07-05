@@ -828,7 +828,18 @@ function CharacterFormPage({ edit = false }: { edit?: boolean }) {
     setError("");
     try {
       if (edit) {
-        await api.patch(`/characters/${id}`, form);
+        const payload: Record<string, string | number | undefined> = {
+          class_name: form.class_name
+        };
+        textFields.forEach(({ field }) => {
+          payload[field] = form[field];
+        });
+        numberFields
+          .filter(({ field }) => field !== "level")
+          .forEach(({ field }) => {
+            payload[field] = form[field];
+          });
+        await api.patch(`/characters/${id}`, payload);
         navigate(`/characters/${id}`);
       } else {
         await api.post("/characters", form);
@@ -867,7 +878,7 @@ function CharacterFormPage({ edit = false }: { edit?: boolean }) {
           <input className="field" value={form[field]} onChange={(event) => setForm({ ...form, [field]: event.target.value })} />
         </label>
       ))}
-      {numberFields.map(({ field, label }) => (
+      {(edit ? numberFields.filter(({ field }) => field !== "level") : numberFields).map(({ field, label }) => (
         <label className="field-label" key={field}>
           <span>{label}</span>
           <input className="field" type="number" value={form[field]} onChange={(event) => setForm({ ...form, [field]: Number(event.target.value) })} />

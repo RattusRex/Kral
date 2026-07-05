@@ -158,7 +158,7 @@ def test_password_hashing_uses_bcrypt_directly_without_passlib():
         assert response.json()["username"] == "bcrypt-compat-user"
 
 
-def test_character_xp_rolls_over_remaining_xp():
+def test_admin_character_xp_rolls_over_remaining_xp():
     with TestClient(app) as client:
         token = login(client, "admin", "admin123")
         headers = {"Authorization": f"Bearer {token}"}
@@ -171,10 +171,152 @@ def test_character_xp_rolls_over_remaining_xp():
         assert created.status_code == 200, created.text
         character_id = created.json()["id"]
 
-        response = client.patch(f"/api/characters/{character_id}", headers=headers, json={"xp": 6})
+        response = client.post(
+            f"/api/admin/characters/{character_id}/xp",
+            headers=headers,
+            json={"amount": 6}
+        )
         assert response.status_code == 200, response.text
         assert response.json()["level"] == 4
         assert response.json()["xp"] == 2
+
+
+def test_player_character_patch_rejects_progression_and_death_state_changes():
+    with TestClient(app) as client:
+        admin_token = login(client, "admin", "admin123")
+        admin_headers = {"Authorization": f"Bearer {admin_token}"}
+        created_user = client.post("/api/users", json={
+            "username": "patch-player",
+            "email": "patch-player@example.com",
+            "password": "secret123"
+        })
+        assert created_user.status_code == 200, created_user.text
+        player_token = login(client, "patch-player", "secret123")
+        player_headers = {"Authorization": f"Bearer {player_token}"}
+        created_character = client.post("/api/characters", headers=player_headers, json={
+            "name": "Grounded",
+            "class_name": "Fighter",
+            "level": 3,
+            "route": "Steel",
+            "hp": 0
+        })
+        assert created_character.status_code == 200, created_character.text
+        character_id = created_character.json()["id"]
+
+        seeded_state = client.patch(
+            f"/api/admin/characters/{character_id}",
+            headers=admin_headers,
+            json={"level": 3, "xp": 1, "is_dead": True}
+        )
+        assert seeded_state.status_code == 200, seeded_state.text
+        assert seeded_state.json()["is_dead"] is True
+
+        forbidden = client.patch(
+            f"/api/characters/{character_id}",
+            headers=player_headers,
+            json={"level": 20, "xp": 999, "is_dead": False}
+        )
+        assert forbidden.status_code == 422, forbidden.text
+
+        unchanged = client.get(
+            f"/api/admin/characters/{character_id}",
+            headers=admin_headers
+        )
+        assert unchanged.status_code == 200, unchanged.text
+        unchanged_payload = unchanged.json()
+        assert unchanged_payload["level"] == 3
+        assert unchanged_payload["xp"] == 1
+        assert unchanged_payload["is_dead"] is True
+
+        legitimate = client.patch(
+            f"/api/characters/{character_id}",
+            headers=player_headers,
+            json={"name": "Renamed", "hp": 8}
+        )
+        assert legitimate.status_code == 200, legitimate.text
+        legitimate_payload = legitimate.json()
+        assert legitimate_payload["name"] == "Renamed"
+        assert legitimate_payload["hp"] == 8
+        assert legitimate_payload["level"] == 3
+        assert legitimate_payload["xp"] == 1
+        assert legitimate_payload["is_dead"] is True
+
+        revived = client.post(
+            f"/api/admin/characters/{character_id}/revive",
+            headers=admin_headers
+        )
+        assert revived.status_code == 200, revived.text
+        assert revived.json()["is_dead"] is False
+        assert revived.json()["hp"] == 8
+
+
+def test_players_cannot_directly_grant_inventory_currency_or_items():
+    with TestClient(app) as client:
+        admin_token = login(client, "admin", "admin123")
+        admin_headers = {"Authorization": f"Bearer {admin_token}"}
+        created_user = client.post("/api/users", json={
+            "username": "mint-blocked",
+            "email": "mint-blocked@example.com",
+            "password": "secret123"
+        })
+        assert created_user.status_code == 200, created_user.text
+        player_token = login(client, "mint-blocked", "secret123")
+        player_headers = {"Authorization": f"Bearer {player_token}"}
+
+        created_character = client.post("/api/characters", headers=player_headers, json={
+            "name": "Honest Ledger",
+            "class_name": "Bard",
+            "level": 1,
+            "route": "Market"
+        })
+        assert created_character.status_code == 200, created_character.text
+        character_id = created_character.json()["id"]
+
+        direct_currency = client.post(
+            f"/api/characters/{character_id}/inventory/currency/add",
+            headers=player_headers,
+            json={"gold": 50, "silver": 5, "copper": 4}
+        )
+        assert direct_currency.status_code == 403
+        direct_gold = client.post(
+            f"/api/characters/{character_id}/inventory/gold/add",
+            headers=player_headers,
+            json={"amount": 50}
+        )
+        assert direct_gold.status_code == 403
+        direct_item = client.post(
+            f"/api/characters/{character_id}/inventory/items",
+            headers=player_headers,
+            json={"name": "Unreviewed Wand", "rarity": "Обычный", "is_consumable": False}
+        )
+        assert direct_item.status_code == 403
+
+        inventory = client.get(
+            f"/api/characters/{character_id}/inventory",
+            headers=player_headers
+        )
+        assert inventory.status_code == 200, inventory.text
+        assert inventory.json()["gold"] == 0
+        assert inventory.json()["silver"] == 0
+        assert inventory.json()["copper"] == 0
+        assert inventory.json()["items"] == []
+
+        granted_currency = client.post(
+            f"/api/admin/characters/{character_id}/currency/add",
+            headers=admin_headers,
+            json={"gold": 5, "silver": 2, "copper": 1}
+        )
+        assert granted_currency.status_code == 200, granted_currency.text
+        granted_item = client.post(
+            f"/api/admin/characters/{character_id}/item",
+            headers=admin_headers,
+            json={"name": "Reviewed Wand", "rarity": "Обычный", "is_consumable": False}
+        )
+        assert granted_item.status_code == 200, granted_item.text
+        assert granted_item.json()["gold"] == 5
+        assert granted_item.json()["silver"] == 2
+        assert granted_item.json()["copper"] == 1
+        assert granted_item.json()["items"][0]["name"] == "Reviewed Wand"
 
 
 def test_shop_search_charges_hireling_in_gold_before_buy_confirmation():
@@ -415,6 +557,37 @@ def test_admin_can_change_karma_and_view_all_characters_with_owner():
             character["name"] == "Nessa" and character["owner_username"] == "player-three"
             for character in payload
         )
+
+
+def test_players_cannot_change_own_karma_through_me_endpoints():
+    with TestClient(app) as client:
+        admin_token = login(client, "admin", "admin123")
+        admin_headers = {"Authorization": f"Bearer {admin_token}"}
+        created_user = client.post("/api/users", json={
+            "username": "karma-self-service",
+            "email": "karma-self-service@example.com",
+            "password": "secret123"
+        })
+        assert created_user.status_code == 200, created_user.text
+        user_id = created_user.json()["id"]
+        player_token = login(client, "karma-self-service", "secret123")
+        player_headers = {"Authorization": f"Bearer {player_token}"}
+
+        for path in ("/api/me/karma/add", "/api/me/karma/subtract"):
+            blocked = client.post(path, headers=player_headers, json={"amount": 77})
+            assert blocked.status_code == 404
+
+        me = client.get("/api/me", headers=player_headers)
+        assert me.status_code == 200, me.text
+        assert me.json()["karma"] == 0
+
+        added = client.post(
+            f"/api/admin/users/{user_id}/karma/add",
+            headers=admin_headers,
+            json={"amount": 3}
+        )
+        assert added.status_code == 200, added.text
+        assert added.json()["karma"] == 3
 
 
 def test_admin_signed_adjustments_clamp_resources_to_zero():
