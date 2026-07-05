@@ -1,6 +1,6 @@
 from datetime import date, datetime
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 from typing import Optional
 
 class CharacterCreate(BaseModel):
@@ -18,7 +18,13 @@ class CharacterCreate(BaseModel):
     intelligence: int = 8
     wisdom: int = 8
     charisma: int = 8
-    investigation: int = 0
+    investigation: int = Field(default=0, title="Расследование")
+    personal_hireling_enabled: bool = False
+    personal_hireling_acquired_at: Optional[date] = None
+    personal_hireling_investigation: int = Field(default=0, title="Расследование личного наёмника")
+    simulacrum_enabled: bool = False
+    simulacrum_created_at: Optional[date] = None
+    simulacrum_investigation: int = Field(default=0, title="Расследование симулякра")
     hp: int = 0
     temp_hp: int = 0
     armor_class: int = 9
@@ -37,7 +43,13 @@ class CharacterEditableFields(BaseModel):
     intelligence: Optional[int] = None
     wisdom: Optional[int] = None
     charisma: Optional[int] = None
-    investigation: Optional[int] = None
+    investigation: Optional[int] = Field(default=None, title="Расследование")
+    personal_hireling_enabled: Optional[bool] = None
+    personal_hireling_acquired_at: Optional[date] = None
+    personal_hireling_investigation: Optional[int] = Field(default=None, title="Расследование личного наёмника")
+    simulacrum_enabled: Optional[bool] = None
+    simulacrum_created_at: Optional[date] = None
+    simulacrum_investigation: Optional[int] = Field(default=None, title="Расследование симулякра")
     hp: Optional[int] = None
     temp_hp: Optional[int] = None
     armor_class: Optional[int] = None
@@ -128,6 +140,7 @@ class DowntimeEntryResponse(BaseModel):
     days: int
     reason: str
     source: str
+    agent_type: str
 
     model_config = ConfigDict(from_attributes=True)
 

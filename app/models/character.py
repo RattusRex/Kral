@@ -60,6 +60,34 @@ class Character(Base):
         default=0
     )
 
+    personal_hireling_enabled: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False
+    )
+
+    personal_hireling_acquired_at: Mapped[date] = mapped_column(
+        Date,
+        default=GAME_EPOCH
+    )
+
+    personal_hireling_investigation: Mapped[int] = mapped_column(
+        default=0
+    )
+
+    simulacrum_enabled: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False
+    )
+
+    simulacrum_created_at: Mapped[date] = mapped_column(
+        Date,
+        default=GAME_EPOCH
+    )
+
+    simulacrum_investigation: Mapped[int] = mapped_column(
+        default=0
+    )
+
     hp: Mapped[int] = mapped_column(
         default=0
     )
@@ -168,6 +196,12 @@ class DowntimeEntry(Base):
     source: Mapped[str] = mapped_column(
         String(32),
         default="manual"
+    )
+
+    # Which actor spent the day: character, personal_hireling, or simulacrum.
+    agent_type: Mapped[str] = mapped_column(
+        String(32),
+        default="character"
     )
 
     created_at: Mapped[datetime] = mapped_column(

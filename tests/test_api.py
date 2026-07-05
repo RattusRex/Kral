@@ -557,6 +557,23 @@ def test_admin_can_change_karma_and_view_all_characters_with_owner():
             character["name"] == "Nessa" and character["owner_username"] == "player-three"
             for character in payload
         )
+        nessa = next(character for character in payload if character["name"] == "Nessa")
+        assert nessa["game_created_at"] == GAME_EPOCH.isoformat()
+        assert isinstance(nessa["free_days"], int)
+        assert "personal_hireling_free_days" in nessa
+        assert "simulacrum_free_days" in nessa
+
+
+def test_openapi_uses_russian_investigation_title():
+    with TestClient(app) as client:
+        schema = client.get("/openapi.json").json()
+        serialized_schema = str(schema)
+        character_create = schema["components"]["schemas"]["CharacterCreate"]
+        assert (
+            character_create["properties"]["investigation"]["title"]
+            == "Расследование"
+        )
+        assert ("Invest" + "igation") not in serialized_schema
 
 
 def test_players_cannot_change_own_karma_through_me_endpoints():
@@ -2065,6 +2082,129 @@ def test_shop_search_blocked_when_not_enough_free_days():
             f"/api/characters/{cid}/inventory", headers=headers
         ).json()
         assert inventory["gold"] == 10000
+
+
+def test_paid_hireling_search_spends_gold_but_not_character_free_days():
+    with TestClient(app) as client:
+        headers = {"Authorization": f"Bearer {login(client, 'admin', 'admin123')}"}
+        yesterday = (date.today() - timedelta(days=1)).isoformat()
+        cid = _make_character(
+            client,
+            headers,
+            game_created_at=yesterday,
+        )["id"]
+        client.post(
+            f"/api/admin/characters/{cid}/currency/add",
+            headers=headers,
+            json={"gold": 10000, "silver": 0, "copper": 0},
+        )
+        occupied = client.post(
+            f"/api/characters/{cid}/calendar/downtime",
+            headers=headers,
+            json={"start_date": yesterday, "days": 1, "reason": "Занят"},
+        )
+        assert occupied.status_code == 200, occupied.text
+        assert occupied.json()["free_days"] == 0
+
+        search = client.post(
+            f"/api/characters/{cid}/shop/search",
+            headers=headers,
+            json={
+                "mode": "buy",
+                "item_name": "Healing Potion",
+                "rarity": "Обычный",
+                "is_consumable": True,
+                "searcher_type": "paid_hireling",
+                "hireling_level": "Эксперт",
+            },
+        )
+
+        assert search.status_code == 200, search.text
+        payload = search.json()
+        assert payload["searcher_type"] == "paid_hireling"
+        assert payload["hireling_cost"] >= 25
+        assert payload["inventory"]["gold"] == 10000 - payload["hireling_cost"]
+
+        summary = client.get(f"/api/characters/{cid}/calendar", headers=headers)
+        assert summary.status_code == 200, summary.text
+        assert summary.json()["busy_days"] == 1
+        assert summary.json()["free_days"] == 0
+        assert len(summary.json()["entries"]) == 1
+
+
+def test_personal_hireling_search_uses_own_day_pool(monkeypatch):
+    from app.core import calendar as game_calendar
+
+    monkeypatch.setattr(
+        game_calendar,
+        "current_game_date",
+        lambda: date(2025, 6, 10),
+    )
+
+    with TestClient(app) as client:
+        headers = {"Authorization": f"Bearer {login(client, 'admin', 'admin123')}"}
+        cid = _make_character(
+            client,
+            headers,
+            game_created_at="2025-06-09",
+        )["id"]
+        client.post(
+            f"/api/admin/characters/{cid}/currency/add",
+            headers=headers,
+            json={"gold": 10000, "silver": 0, "copper": 0},
+        )
+        updated = client.patch(
+            f"/api/admin/characters/{cid}",
+            headers=headers,
+            json={
+                "personal_hireling_enabled": True,
+                "personal_hireling_acquired_at": "2025-06-01",
+                "personal_hireling_investigation": 20,
+            },
+        )
+        assert updated.status_code == 200, updated.text
+        occupied = client.post(
+            f"/api/characters/{cid}/calendar/downtime",
+            headers=headers,
+            json={"start_date": "2025-06-09", "days": 1, "reason": "Занят"},
+        )
+        assert occupied.status_code == 200, occupied.text
+        assert occupied.json()["free_days"] == 0
+
+        search = client.post(
+            f"/api/characters/{cid}/shop/search",
+            headers=headers,
+            json={
+                "mode": "buy",
+                "item_name": "Healing Potion",
+                "rarity": "Обычный",
+                "is_consumable": True,
+                "searcher_type": "personal_hireling",
+            },
+        )
+
+        assert search.status_code == 200, search.text
+        payload = search.json()
+        assert payload["searcher_type"] == "personal_hireling"
+        assert payload["hireling_cost"] == 0
+        assert payload["days"] > 0
+
+        character_calendar = client.get(
+            f"/api/characters/{cid}/calendar",
+            headers=headers,
+        )
+        assert character_calendar.status_code == 200, character_calendar.text
+        assert character_calendar.json()["busy_days"] == 1
+        assert len(character_calendar.json()["entries"]) == 1
+
+        admin_character = client.get(
+            f"/api/admin/characters/{cid}",
+            headers=headers,
+        )
+        assert admin_character.status_code == 200, admin_character.text
+        admin_payload = admin_character.json()
+        assert admin_payload["personal_hireling_busy_days"] == payload["days"]
+        assert admin_payload["personal_hireling_free_days"] == 9 - payload["days"]
 
 
 # ---------------------------------------------------------------------------

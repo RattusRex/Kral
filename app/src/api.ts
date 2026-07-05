@@ -45,6 +45,21 @@ export interface Character {
   xp: number;
   route: string;
   game_created_at?: string;
+  total_days?: number;
+  busy_days?: number;
+  free_days?: number;
+  personal_hireling_enabled?: boolean;
+  personal_hireling_acquired_at?: string;
+  personal_hireling_investigation?: number;
+  personal_hireling_total_days?: number;
+  personal_hireling_busy_days?: number;
+  personal_hireling_free_days?: number;
+  simulacrum_enabled?: boolean;
+  simulacrum_created_at?: string;
+  simulacrum_investigation?: number;
+  simulacrum_total_days?: number;
+  simulacrum_busy_days?: number;
+  simulacrum_free_days?: number;
   user_id?: number;
   owner_username?: string;
   owner_email?: string;
@@ -159,6 +174,8 @@ export interface LeaderboardEntry {
 export interface ShopResult {
   quote_id: number | null;
   mode: "buy" | "sell";
+  searcher_type: "character" | "paid_hireling" | "personal_hireling" | "simulacrum";
+  searcher_label: string;
   item_name: string;
   rarity: string;
   is_consumable: boolean;

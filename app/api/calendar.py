@@ -125,26 +125,34 @@ def charge_character_downtime(
     days: int,
     reason: str,
     source: str = "shop",
+    agent_type: str = "character",
+    created_at: date | None = None,
     current_date: date | None = None,
 ) -> list[DowntimeEntry]:
-    """Spend ``days`` of the character's oldest free days.
+    """Spend ``days`` of an actor's oldest free days.
 
     Creates one :class:`DowntimeEntry` per contiguous run of spent days and
     adds them to the session (the caller commits).  Raises a 400
-    :class:`HTTPException` when the character does not have enough free days.
+    :class:`HTTPException` when the actor does not have enough free days.
     """
     current = current_date or game_calendar.current_game_date()
+    actor_created_at = created_at or character.game_created_at
+    actor_entries = [
+        entry
+        for entry in character.downtime_entries
+        if entry.agent_type == agent_type
+    ]
     try:
         runs = game_calendar.plan_oldest_day_spend(
-            character.downtime_entries,
-            character.game_created_at,
+            actor_entries,
+            actor_created_at,
             current,
             days,
         )
     except ValueError:
         summary = game_calendar.calendar_summary(
-            character.downtime_entries,
-            character.game_created_at,
+            actor_entries,
+            actor_created_at,
             current,
         )
         raise HTTPException(
@@ -163,6 +171,7 @@ def charge_character_downtime(
             days=length,
             reason=reason,
             source=source,
+            agent_type=agent_type,
         )
         db.add(entry)
         entries.append(entry)
@@ -170,13 +179,18 @@ def charge_character_downtime(
 
 
 def build_summary(character: Character, can_manage: bool = False) -> dict:
+    character_entries = [
+        entry
+        for entry in character.downtime_entries
+        if entry.agent_type == "character"
+    ]
     summary = game_calendar.calendar_summary(
-        character.downtime_entries,
+        character_entries,
         character.game_created_at,
     )
     summary["can_manage"] = can_manage
     summary["entries"] = sorted(
-        character.downtime_entries,
+        character_entries,
         key=lambda entry: (entry.start_date, entry.id),
     )
     return summary

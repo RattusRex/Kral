@@ -99,6 +99,46 @@ def ensure_schema_columns() -> None:
         "game_created_at",
         f"DATE NOT NULL DEFAULT '{GAME_EPOCH.isoformat()}'"
     )
+    ensure_column(
+        "characters",
+        "personal_hireling_enabled",
+        "BOOLEAN NOT NULL DEFAULT FALSE"
+    )
+    ensure_column(
+        "characters",
+        "personal_hireling_acquired_at",
+        f"DATE NOT NULL DEFAULT '{GAME_EPOCH.isoformat()}'"
+    )
+    ensure_column(
+        "characters",
+        "personal_hireling_investigation",
+        "INTEGER NOT NULL DEFAULT 0"
+    )
+    ensure_column(
+        "characters",
+        "simulacrum_enabled",
+        "BOOLEAN NOT NULL DEFAULT FALSE"
+    )
+    ensure_column(
+        "characters",
+        "simulacrum_created_at",
+        f"DATE NOT NULL DEFAULT '{GAME_EPOCH.isoformat()}'"
+    )
+    ensure_column(
+        "characters",
+        "simulacrum_investigation",
+        "INTEGER NOT NULL DEFAULT 0"
+    )
+    ensure_column(
+        "downtime_entries",
+        "agent_type",
+        "VARCHAR(32) NOT NULL DEFAULT 'character'"
+    )
+    ensure_column(
+        "shop_quotes",
+        "searcher_type",
+        "VARCHAR(32) NOT NULL DEFAULT 'character'"
+    )
     ensure_column("inventories", "notes", "TEXT NOT NULL DEFAULT ''")
     migrate_user_roles()
 

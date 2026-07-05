@@ -45,6 +45,7 @@ Notable protected API routes:
 - `POST /api/admin/users/{id}/role` lets an **owner** assign any user role (`owner`, `head_admin`, `admin`, or `player`). A **head admin** may use the same endpoint to manage `admin` and `player` roles only.
 - `GET /api/characters/{id}/calendar` and `POST /api/characters/{id}/calendar/downtime` let players view their calendar and **add** busy days. `PATCH`/`DELETE /api/characters/{id}/calendar/downtime/{entry_id}` edit or remove entries and are **restricted to administrators** — a player request is rejected with `403`. Admins may manage the calendar of *any* character.
 - `GET /api/admin/calendar-logs` returns the audit trail of administrative calendar changes (who, which character, action type, timestamp), filterable by `character_id`, `user_id`, `action`, and date range.
+- `GET /api/admin/characters` includes each character's assembled date and free-day totals, plus separate free-day totals for a personal hireling and simulacrum when those units are enabled.
 
 ## Calendar Permissions
 
@@ -60,6 +61,23 @@ These rules are enforced on the backend, so hiding the buttons in the UI is not
 the only safeguard — a direct API call from a player is rejected. Every
 administrative change (create, edit, delete) is written to a calendar audit log
 recording who acted, on which character, the action type, and the timestamp.
+
+## Shop Search Actors
+
+Market searches can be performed by four actors:
+
+| Actor | Spends days | Spends whose days | Gold cost |
+| --- | --- | --- | --- |
+| Character | yes | the character's own calendar | no |
+| Personal hireling | yes | the personal hireling's own calendar | no |
+| Simulacrum | yes | the simulacrum's own calendar | no |
+| Paid hireling | no | none | hireling daily rate |
+
+The personal hireling and simulacrum each have their own appearance date and
+`Расследование` modifier. Admins can enable them and edit these values from the
+admin character page. Paid hirelings are external services: they charge gold for
+the rolled search duration, but they never consume character, personal-hireling,
+or simulacrum free days.
 
 ## User Roles
 

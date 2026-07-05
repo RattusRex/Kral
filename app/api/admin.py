@@ -17,6 +17,8 @@ from app.schemas.inventory import (
     TransferLogResponse,
 )
 from app.schemas.user import KarmaUpdate, RoleUpdate
+from app.core import calendar as game_calendar
+from app.core.calendar import GAME_EPOCH
 from app.core.roles import Role, VALID_ROLES, normalize_role, can_manage_roles
 
 
@@ -60,7 +62,48 @@ def get_character_or_404(character_id: int, db: Session) -> Character:
         )
     return character
 
+
+def downtime_for_agent(character: Character, agent_type: str):
+    return [
+        entry
+        for entry in character.downtime_entries
+        if entry.agent_type == agent_type
+    ]
+
+
+def agent_calendar_summary(
+    character: Character,
+    agent_type: str,
+    created_at: date,
+    enabled: bool = True,
+) -> dict:
+    if not enabled:
+        return {"total_days": 0, "busy_days": 0, "free_days": 0}
+    return game_calendar.calendar_summary(
+        downtime_for_agent(character, agent_type),
+        created_at,
+    )
+
+
 def serialize_character(character: Character):
+    character_calendar = agent_calendar_summary(
+        character,
+        "character",
+        character.game_created_at,
+    )
+    personal_hireling_calendar = agent_calendar_summary(
+        character,
+        "personal_hireling",
+        character.personal_hireling_acquired_at,
+        character.personal_hireling_enabled,
+    )
+    simulacrum_calendar = agent_calendar_summary(
+        character,
+        "simulacrum",
+        character.simulacrum_created_at,
+        character.simulacrum_enabled,
+    )
+
     return {
         "id": character.id,
         "name": character.name,
@@ -82,6 +125,22 @@ def serialize_character(character: Character):
         "wisdom": character.wisdom,
         "charisma": character.charisma,
         "investigation": character.investigation,
+        "game_created_at": character.game_created_at,
+        "total_days": character_calendar["total_days"],
+        "busy_days": character_calendar["busy_days"],
+        "free_days": character_calendar["free_days"],
+        "personal_hireling_enabled": character.personal_hireling_enabled,
+        "personal_hireling_acquired_at": character.personal_hireling_acquired_at,
+        "personal_hireling_investigation": character.personal_hireling_investigation,
+        "personal_hireling_total_days": personal_hireling_calendar["total_days"],
+        "personal_hireling_busy_days": personal_hireling_calendar["busy_days"],
+        "personal_hireling_free_days": personal_hireling_calendar["free_days"],
+        "simulacrum_enabled": character.simulacrum_enabled,
+        "simulacrum_created_at": character.simulacrum_created_at,
+        "simulacrum_investigation": character.simulacrum_investigation,
+        "simulacrum_total_days": simulacrum_calendar["total_days"],
+        "simulacrum_busy_days": simulacrum_calendar["busy_days"],
+        "simulacrum_free_days": simulacrum_calendar["free_days"],
         "is_dead": character.is_dead,
         "user_id": character.user_id,
         "owner_username": character.owner.username,
@@ -97,6 +156,28 @@ def apply_xp_delta(character: Character, amount: int):
     while character.xp >= character.level + 1:
         character.xp -= character.level + 1
         character.level += 1
+
+
+def validate_admin_character_update(update_data: dict) -> None:
+    date_fields = {
+        "personal_hireling_acquired_at": "Дата появления личного наёмника",
+        "simulacrum_created_at": "Дата появления симулякра",
+    }
+    for field, label in date_fields.items():
+        if field not in update_data:
+            continue
+        value = update_data[field]
+        if value is None:
+            update_data[field] = GAME_EPOCH
+            value = GAME_EPOCH
+        if value < GAME_EPOCH:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"{label} не может быть раньше начала игры "
+                    f"({GAME_EPOCH.strftime('%d.%m.%Y')})."
+                )
+            )
 
 
 @router.get("/characters")
@@ -133,6 +214,7 @@ def update_admin_character(
         update_data["level"] = max(1, update_data["level"])
     if "xp" in update_data and update_data["xp"] is not None:
         update_data["xp"] = max(0, update_data["xp"])
+    validate_admin_character_update(update_data)
 
     for key, value in update_data.items():
         setattr(character, key, value)
