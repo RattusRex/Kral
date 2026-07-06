@@ -7,6 +7,7 @@ os.environ.setdefault("ADMIN_PASSWORD", "admin123")
 
 from fastapi.testclient import TestClient
 
+from app.core.auth_abuse import reset_auth_abuse_state
 from app.db.database import Base, engine
 from app.main import app
 
@@ -14,6 +15,7 @@ from app.main import app
 def setup_function():
     Base.metadata.drop_all(bind=engine)
     Base.metadata.create_all(bind=engine)
+    reset_auth_abuse_state()
 
 
 def login(client: TestClient, username: str, password: str) -> str:
@@ -119,6 +121,110 @@ def test_unique_user_registers_successfully():
         data = response.json()
         assert data["username"] == "brandnewuser"
         assert data["email"] == "brandnewuser@example.com"
+
+
+def test_repeated_failed_login_attempts_are_temporarily_locked_before_bcrypt(monkeypatch):
+    verify_calls = 0
+
+    def always_reject(_plain_password: str, _hashed_password: str) -> bool:
+        nonlocal verify_calls
+        verify_calls += 1
+        return False
+
+    monkeypatch.setattr("app.api.users.verify_password", always_reject)
+
+    with TestClient(app) as client:
+        for _ in range(5):
+            response = client.post(
+                "/api/login",
+                data={"username": "admin", "password": "wrong-password"},
+            )
+            assert response.status_code == 401
+
+        blocked = client.post(
+            "/api/login",
+            data={"username": "admin", "password": "wrong-password"},
+        )
+
+        assert blocked.status_code == 429
+        assert blocked.headers["Retry-After"]
+        assert verify_calls == 5
+
+
+def test_successful_login_still_works_after_low_volume_failures():
+    with TestClient(app) as client:
+        for _ in range(2):
+            response = client.post(
+                "/api/login",
+                data={"username": "admin", "password": "wrong-password"},
+            )
+            assert response.status_code == 401
+
+        token = login(client, "admin", "admin123")
+        response = client.get("/api/me", headers={"Authorization": f"Bearer {token}"})
+        assert response.status_code == 200
+        assert response.json()["username"] == "admin"
+
+
+def test_registration_attempts_are_rate_limited_before_password_hashing(monkeypatch):
+    hash_calls = 0
+
+    def fake_hash_password(_password: str) -> str:
+        nonlocal hash_calls
+        hash_calls += 1
+        return "test-hash"
+
+    monkeypatch.setattr("app.api.users.hash_password", fake_hash_password)
+
+    with TestClient(app) as client:
+        for index in range(10):
+            response = client.post("/api/users", json={
+                "username": f"limited-user-{index}",
+                "email": f"limited-user-{index}@example.com",
+                "password": "secret123",
+            })
+            assert response.status_code == 200, response.text
+
+        blocked = client.post("/api/users", json={
+            "username": "limited-user-10",
+            "email": "limited-user-10@example.com",
+            "password": "secret123",
+        })
+
+        assert blocked.status_code == 429
+        assert blocked.headers["Retry-After"]
+        assert hash_calls == 10
+
+
+def test_registration_rejects_oversized_password_before_hashing(monkeypatch):
+    def fail_hash_password(_password: str) -> str:
+        raise AssertionError("oversized registration password reached bcrypt")
+
+    monkeypatch.setattr("app.api.users.hash_password", fail_hash_password)
+
+    with TestClient(app) as client:
+        response = client.post("/api/users", json={
+            "username": "oversized-password",
+            "email": "oversized-password@example.com",
+            "password": "x" * 129,
+        })
+
+        assert response.status_code == 422
+
+
+def test_login_rejects_oversized_password_before_bcrypt(monkeypatch):
+    def fail_verify_password(_plain_password: str, _hashed_password: str) -> bool:
+        raise AssertionError("oversized login password reached bcrypt")
+
+    monkeypatch.setattr("app.api.users.verify_password", fail_verify_password)
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/login",
+            data={"username": "admin", "password": "x" * 129},
+        )
+
+        assert response.status_code == 422
 
 
 def test_password_hashing_uses_bcrypt_directly_without_passlib():

@@ -1,19 +1,24 @@
 import logging
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import func
-from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
-from app.core.security import hash_password
+from sqlalchemy.orm import Session
+from app.core.auth_abuse import (
+    assert_login_allowed,
+    assert_registration_allowed,
+    record_failed_login,
+    record_successful_login,
+    reject_oversized_password,
+)
 from app.db.database import SessionLocal
 from app.models.user import User
 from app.schemas.user import UserCreate
-from fastapi import HTTPException
 from app.core.security import (
+    create_access_token,
+    hash_password,
     verify_password,
-    create_access_token
 )
-from app.schemas.user import UserLogin
 from fastapi.security import OAuth2PasswordRequestForm
 
 from app.core.security import (
@@ -37,8 +42,12 @@ def get_db():
 @router.post("/users")
 def create_user(
     user_data: UserCreate,
+    request: Request,
     db: Session = Depends(get_db)
 ):
+    reject_oversized_password(user_data.password)
+    assert_registration_allowed(request)
+
     normalized_email = user_data.email.lower()
 
     existing_username = db.query(User).filter(
@@ -91,15 +100,20 @@ def create_user(
     }
 @router.post("/login")
 def login(
+    request: Request,
     form_data: OAuth2PasswordRequestForm = Depends(),
     db: Session = Depends(get_db)
 ):
+    reject_oversized_password(form_data.password)
+    assert_login_allowed(request, form_data.username)
+
     user = db.query(User).filter(
         (func.lower(User.email) == form_data.username.lower()) |
         (User.username == form_data.username)
     ).first()
 
     if not user:
+        record_failed_login(request, form_data.username)
         raise HTTPException(
             status_code=401,
             detail="Invalid credentials"
@@ -109,10 +123,13 @@ def login(
         form_data.password,
         user.hashed_password
     ):
+        record_failed_login(request, form_data.username)
         raise HTTPException(
             status_code=401,
             detail="Invalid credentials"
         )
+
+    record_successful_login(request, form_data.username)
 
     access_token = create_access_token(
         data={"sub": user.email}

@@ -104,6 +104,33 @@ Owner
 
 The seeded `admin` account is an **owner**. New accounts are created as **players**. Owners and head admins can change another user's role from the admin panel, subject to the restrictions above. These restrictions are enforced on the backend, so a direct API call cannot bypass them.
 
+## Authentication Abuse Controls
+
+The public login and registration endpoints include backend throttles to reduce
+brute-force and account-spam abuse:
+
+- passwords longer than 72 UTF-8 bytes are rejected before bcrypt hashing or
+  verification;
+- repeated failed login attempts are tracked by submitted username/email and by
+  client IP, then temporarily return `429 Too Many Requests` with `Retry-After`;
+- registration attempts are tracked by client IP before database uniqueness
+  checks and bcrypt hashing run;
+- repeated failures and blocked attempts are written to the application log.
+
+The default backend limits can be tuned with:
+
+```text
+AUTH_LOGIN_FAILURE_LIMIT=5
+AUTH_LOGIN_IP_FAILURE_LIMIT=25
+AUTH_LOGIN_WINDOW_SECONDS=900
+AUTH_LOGIN_LOCKOUT_SECONDS=300
+AUTH_REGISTRATION_IP_LIMIT=10
+AUTH_REGISTRATION_WINDOW_SECONDS=3600
+```
+
+Docker deployments also apply nginx `limit_req` throttling to `/api/login` and
+`/api/users` before requests reach FastAPI.
+
 ## Frontend Setup
 
 1. Install Node.js 20+.
