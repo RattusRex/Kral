@@ -4,6 +4,8 @@ from pydantic import BaseModel, ConfigDict, Field
 from typing import Optional
 
 class CharacterCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     name: str
     class_name: str
     level: int
@@ -19,12 +21,6 @@ class CharacterCreate(BaseModel):
     wisdom: int = 8
     charisma: int = 8
     investigation: int = Field(default=0, title="Расследование")
-    personal_hireling_enabled: bool = False
-    personal_hireling_acquired_at: Optional[date] = None
-    personal_hireling_investigation: int = Field(default=0, title="Расследование личного наёмника")
-    simulacrum_enabled: bool = False
-    simulacrum_created_at: Optional[date] = None
-    simulacrum_investigation: int = Field(default=0, title="Расследование симулякра")
     hp: int = 0
     temp_hp: int = 0
     armor_class: int = 9
@@ -44,12 +40,6 @@ class CharacterEditableFields(BaseModel):
     wisdom: Optional[int] = None
     charisma: Optional[int] = None
     investigation: Optional[int] = Field(default=None, title="Расследование")
-    personal_hireling_enabled: Optional[bool] = None
-    personal_hireling_acquired_at: Optional[date] = None
-    personal_hireling_investigation: Optional[int] = Field(default=None, title="Расследование личного наёмника")
-    simulacrum_enabled: Optional[bool] = None
-    simulacrum_created_at: Optional[date] = None
-    simulacrum_investigation: Optional[int] = Field(default=None, title="Расследование симулякра")
     hp: Optional[int] = None
     temp_hp: Optional[int] = None
     armor_class: Optional[int] = None
@@ -61,6 +51,12 @@ class PlayerCharacterUpdate(CharacterEditableFields):
 
 
 class CharacterUpdate(CharacterEditableFields):
+    personal_hireling_enabled: Optional[bool] = None
+    personal_hireling_acquired_at: Optional[date] = None
+    personal_hireling_investigation: Optional[int] = Field(default=None, title="Расследование личного наёмника")
+    simulacrum_enabled: Optional[bool] = None
+    simulacrum_created_at: Optional[date] = None
+    simulacrum_investigation: Optional[int] = Field(default=None, title="Расследование симулякра")
     level: Optional[int] = None
     xp: Optional[int] = None
     is_dead: Optional[bool] = None

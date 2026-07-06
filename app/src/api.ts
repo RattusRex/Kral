@@ -73,6 +73,7 @@ export interface DowntimeEntry {
   days: number;
   reason: string;
   source: string;
+  agent_type: string;
 }
 
 export interface CalendarSummary {

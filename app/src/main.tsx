@@ -16,6 +16,7 @@ const hirelings = [
   { level: "Эксперт", bonus: 8, cost: 25 }
 ];
 type SearcherType = "character" | "paid_hireling" | "personal_hireling" | "simulacrum";
+type CalendarAgentType = "character" | "personal_hireling" | "simulacrum";
 const searcherOptions: { type: SearcherType; label: string }[] = [
   { type: "character", label: "Персонаж" },
   { type: "personal_hireling", label: "Личный наёмник" },
@@ -362,7 +363,7 @@ function CharactersPage() {
   );
 }
 
-function CalendarPanel({ characterId }: { characterId: number }) {
+function CalendarPanel({ characterId, agentType = "character", title = "Календарь персонажа" }: { characterId: number; agentType?: CalendarAgentType; title?: string }) {
   const [summary, setSummary] = useState<CalendarSummary | null>(null);
   const [form, setForm] = useState({ start_date: GAME_EPOCH, days: 1, reason: "" });
   const [error, setError] = useState("");
@@ -370,11 +371,14 @@ function CalendarPanel({ characterId }: { characterId: number }) {
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editForm, setEditForm] = useState({ start_date: GAME_EPOCH, days: 1, reason: "" });
   const canManage = summary?.can_manage ?? false;
+  const calendarPath = agentType === "character"
+    ? `/characters/${characterId}/calendar`
+    : `/characters/${characterId}/calendar/agents/${agentType}`;
 
   useEffect(() => {
     let active = true;
     setLoading(true);
-    api.get<CalendarSummary>(`/characters/${characterId}/calendar`)
+    api.get<CalendarSummary>(calendarPath)
       .then((response) => {
         if (!active) return;
         setSummary(response.data);
@@ -385,13 +389,13 @@ function CalendarPanel({ characterId }: { characterId: number }) {
     return () => {
       active = false;
     };
-  }, [characterId]);
+  }, [calendarPath, characterId]);
 
   async function addEntry(event: FormEvent) {
     event.preventDefault();
     setError("");
     try {
-      const response = await api.post<CalendarSummary>(`/characters/${characterId}/calendar/downtime`, {
+      const response = await api.post<CalendarSummary>(`${calendarPath}/downtime`, {
         start_date: form.start_date,
         days: Number(form.days),
         reason: form.reason
@@ -406,7 +410,7 @@ function CalendarPanel({ characterId }: { characterId: number }) {
   async function removeEntry(entryId: number) {
     setError("");
     try {
-      const response = await api.delete<CalendarSummary>(`/characters/${characterId}/calendar/downtime/${entryId}`);
+      const response = await api.delete<CalendarSummary>(`${calendarPath}/downtime/${entryId}`);
       setSummary(response.data);
       if (editingId === entryId) setEditingId(null);
     } catch (removeError) {
@@ -425,7 +429,7 @@ function CalendarPanel({ characterId }: { characterId: number }) {
     if (editingId === null) return;
     setError("");
     try {
-      const response = await api.patch<CalendarSummary>(`/characters/${characterId}/calendar/downtime/${editingId}`, {
+      const response = await api.patch<CalendarSummary>(`${calendarPath}/downtime/${editingId}`, {
         start_date: editForm.start_date,
         days: Number(editForm.days),
         reason: editForm.reason
@@ -441,7 +445,7 @@ function CalendarPanel({ characterId }: { characterId: number }) {
     <section className="panel p-5">
       <div className="mb-4 flex items-center gap-2">
         <CalendarDays size={18} className="text-ember" />
-        <h2 className="text-lg font-semibold text-ember">📅 Календарь персонажа</h2>
+        <h2 className="text-lg font-semibold text-ember">{title}</h2>
       </div>
       {loading && !summary ? (
         <p className="text-sm text-white/55">Загрузка...</p>
@@ -1861,6 +1865,24 @@ function AdminCharacterPage() {
         <div className="mt-5">
           <CalendarPanel characterId={id} />
         </div>
+        {character.personal_hireling_enabled && (
+          <div className="mt-5">
+            <CalendarPanel
+              characterId={id}
+              agentType="personal_hireling"
+              title="Календарь личного наёмника"
+            />
+          </div>
+        )}
+        {character.simulacrum_enabled && (
+          <div className="mt-5">
+            <CalendarPanel
+              characterId={id}
+              agentType="simulacrum"
+              title="Календарь симулякра"
+            />
+          </div>
+        )}
         <div className="mt-5 rounded-md border border-red-400/30 p-4">
           <h2 className="font-semibold text-red-200">Удаление персонажа</h2>
           <div className="mt-3 flex flex-wrap gap-2">
