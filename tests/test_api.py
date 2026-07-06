@@ -2207,6 +2207,236 @@ def test_personal_hireling_search_uses_own_day_pool(monkeypatch):
         assert admin_payload["personal_hireling_free_days"] == 9 - payload["days"]
 
 
+def test_player_cannot_self_grant_hireling_or_simulacrum():
+    with TestClient(app) as client:
+        created_user = client.post("/api/users", json={
+            "username": "unit-granter",
+            "email": "unit-granter@example.com",
+            "password": "secret123",
+        })
+        assert created_user.status_code == 200, created_user.text
+        player_headers = {
+            "Authorization": f"Bearer {login(client, 'unit-granter', 'secret123')}"
+        }
+
+        rejected_create = client.post("/api/characters", headers=player_headers, json={
+            "name": "Unauthorized Hireling",
+            "class_name": "Wizard",
+            "level": 1,
+            "route": "Market",
+            "personal_hireling_enabled": True,
+            "personal_hireling_acquired_at": "2025-06-01",
+            "personal_hireling_investigation": 12,
+            "simulacrum_enabled": True,
+            "simulacrum_created_at": "2025-06-01",
+            "simulacrum_investigation": 12,
+        })
+        assert rejected_create.status_code == 422, rejected_create.text
+
+        character = client.post("/api/characters", headers=player_headers, json={
+            "name": "Legitimate Hero",
+            "class_name": "Wizard",
+            "level": 1,
+            "route": "Market",
+        })
+        assert character.status_code == 200, character.text
+        cid = character.json()["id"]
+
+        rejected_update = client.patch(
+            f"/api/characters/{cid}",
+            headers=player_headers,
+            json={
+                "personal_hireling_enabled": True,
+                "simulacrum_enabled": True,
+            },
+        )
+        assert rejected_update.status_code == 422, rejected_update.text
+
+        admin_headers = {
+            "Authorization": f"Bearer {login(client, 'admin', 'admin123')}"
+        }
+        admin_character = client.get(
+            f"/api/admin/characters/{cid}",
+            headers=admin_headers,
+        )
+        assert admin_character.status_code == 200, admin_character.text
+        assert admin_character.json()["personal_hireling_enabled"] is False
+        assert admin_character.json()["simulacrum_enabled"] is False
+
+
+def test_admin_can_manage_personal_hireling_calendar_independently(monkeypatch):
+    from app.core import calendar as game_calendar
+
+    monkeypatch.setattr(
+        game_calendar,
+        "current_game_date",
+        lambda: date(2025, 6, 10),
+    )
+
+    with TestClient(app) as client:
+        admin_headers = {
+            "Authorization": f"Bearer {login(client, 'admin', 'admin123')}"
+        }
+        cid = _make_character(
+            client,
+            admin_headers,
+            game_created_at="2025-06-09",
+        )["id"]
+        updated = client.patch(
+            f"/api/admin/characters/{cid}",
+            headers=admin_headers,
+            json={
+                "personal_hireling_enabled": True,
+                "personal_hireling_acquired_at": "2025-06-01",
+                "personal_hireling_investigation": 8,
+            },
+        )
+        assert updated.status_code == 200, updated.text
+
+        added = client.post(
+            f"/api/characters/{cid}/calendar/agents/personal_hireling/downtime",
+            headers=admin_headers,
+            json={
+                "start_date": "2025-06-01",
+                "days": 3,
+                "reason": "Занят поручением",
+            },
+        )
+        assert added.status_code == 200, added.text
+        summary = added.json()
+        assert summary["created_at"] == "2025-06-01"
+        assert summary["busy_days"] == 3
+        assert summary["free_days"] == 6
+        assert summary["entries"][0]["agent_type"] == "personal_hireling"
+        entry_id = summary["entries"][0]["id"]
+
+        character_calendar = client.get(
+            f"/api/characters/{cid}/calendar",
+            headers=admin_headers,
+        )
+        assert character_calendar.status_code == 200, character_calendar.text
+        assert character_calendar.json()["busy_days"] == 0
+        assert character_calendar.json()["free_days"] == 1
+
+        edited = client.patch(
+            f"/api/characters/{cid}/calendar/agents/personal_hireling/downtime/{entry_id}",
+            headers=admin_headers,
+            json={"days": 2, "reason": "Скорректировано"},
+        )
+        assert edited.status_code == 200, edited.text
+        assert edited.json()["entries"][0]["days"] == 2
+        assert edited.json()["entries"][0]["reason"] == "Скорректировано"
+
+        deleted = client.delete(
+            f"/api/characters/{cid}/calendar/agents/personal_hireling/downtime/{entry_id}",
+            headers=admin_headers,
+        )
+        assert deleted.status_code == 200, deleted.text
+        assert deleted.json()["entries"] == []
+
+
+def test_player_cannot_manually_manage_personal_hireling_calendar():
+    with TestClient(app) as client:
+        player_headers, cid = _make_player_with_character(
+            client,
+            "unit-calendar-player",
+        )
+        admin_headers = {
+            "Authorization": f"Bearer {login(client, 'admin', 'admin123')}"
+        }
+        updated = client.patch(
+            f"/api/admin/characters/{cid}",
+            headers=admin_headers,
+            json={
+                "personal_hireling_enabled": True,
+                "personal_hireling_acquired_at": "2025-06-01",
+            },
+        )
+        assert updated.status_code == 200, updated.text
+
+        forbidden = client.post(
+            f"/api/characters/{cid}/calendar/agents/personal_hireling/downtime",
+            headers=player_headers,
+            json={
+                "start_date": "2025-06-01",
+                "days": 1,
+                "reason": "Игрок пытается занять дни",
+            },
+        )
+        assert forbidden.status_code == 403, forbidden.text
+
+
+def test_simulacrum_search_uses_own_day_pool(monkeypatch):
+    from app.core import calendar as game_calendar
+
+    monkeypatch.setattr(
+        game_calendar,
+        "current_game_date",
+        lambda: date(2025, 6, 10),
+    )
+
+    with TestClient(app) as client:
+        headers = {"Authorization": f"Bearer {login(client, 'admin', 'admin123')}"}
+        cid = _make_character(
+            client,
+            headers,
+            game_created_at="2025-06-09",
+        )["id"]
+        client.post(
+            f"/api/admin/characters/{cid}/currency/add",
+            headers=headers,
+            json={"gold": 10000, "silver": 0, "copper": 0},
+        )
+        updated = client.patch(
+            f"/api/admin/characters/{cid}",
+            headers=headers,
+            json={
+                "simulacrum_enabled": True,
+                "simulacrum_created_at": "2025-06-01",
+                "simulacrum_investigation": 20,
+            },
+        )
+        assert updated.status_code == 200, updated.text
+        occupied = client.post(
+            f"/api/characters/{cid}/calendar/downtime",
+            headers=headers,
+            json={"start_date": "2025-06-09", "days": 1, "reason": "Занят"},
+        )
+        assert occupied.status_code == 200, occupied.text
+        assert occupied.json()["free_days"] == 0
+
+        search = client.post(
+            f"/api/characters/{cid}/shop/search",
+            headers=headers,
+            json={
+                "mode": "buy",
+                "item_name": "Scroll",
+                "rarity": "Обычный",
+                "is_consumable": True,
+                "searcher_type": "simulacrum",
+            },
+        )
+
+        assert search.status_code == 200, search.text
+        payload = search.json()
+        assert payload["searcher_type"] == "simulacrum"
+        assert payload["hireling_cost"] == 0
+
+        character_calendar = client.get(
+            f"/api/characters/{cid}/calendar",
+            headers=headers,
+        )
+        assert character_calendar.status_code == 200, character_calendar.text
+        assert character_calendar.json()["busy_days"] == 1
+
+        admin_character = client.get(
+            f"/api/admin/characters/{cid}",
+            headers=headers,
+        )
+        assert admin_character.status_code == 200, admin_character.text
+        assert admin_character.json()["simulacrum_busy_days"] == payload["days"]
+
+
 # ---------------------------------------------------------------------------
 # Calendar permissions and audit log (issue #51)
 # ---------------------------------------------------------------------------

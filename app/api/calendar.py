@@ -34,6 +34,21 @@ from app.schemas.character import (
 
 router = APIRouter()
 
+AGENT_CHARACTER = "character"
+AGENT_PERSONAL_HIRELING = "personal_hireling"
+AGENT_SIMULACRUM = "simulacrum"
+CALENDAR_AGENT_LABELS = {
+    AGENT_CHARACTER: "Персонаж",
+    AGENT_PERSONAL_HIRELING: "Личный наёмник",
+    AGENT_SIMULACRUM: "Симулякр",
+}
+CALENDAR_AGENT_START_LABELS = {
+    AGENT_CHARACTER: "даты создания персонажа",
+    AGENT_PERSONAL_HIRELING: "даты получения личного наёмника",
+    AGENT_SIMULACRUM: "даты создания симулякра",
+}
+UNIT_AGENT_TYPES = {AGENT_PERSONAL_HIRELING, AGENT_SIMULACRUM}
+
 
 def get_db():
     db = SessionLocal()
@@ -119,6 +134,57 @@ def describe_entry(entry: DowntimeEntry) -> str:
     )
 
 
+def normalize_calendar_agent(agent_type: str) -> str:
+    normalized = agent_type.strip().casefold().replace("-", "_")
+    if normalized not in CALENDAR_AGENT_LABELS:
+        raise HTTPException(
+            status_code=400,
+            detail="Неизвестный календарный ресурс"
+        )
+    return normalized
+
+
+def require_unit_agent(agent_type: str) -> None:
+    if agent_type not in UNIT_AGENT_TYPES:
+        raise HTTPException(
+            status_code=400,
+            detail="Этот маршрут предназначен для личного наёмника или симулякра"
+        )
+
+
+def agent_created_at(character: Character, agent_type: str) -> date:
+    if agent_type == AGENT_PERSONAL_HIRELING:
+        return character.personal_hireling_acquired_at
+    if agent_type == AGENT_SIMULACRUM:
+        return character.simulacrum_created_at
+    return character.game_created_at
+
+
+def agent_enabled(character: Character, agent_type: str) -> bool:
+    if agent_type == AGENT_PERSONAL_HIRELING:
+        return character.personal_hireling_enabled
+    if agent_type == AGENT_SIMULACRUM:
+        return character.simulacrum_enabled
+    return True
+
+
+def require_agent_available(character: Character, agent_type: str) -> date:
+    if not agent_enabled(character, agent_type):
+        raise HTTPException(
+            status_code=400,
+            detail=f"{CALENDAR_AGENT_LABELS[agent_type]} не выдан персонажу"
+        )
+    return agent_created_at(character, agent_type)
+
+
+def downtime_for_agent(character: Character, agent_type: str) -> list[DowntimeEntry]:
+    return [
+        entry
+        for entry in character.downtime_entries
+        if entry.agent_type == agent_type
+    ]
+
+
 def charge_character_downtime(
     character: Character,
     db: Session,
@@ -136,12 +202,9 @@ def charge_character_downtime(
     :class:`HTTPException` when the actor does not have enough free days.
     """
     current = current_date or game_calendar.current_game_date()
-    actor_created_at = created_at or character.game_created_at
-    actor_entries = [
-        entry
-        for entry in character.downtime_entries
-        if entry.agent_type == agent_type
-    ]
+    normalized_agent = normalize_calendar_agent(agent_type)
+    actor_created_at = created_at or agent_created_at(character, normalized_agent)
+    actor_entries = downtime_for_agent(character, normalized_agent)
     try:
         runs = game_calendar.plan_oldest_day_spend(
             actor_entries,
@@ -171,35 +234,37 @@ def charge_character_downtime(
             days=length,
             reason=reason,
             source=source,
-            agent_type=agent_type,
+            agent_type=normalized_agent,
         )
         db.add(entry)
         entries.append(entry)
     return entries
 
 
-def build_summary(character: Character, can_manage: bool = False) -> dict:
-    character_entries = [
-        entry
-        for entry in character.downtime_entries
-        if entry.agent_type == "character"
-    ]
+def build_summary(
+    character: Character,
+    can_manage: bool = False,
+    agent_type: str = AGENT_CHARACTER,
+) -> dict:
+    normalized_agent = normalize_calendar_agent(agent_type)
+    entries = downtime_for_agent(character, normalized_agent)
     summary = game_calendar.calendar_summary(
-        character_entries,
-        character.game_created_at,
+        entries,
+        agent_created_at(character, normalized_agent),
     )
     summary["can_manage"] = can_manage
     summary["entries"] = sorted(
-        character_entries,
+        entries,
         key=lambda entry: (entry.start_date, entry.id),
     )
     return summary
 
 
 def validate_downtime_window(
-    character: Character,
+    created_at: date,
     start_date: date,
     days: int,
+    start_label: str,
 ) -> None:
     """Validate a downtime span against the character's active calendar window."""
     if days <= 0:
@@ -208,12 +273,12 @@ def validate_downtime_window(
             detail="Количество дней должно быть больше нуля."
         )
 
-    if start_date < character.game_created_at:
+    if start_date < created_at:
         raise HTTPException(
             status_code=400,
             detail=(
-                "Нельзя занять дни раньше даты создания персонажа "
-                f"({character.game_created_at.strftime('%d.%m.%Y')})."
+                f"Нельзя занять дни раньше {start_label} "
+                f"({created_at.strftime('%d.%m.%Y')})."
             )
         )
 
@@ -235,6 +300,51 @@ def validate_downtime_window(
         )
 
 
+def create_manual_downtime_entry(
+    character: Character,
+    entry_data: DowntimeEntryCreate,
+    db: Session,
+    current_user: User,
+    agent_type: str = AGENT_CHARACTER,
+) -> dict:
+    normalized_agent = normalize_calendar_agent(agent_type)
+    created_at = require_agent_available(character, normalized_agent)
+    validate_downtime_window(
+        created_at,
+        entry_data.start_date,
+        entry_data.days,
+        CALENDAR_AGENT_START_LABELS[normalized_agent],
+    )
+
+    entry = DowntimeEntry(
+        character_id=character.id,
+        start_date=entry_data.start_date,
+        days=entry_data.days,
+        reason=entry_data.reason,
+        source="manual",
+        agent_type=normalized_agent,
+    )
+    db.add(entry)
+    db.flush()
+
+    if current_user.is_admin:
+        record_calendar_audit(
+            db, current_user, character, "create", entry,
+            (
+                f"{CALENDAR_AGENT_LABELS[normalized_agent]}: "
+                f"добавлена запись: {describe_entry(entry)}"
+            ),
+        )
+
+    db.commit()
+    db.refresh(character)
+    return build_summary(
+        character,
+        can_manage=current_user.is_admin,
+        agent_type=normalized_agent,
+    )
+
+
 @router.get(
     "/characters/{character_id}/calendar",
     response_model=CalendarSummaryResponse
@@ -248,6 +358,27 @@ def get_character_calendar(
     return build_summary(character, can_manage=current_user.is_admin)
 
 
+@router.get(
+    "/characters/{character_id}/calendar/agents/{agent_type}",
+    response_model=CalendarSummaryResponse
+)
+def get_agent_calendar(
+    character_id: int,
+    agent_type: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    normalized_agent = normalize_calendar_agent(agent_type)
+    require_unit_agent(normalized_agent)
+    character = get_character_for_current_user(character_id, current_user, db)
+    require_agent_available(character, normalized_agent)
+    return build_summary(
+        character,
+        can_manage=current_user.is_admin,
+        agent_type=normalized_agent,
+    )
+
+
 @router.post(
     "/characters/{character_id}/calendar/downtime",
     response_model=CalendarSummaryResponse
@@ -259,28 +390,36 @@ def add_downtime_entry(
     current_user: User = Depends(get_current_user)
 ):
     character = get_character_for_current_user(character_id, current_user, db)
-
-    validate_downtime_window(character, entry_data.start_date, entry_data.days)
-
-    entry = DowntimeEntry(
-        character_id=character.id,
-        start_date=entry_data.start_date,
-        days=entry_data.days,
-        reason=entry_data.reason,
-        source="manual",
+    return create_manual_downtime_entry(
+        character,
+        entry_data,
+        db,
+        current_user,
     )
-    db.add(entry)
-    db.flush()
 
-    if current_user.is_admin:
-        record_calendar_audit(
-            db, current_user, character, "create", entry,
-            f"Добавлена запись: {describe_entry(entry)}",
-        )
 
-    db.commit()
-    db.refresh(character)
-    return build_summary(character, can_manage=current_user.is_admin)
+@router.post(
+    "/characters/{character_id}/calendar/agents/{agent_type}/downtime",
+    response_model=CalendarSummaryResponse
+)
+def add_agent_downtime_entry(
+    character_id: int,
+    agent_type: str,
+    entry_data: DowntimeEntryCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    require_calendar_manager(current_user)
+    normalized_agent = normalize_calendar_agent(agent_type)
+    require_unit_agent(normalized_agent)
+    character = get_character_or_404(character_id, db)
+    return create_manual_downtime_entry(
+        character,
+        entry_data,
+        db,
+        current_user,
+        agent_type=normalized_agent,
+    )
 
 
 @router.patch(
@@ -298,7 +437,8 @@ def update_downtime_entry(
     character = get_character_or_404(character_id, db)
     entry = db.query(DowntimeEntry).filter(
         DowntimeEntry.id == entry_id,
-        DowntimeEntry.character_id == character.id
+        DowntimeEntry.character_id == character.id,
+        DowntimeEntry.agent_type == AGENT_CHARACTER
     ).first()
     if not entry:
         raise HTTPException(
@@ -309,7 +449,12 @@ def update_downtime_entry(
     before = describe_entry(entry)
     new_start = entry_data.start_date if entry_data.start_date is not None else entry.start_date
     new_days = entry_data.days if entry_data.days is not None else entry.days
-    validate_downtime_window(character, new_start, new_days)
+    validate_downtime_window(
+        character.game_created_at,
+        new_start,
+        new_days,
+        CALENDAR_AGENT_START_LABELS[AGENT_CHARACTER],
+    )
 
     entry.start_date = new_start
     entry.days = new_days
@@ -326,6 +471,66 @@ def update_downtime_entry(
     return build_summary(character, can_manage=current_user.is_admin)
 
 
+@router.patch(
+    "/characters/{character_id}/calendar/agents/{agent_type}/downtime/{entry_id}",
+    response_model=CalendarSummaryResponse
+)
+def update_agent_downtime_entry(
+    character_id: int,
+    agent_type: str,
+    entry_id: int,
+    entry_data: DowntimeEntryUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    require_calendar_manager(current_user)
+    normalized_agent = normalize_calendar_agent(agent_type)
+    require_unit_agent(normalized_agent)
+    character = get_character_or_404(character_id, db)
+    created_at = require_agent_available(character, normalized_agent)
+    entry = db.query(DowntimeEntry).filter(
+        DowntimeEntry.id == entry_id,
+        DowntimeEntry.character_id == character.id,
+        DowntimeEntry.agent_type == normalized_agent,
+    ).first()
+    if not entry:
+        raise HTTPException(
+            status_code=404,
+            detail="Запись календаря не найдена"
+        )
+
+    before = describe_entry(entry)
+    new_start = entry_data.start_date if entry_data.start_date is not None else entry.start_date
+    new_days = entry_data.days if entry_data.days is not None else entry.days
+    validate_downtime_window(
+        created_at,
+        new_start,
+        new_days,
+        CALENDAR_AGENT_START_LABELS[normalized_agent],
+    )
+
+    entry.start_date = new_start
+    entry.days = new_days
+    if entry_data.reason is not None:
+        entry.reason = entry_data.reason
+
+    record_calendar_audit(
+        db, current_user, character, "update", entry,
+        (
+            f"{CALENDAR_AGENT_LABELS[normalized_agent]}: "
+            f"изменена запись: {before} → {describe_entry(entry)}"
+        ),
+    )
+
+    db.commit()
+    db.refresh(character)
+    return build_summary(
+        character,
+        can_manage=current_user.is_admin,
+        agent_type=normalized_agent,
+    )
+
+
 @router.delete(
     "/characters/{character_id}/calendar/downtime/{entry_id}",
     response_model=CalendarSummaryResponse
@@ -340,7 +545,8 @@ def delete_downtime_entry(
     character = get_character_or_404(character_id, db)
     entry = db.query(DowntimeEntry).filter(
         DowntimeEntry.id == entry_id,
-        DowntimeEntry.character_id == character.id
+        DowntimeEntry.character_id == character.id,
+        DowntimeEntry.agent_type == AGENT_CHARACTER
     ).first()
     if not entry:
         raise HTTPException(
@@ -356,3 +562,47 @@ def delete_downtime_entry(
     db.commit()
     db.refresh(character)
     return build_summary(character, can_manage=current_user.is_admin)
+
+
+@router.delete(
+    "/characters/{character_id}/calendar/agents/{agent_type}/downtime/{entry_id}",
+    response_model=CalendarSummaryResponse
+)
+def delete_agent_downtime_entry(
+    character_id: int,
+    agent_type: str,
+    entry_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    require_calendar_manager(current_user)
+    normalized_agent = normalize_calendar_agent(agent_type)
+    require_unit_agent(normalized_agent)
+    character = get_character_or_404(character_id, db)
+    require_agent_available(character, normalized_agent)
+    entry = db.query(DowntimeEntry).filter(
+        DowntimeEntry.id == entry_id,
+        DowntimeEntry.character_id == character.id,
+        DowntimeEntry.agent_type == normalized_agent,
+    ).first()
+    if not entry:
+        raise HTTPException(
+            status_code=404,
+            detail="Запись календаря не найдена"
+        )
+
+    record_calendar_audit(
+        db, current_user, character, "delete", entry,
+        (
+            f"{CALENDAR_AGENT_LABELS[normalized_agent]}: "
+            f"удалена запись: {describe_entry(entry)}"
+        ),
+    )
+    db.delete(entry)
+    db.commit()
+    db.refresh(character)
+    return build_summary(
+        character,
+        can_manage=current_user.is_admin,
+        agent_type=normalized_agent,
+    )

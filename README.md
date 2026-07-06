@@ -43,7 +43,8 @@ Notable protected API routes:
 - `GET/POST /api/characters/{id}/attacks` manages attack rows, and `POST /api/characters/{id}/attacks/{attack_id}/roll` records attack rolls.
 - `GET /api/shop/magic-items` searches `magicvariants.json` and returns shop-eligible common, uncommon, and rare magic items.
 - `POST /api/admin/users/{id}/role` lets an **owner** assign any user role (`owner`, `head_admin`, `admin`, or `player`). A **head admin** may use the same endpoint to manage `admin` and `player` roles only.
-- `GET /api/characters/{id}/calendar` and `POST /api/characters/{id}/calendar/downtime` let players view their calendar and **add** busy days. `PATCH`/`DELETE /api/characters/{id}/calendar/downtime/{entry_id}` edit or remove entries and are **restricted to administrators** — a player request is rejected with `403`. Admins may manage the calendar of *any* character.
+- `GET /api/characters/{id}/calendar` and `POST /api/characters/{id}/calendar/downtime` let players view their character calendar and **add** character busy days. `PATCH`/`DELETE /api/characters/{id}/calendar/downtime/{entry_id}` edit or remove entries and are **restricted to administrators** — a player request is rejected with `403`. Admins may manage the calendar of *any* character.
+- `GET /api/characters/{id}/calendar/agents/{personal_hireling|simulacrum}` shows a granted unit's own calendar. `POST`/`PATCH`/`DELETE /api/characters/{id}/calendar/agents/{agent}/downtime...` are admin-only manual busy-day controls for those units.
 - `GET /api/admin/calendar-logs` returns the audit trail of administrative calendar changes (who, which character, action type, timestamp), filterable by `character_id`, `user_id`, `action`, and date range.
 - `GET /api/admin/characters` includes each character's assembled date and free-day totals, plus separate free-day totals for a personal hireling and simulacrum when those units are enabled.
 
@@ -52,10 +53,13 @@ Notable protected API routes:
 The character calendar (busy/free-day tracking) keeps the game timeline
 immutable for players so already-spent time cannot be rewritten:
 
-- **🎮 Player** — may view their calendar, free days and busy-day history, and
-  **add** busy days, but **cannot** delete or edit existing entries.
+- **🎮 Player** — may view their character calendar, free days and busy-day
+  history, and **add** character busy days, but **cannot** delete or edit
+  existing entries. A player cannot grant, remove, or manually spend personal
+  hireling or simulacrum time.
 - **🛠 Admin / 🛡 Head Admin / 👑 Owner** — may add, edit and delete busy days
-  for **any** character in order to correct calendar mistakes.
+  for **any** character, personal hireling, or simulacrum in order to correct
+  calendar mistakes.
 
 These rules are enforced on the backend, so hiding the buttons in the UI is not
 the only safeguard — a direct API call from a player is rejected. Every
@@ -73,11 +77,12 @@ Market searches can be performed by four actors:
 | Simulacrum | yes | the simulacrum's own calendar | no |
 | Paid hireling | no | none | hireling daily rate |
 
-The personal hireling and simulacrum each have their own appearance date and
-`Расследование` modifier. Admins can enable them and edit these values from the
-admin character page. Paid hirelings are external services: they charge gold for
-the rolled search duration, but they never consume character, personal-hireling,
-or simulacrum free days.
+The personal hireling and simulacrum each have their own appearance date,
+`Расследование` modifier, and busy-day journal. Admins can enable them, edit
+these values, and manually add/edit/delete unit busy-day records from the admin
+character page. Players cannot self-grant or remove these units. Paid hirelings
+are external services: they charge gold for the rolled search duration, but
+they never consume character, personal-hireling, or simulacrum free days.
 
 ## User Roles
 
