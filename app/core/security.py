@@ -7,6 +7,7 @@ from fastapi import Depends, HTTPException
 from fastapi.security import OAuth2PasswordBearer
 
 from app.core.env import load_env
+from app.core.passwords import ensure_password_within_bcrypt_limit
 
 load_env()
 
@@ -26,6 +27,7 @@ ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "30")
 
 
 def hash_password(password: str) -> str:
+    ensure_password_within_bcrypt_limit(password)
     return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
 
 
@@ -33,6 +35,7 @@ def verify_password(
     plain_password: str,
     hashed_password: str
 ) -> bool:
+    ensure_password_within_bcrypt_limit(plain_password)
     return bcrypt.checkpw(
         plain_password.encode("utf-8"),
         hashed_password.encode("utf-8")
