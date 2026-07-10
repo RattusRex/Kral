@@ -3,12 +3,16 @@ from datetime import date, datetime
 from pydantic import BaseModel, ConfigDict, Field
 from typing import Optional
 
+MIN_CHARACTER_LEVEL = 1
+MAX_CHARACTER_LEVEL = 20
+
+
 class CharacterCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     name: str
     class_name: str
-    level: int
+    level: int = Field(ge=MIN_CHARACTER_LEVEL, le=MAX_CHARACTER_LEVEL)
     route: str
     game_created_at: Optional[date] = None
     subclass: str = ""
