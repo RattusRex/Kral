@@ -571,6 +571,14 @@ def delete_admin_character(
         )
 
     character = get_character_or_404(character_id, db)
+    inventory_id = character.inventory.id if character.inventory else None
+    if inventory_id is not None:
+        # Completed shop logs hold non-null foreign keys to both records.
+        # Remove them explicitly so SQLAlchemy does not try to null those keys.
+        db.query(ShopTransactionLog).filter(
+            (ShopTransactionLog.character_id == character.id)
+            | (ShopTransactionLog.inventory_id == inventory_id)
+        ).delete(synchronize_session=False)
     db.delete(character)
     db.commit()
     return {"deleted": True, "id": character_id}

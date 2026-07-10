@@ -1188,6 +1188,67 @@ def test_admin_delete_character_requires_confirmation_and_cascades_inventory():
         assert missing_inventory.status_code == 404
 
 
+def test_admin_can_delete_character_with_shop_transaction_history():
+    with TestClient(app) as client:
+        admin_token = login(client, "admin", "admin123")
+        headers = {"Authorization": f"Bearer {admin_token}"}
+        created = client.post("/api/characters", headers=headers, json={
+            "name": "Retired Merchant",
+            "class_name": "Rogue",
+            "level": 1,
+            "route": "Trade",
+        })
+        assert created.status_code == 200, created.text
+        character_id = created.json()["id"]
+
+        funded = client.post(
+            f"/api/admin/characters/{character_id}/currency/add",
+            headers=headers,
+            json={"gold": 1_000, "reason": "Тест покупки"},
+        )
+        assert funded.status_code == 200, funded.text
+
+        for _ in range(20):
+            search = client.post(
+                f"/api/characters/{character_id}/shop/search",
+                headers=headers,
+                json={
+                    "mode": "buy",
+                    "item_name": "Merchant's Ring",
+                    "rarity": "Обычный",
+                    "is_consumable": False,
+                    "searcher_type": "hireling",
+                    "hireling_level": "Эксперт",
+                },
+            )
+            assert search.status_code == 200, search.text
+            quote = search.json()
+            if quote["success"]:
+                break
+        assert quote["success"] is True
+        purchased = client.post(
+            f"/api/characters/{character_id}/shop/buy",
+            headers=headers,
+            json={"quote_id": quote["quote_id"]},
+        )
+        assert purchased.status_code == 200, purchased.text
+
+        removed = client.delete(
+            f"/api/admin/characters/{character_id}",
+            headers=headers,
+            params={"confirmation": "УДАЛИТЬ"},
+        )
+        assert removed.status_code == 200, removed.text
+        assert removed.json() == {"deleted": True, "id": character_id}
+
+        shop_logs = client.get("/api/admin/shop-logs", headers=headers)
+        assert shop_logs.status_code == 200, shop_logs.text
+        assert all(
+            log["character_id"] != character_id
+            for log in shop_logs.json()
+        )
+
+
 def test_cross_player_currency_and_item_transfers_create_persistent_logs():
     with TestClient(app) as client:
         admin_token = login(client, "admin", "admin123")
