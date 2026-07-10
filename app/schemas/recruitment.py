@@ -1,4 +1,5 @@
 from datetime import date, time
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -19,3 +20,7 @@ class ApplicationCreate(BaseModel):
 
 class ParticipantSelection(BaseModel):
     application_ids: list[int] = Field(min_length=1, max_length=100)
+
+
+class RecruitmentStatusUpdate(BaseModel):
+    status: Literal["upcoming", "completed"]

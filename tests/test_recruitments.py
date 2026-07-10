@@ -10,7 +10,7 @@ from app.core.auth_abuse import reset_auth_abuse_state
 from app.db.database import Base, SessionLocal, engine
 from app.main import app
 from app.models.character import Character
-from app.models.recruitment import GameApplication
+from app.models.recruitment import GameApplication, GameRecruitment, RecruitmentMessage
 
 
 def setup_function():
@@ -128,3 +128,147 @@ def test_deleting_character_removes_its_historical_application():
             assert db.query(GameApplication).count() == 0
         finally:
             db.close()
+
+
+def promote(client, owner_headers, username, role):
+    users = client.get("/api/admin/users", headers=owner_headers).json()
+    user_id = next(user["id"] for user in users if user["username"] == username)
+    response = client.post(
+        f"/api/admin/users/{user_id}/role",
+        headers=owner_headers,
+        json={"role": role},
+    )
+    assert response.status_code == 200, response.text
+
+
+def test_author_and_every_administrative_role_can_delete_recruitments():
+    with TestClient(app) as client:
+        owner = login(client, "admin", "admin123")
+        headers_by_role = {"owner": owner}
+        for role in ("admin", "head_admin"):
+            headers_by_role[role] = register(client, f"delete-{role}")
+            promote(client, owner, f"delete-{role}", role)
+
+        for deleting_role, deleting_headers in headers_by_role.items():
+            author = register(client, f"author-{deleting_role}")
+            promote(client, owner, f"author-{deleting_role}", "admin")
+            recruitment_id = client.post(
+                "/api/game-recruitments", headers=author, json=recruitment_payload()
+            ).json()["id"]
+
+            deleted = client.delete(
+                f"/api/game-recruitments/{recruitment_id}", headers=deleting_headers
+            )
+            assert deleted.status_code == 204, deleted.text
+
+        author_recruitment = client.post(
+            "/api/game-recruitments", headers=headers_by_role["admin"], json=recruitment_payload()
+        ).json()["id"]
+        assert client.delete(
+            f"/api/game-recruitments/{author_recruitment}", headers=headers_by_role["admin"]
+        ).status_code == 204
+
+
+def test_delete_is_forbidden_to_players_and_cascades_applications_and_messages():
+    with TestClient(app) as client:
+        owner = login(client, "admin", "admin123")
+        recruitment_id = client.post(
+            "/api/game-recruitments", headers=owner, json=recruitment_payload()
+        ).json()["id"]
+        player = register(client, "delete-player")
+        character_id = create_character(client, player, "Участник")
+        assert client.post(
+            f"/api/game-recruitments/{recruitment_id}/applications",
+            headers=player,
+            json={"character_id": character_id},
+        ).status_code == 201
+
+        forbidden = client.delete(
+            f"/api/game-recruitments/{recruitment_id}", headers=player
+        )
+        assert forbidden.status_code == 403
+        assert client.delete(
+            f"/api/game-recruitments/{recruitment_id}", headers=owner
+        ).status_code == 204
+
+        db = SessionLocal()
+        try:
+            assert db.query(GameRecruitment).count() == 0
+            assert db.query(GameApplication).count() == 0
+            assert db.query(RecruitmentMessage).count() == 0
+        finally:
+            db.close()
+
+
+def test_status_defaults_to_upcoming_and_only_author_or_admin_can_complete_it():
+    with TestClient(app) as client:
+        owner = login(client, "admin", "admin123")
+        author = register(client, "status-author")
+        promote(client, owner, "status-author", "admin")
+        recruitment_id = client.post(
+            "/api/game-recruitments", headers=author, json=recruitment_payload()
+        ).json()["id"]
+        player = register(client, "status-player")
+
+        listed = client.get("/api/game-recruitments", headers=player).json()[0]
+        assert listed["status"] == "upcoming"
+        assert listed["can_manage"] is False
+        assert client.patch(
+            f"/api/game-recruitments/{recruitment_id}/status",
+            headers=player,
+            json={"status": "completed"},
+        ).status_code == 403
+
+        completed = client.patch(
+            f"/api/game-recruitments/{recruitment_id}/status",
+            headers=author,
+            json={"status": "completed"},
+        )
+        assert completed.status_code == 200, completed.text
+        assert completed.json()["status"] == "completed"
+        character_id = create_character(client, player, "Опоздавший")
+        closed_application = client.post(
+            f"/api/game-recruitments/{recruitment_id}/applications",
+            headers=player,
+            json={"character_id": character_id},
+        )
+        assert closed_application.status_code == 409
+        assert client.patch(
+            f"/api/game-recruitments/{recruitment_id}/status",
+            headers=owner,
+            json={"status": "upcoming"},
+        ).status_code == 200
+
+
+def test_paginated_list_sorts_upcoming_before_completed_and_reports_totals():
+    with TestClient(app) as client:
+        owner = login(client, "admin", "admin123")
+        ids = []
+        for index, real_date in enumerate(("2026-07-22", "2026-07-20", "2026-07-21")):
+            payload = {**recruitment_payload(), "real_date": real_date, "quest": f"Игра {index}"}
+            ids.append(client.post(
+                "/api/game-recruitments", headers=owner, json=payload
+            ).json()["id"])
+        assert client.patch(
+            f"/api/game-recruitments/{ids[1]}/status",
+            headers=owner,
+            json={"status": "completed"},
+        ).status_code == 200
+
+        first = client.get(
+            "/api/game-recruitments", headers=owner, params={"page": 1, "page_size": 2}
+        )
+        assert first.status_code == 200, first.text
+        assert [row["quest"] for row in first.json()["items"]] == ["Игра 2", "Игра 0"]
+        assert first.json() | {"items": []} == {
+            "items": [], "page": 1, "page_size": 2, "total": 3, "pages": 2
+        }
+
+        second = client.get(
+            "/api/game-recruitments", headers=owner, params={"page": 2, "page_size": 2}
+        )
+        assert [row["quest"] for row in second.json()["items"]] == ["Игра 1"]
+        assert second.json()["items"][0]["status"] == "completed"
+        assert client.get(
+            "/api/game-recruitments", headers=owner, params={"page_size": 101}
+        ).status_code == 422

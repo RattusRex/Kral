@@ -220,6 +220,7 @@ export interface GameRecruitment {
   location: string;
   quest: string;
   notes: string;
+  status: "upcoming" | "completed";
   can_manage: boolean;
   application_status: "not_applied" | "applied" | "selected";
   applications: GameApplication[];

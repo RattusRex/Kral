@@ -155,6 +155,11 @@ def ensure_schema_columns() -> None:
         "VARCHAR(32) NOT NULL DEFAULT 'character'"
     )
     ensure_column("inventories", "notes", "TEXT NOT NULL DEFAULT ''")
+    ensure_column(
+        "game_recruitments",
+        "status",
+        "VARCHAR(20) NOT NULL DEFAULT 'upcoming'",
+    )
     migrate_user_roles()
 
 
