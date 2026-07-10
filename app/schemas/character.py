@@ -1,13 +1,39 @@
 from datetime import date, datetime
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from typing import Optional
 
 MIN_CHARACTER_LEVEL = 1
 MAX_CHARACTER_LEVEL = 20
+SKILL_KEYS = {
+    "acrobatics", "animal_handling", "arcana", "athletics", "deception",
+    "history", "insight", "intimidation", "investigation", "medicine",
+    "nature", "perception", "performance", "persuasion", "religion",
+    "sleight_of_hand", "stealth", "survival",
+}
 
 
-class CharacterCreate(BaseModel):
+class SkillSettings(BaseModel):
+    skill_proficiencies: Optional[list[str]] = None
+    skill_expertise: Optional[list[str]] = None
+
+    @model_validator(mode="after")
+    def validate_skill_settings(self):
+        proficiencies = set(self.skill_proficiencies or [])
+        expertise = set(self.skill_expertise or [])
+        unknown = (proficiencies | expertise) - SKILL_KEYS
+        if unknown:
+            raise ValueError(f"Неизвестные навыки: {', '.join(sorted(unknown))}")
+        if not expertise <= proficiencies:
+            raise ValueError("Компетентность требует владения навыком")
+        if self.skill_proficiencies is not None:
+            self.skill_proficiencies = sorted(proficiencies)
+        if self.skill_expertise is not None:
+            self.skill_expertise = sorted(expertise)
+        return self
+
+
+class CharacterCreate(SkillSettings):
     model_config = ConfigDict(extra="forbid")
 
     name: str
@@ -30,7 +56,7 @@ class CharacterCreate(BaseModel):
     armor_class: int = 9
     speed: int = 30
 
-class CharacterEditableFields(BaseModel):
+class CharacterEditableFields(SkillSettings):
     name: Optional[str] = None
     class_name: Optional[str] = None
     route: Optional[str] = None
@@ -153,6 +179,10 @@ class CalendarSummaryResponse(BaseModel):
     busy_days: int
     free_days: int
     can_manage: bool = False
+    page: int
+    page_size: int
+    total_entries: int
+    pages: int
     entries: list[DowntimeEntryResponse]
 
 

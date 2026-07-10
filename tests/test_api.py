@@ -2442,6 +2442,107 @@ def test_manual_downtime_rejects_span_past_current_game_date(monkeypatch):
         assert len(summary.json()["entries"]) == 1
 
 
+def test_calendar_entries_are_paginated_newest_first():
+    with TestClient(app) as client:
+        headers = {"Authorization": f"Bearer {login(client, 'admin', 'admin123')}"}
+        cid = _make_character(client, headers)["id"]
+        for day in range(1, 4):
+            response = client.post(
+                f"/api/characters/{cid}/calendar/downtime",
+                headers=headers,
+                json={
+                    "start_date": f"2025-06-0{day}",
+                    "days": 1,
+                    "reason": f"Entry {day}",
+                },
+            )
+            assert response.status_code == 200, response.text
+
+        first = client.get(
+            f"/api/characters/{cid}/calendar?page=1&page_size=2",
+            headers=headers,
+        )
+        assert first.status_code == 200, first.text
+        assert first.json()["total_entries"] == 3
+        assert first.json()["page"] == 1
+        assert first.json()["page_size"] == 2
+        assert [entry["reason"] for entry in first.json()["entries"]] == [
+            "Entry 3",
+            "Entry 2",
+        ]
+
+        second = client.get(
+            f"/api/characters/{cid}/calendar?page=2&page_size=2",
+            headers=headers,
+        )
+        assert second.status_code == 200, second.text
+        assert [entry["reason"] for entry in second.json()["entries"]] == [
+            "Entry 1",
+        ]
+
+
+def test_character_skill_proficiency_and_expertise_are_persisted_and_validated():
+    with TestClient(app) as client:
+        headers = {"Authorization": f"Bearer {login(client, 'admin', 'admin123')}"}
+        character = _make_character(client, headers)
+        cid = character["id"]
+
+        updated = client.patch(
+            f"/api/characters/{cid}",
+            headers=headers,
+            json={
+                "skill_proficiencies": ["athletics", "perception"],
+                "skill_expertise": ["perception"],
+            },
+        )
+        assert updated.status_code == 200, updated.text
+        assert updated.json()["skill_proficiencies"] == ["athletics", "perception"]
+        assert updated.json()["skill_expertise"] == ["perception"]
+
+        invalid = client.patch(
+            f"/api/characters/{cid}",
+            headers=headers,
+            json={"skill_proficiencies": [], "skill_expertise": ["perception"]},
+        )
+        assert invalid.status_code == 422, invalid.text
+
+
+def test_agent_calendar_entries_are_paginated():
+    with TestClient(app) as client:
+        headers = {"Authorization": f"Bearer {login(client, 'admin', 'admin123')}"}
+        cid = _make_character(client, headers)["id"]
+        enabled = client.patch(
+            f"/api/admin/characters/{cid}",
+            headers=headers,
+            json={
+                "personal_hireling_enabled": True,
+                "personal_hireling_acquired_at": "2025-06-01",
+            },
+        )
+        assert enabled.status_code == 200, enabled.text
+        for day in range(1, 4):
+            added = client.post(
+                f"/api/characters/{cid}/calendar/agents/personal_hireling/downtime",
+                headers=headers,
+                json={
+                    "start_date": f"2025-06-0{day}",
+                    "days": 1,
+                    "reason": f"Hireling {day}",
+                },
+            )
+            assert added.status_code == 200, added.text
+
+        response = client.get(
+            f"/api/characters/{cid}/calendar/agents/personal_hireling?page=2&page_size=2",
+            headers=headers,
+        )
+        assert response.status_code == 200, response.text
+        assert response.json()["total_entries"] == 3
+        assert [entry["reason"] for entry in response.json()["entries"]] == [
+            "Hireling 1",
+        ]
+
+
 def test_admin_downtime_update_rejects_span_past_current_game_date(monkeypatch):
     from app.core import calendar as game_calendar
 

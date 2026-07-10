@@ -83,6 +83,8 @@ def create_character(
         wisdom=character_data.wisdom,
         charisma=character_data.charisma,
         investigation=character_data.investigation,
+        skill_proficiencies=character_data.skill_proficiencies or [],
+        skill_expertise=character_data.skill_expertise or [],
         hp=character_data.hp,
         temp_hp=character_data.temp_hp,
         armor_class=character_data.armor_class,
@@ -116,6 +118,8 @@ def create_character(
         "wisdom": character.wisdom,
         "charisma": character.charisma,
         "investigation": character.investigation,
+        "skill_proficiencies": character.skill_proficiencies,
+        "skill_expertise": character.skill_expertise,
         "personal_hireling_enabled": character.personal_hireling_enabled,
         "personal_hireling_acquired_at": character.personal_hireling_acquired_at,
         "personal_hireling_investigation": (

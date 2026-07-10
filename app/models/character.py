@@ -4,7 +4,7 @@ from sqlalchemy import ForeignKey
 from sqlalchemy.orm import Mapped
 from sqlalchemy.orm import mapped_column
 from sqlalchemy.orm import relationship
-from sqlalchemy import Column, Date, DateTime, Integer, String, Boolean
+from sqlalchemy import Column, Date, DateTime, Integer, JSON, String, Boolean
 from app.core.calendar import GAME_EPOCH
 from app.db.database import Base
 
@@ -58,6 +58,16 @@ class Character(Base):
 
     investigation: Mapped[int] = mapped_column(
         default=0
+    )
+
+    skill_proficiencies: Mapped[list[str]] = mapped_column(
+        JSON,
+        default=list
+    )
+
+    skill_expertise: Mapped[list[str]] = mapped_column(
+        JSON,
+        default=list
     )
 
     personal_hireling_enabled: Mapped[bool] = mapped_column(

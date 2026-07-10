@@ -100,7 +100,9 @@ const blankCharacter = {
   intelligence: 10,
   wisdom: 10,
   charisma: 10,
-  investigation: 0
+  investigation: 0,
+  skill_proficiencies: [] as string[],
+  skill_expertise: [] as string[]
 };
 const maxCharacters = 10;
 
@@ -119,6 +121,31 @@ function formatGameDate(value: string | undefined) {
 function abilityModifier(score: number) {
   return Math.floor((score - 10) / 2);
 }
+
+function proficiencyBonus(level: number) {
+  return 2 + Math.floor((Math.max(1, Math.min(20, level)) - 1) / 4);
+}
+
+const skills = [
+  { key: "athletics", label: "Атлетика", ability: "strength" },
+  { key: "acrobatics", label: "Акробатика", ability: "dexterity" },
+  { key: "sleight_of_hand", label: "Ловкость рук", ability: "dexterity" },
+  { key: "stealth", label: "Скрытность", ability: "dexterity" },
+  { key: "arcana", label: "Магия", ability: "intelligence" },
+  { key: "history", label: "История", ability: "intelligence" },
+  { key: "investigation", label: "Расследование", ability: "intelligence" },
+  { key: "nature", label: "Природа", ability: "intelligence" },
+  { key: "religion", label: "Религия", ability: "intelligence" },
+  { key: "animal_handling", label: "Уход за животными", ability: "wisdom" },
+  { key: "insight", label: "Проницательность", ability: "wisdom" },
+  { key: "medicine", label: "Медицина", ability: "wisdom" },
+  { key: "perception", label: "Восприятие", ability: "wisdom" },
+  { key: "survival", label: "Выживание", ability: "wisdom" },
+  { key: "deception", label: "Обман", ability: "charisma" },
+  { key: "intimidation", label: "Запугивание", ability: "charisma" },
+  { key: "performance", label: "Выступление", ability: "charisma" },
+  { key: "persuasion", label: "Убеждение", ability: "charisma" }
+] as const;
 
 function signed(value: number) {
   return value >= 0 ? `+${value}` : String(value);
@@ -370,6 +397,7 @@ function CalendarPanel({ characterId, agentType = "character", title = "Кале
   const [loading, setLoading] = useState(true);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editForm, setEditForm] = useState({ start_date: GAME_EPOCH, days: 1, reason: "" });
+  const [page, setPage] = useState(1);
   const canManage = summary?.can_manage ?? false;
   const isUnitCalendar = agentType !== "character";
   const createdAtLabel = agentType === "personal_hireling"
@@ -382,7 +410,7 @@ function CalendarPanel({ characterId, agentType = "character", title = "Кале
   useEffect(() => {
     let active = true;
     setLoading(true);
-    api.get<CalendarSummary>(calendarPath)
+    api.get<CalendarSummary>(calendarPath, { params: { page, page_size: 10 } })
       .then((response) => {
         if (!active) return;
         setSummary(response.data);
@@ -393,19 +421,24 @@ function CalendarPanel({ characterId, agentType = "character", title = "Кале
     return () => {
       active = false;
     };
-  }, [calendarPath, characterId]);
+  }, [calendarPath, characterId, page]);
 
   async function addEntry(event: FormEvent) {
     event.preventDefault();
     setError("");
     try {
-      const response = await api.post<CalendarSummary>(`${calendarPath}/downtime`, {
+      await api.post<CalendarSummary>(`${calendarPath}/downtime`, {
         start_date: form.start_date,
         days: Number(form.days),
         reason: form.reason
       });
-      setSummary(response.data);
-      setForm({ start_date: response.data.created_at, days: 1, reason: "" });
+      if (page === 1) {
+        const response = await api.get<CalendarSummary>(calendarPath, { params: { page: 1, page_size: 10 } });
+        setSummary(response.data);
+      } else {
+        setPage(1);
+      }
+      setForm({ start_date: summary?.created_at ?? GAME_EPOCH, days: 1, reason: "" });
     } catch (addError) {
       setError(apiErrorDetail(addError, "Не удалось добавить запись"));
     }
@@ -414,8 +447,11 @@ function CalendarPanel({ characterId, agentType = "character", title = "Кале
   async function removeEntry(entryId: number) {
     setError("");
     try {
-      const response = await api.delete<CalendarSummary>(`${calendarPath}/downtime/${entryId}`);
+      await api.delete<CalendarSummary>(`${calendarPath}/downtime/${entryId}`);
+      const nextPage = summary?.entries.length === 1 && page > 1 ? page - 1 : page;
+      const response = await api.get<CalendarSummary>(calendarPath, { params: { page: nextPage, page_size: 10 } });
       setSummary(response.data);
+      if (nextPage !== page) setPage(nextPage);
       if (editingId === entryId) setEditingId(null);
     } catch (removeError) {
       setError(apiErrorDetail(removeError, "Не удалось удалить запись"));
@@ -433,11 +469,12 @@ function CalendarPanel({ characterId, agentType = "character", title = "Кале
     if (editingId === null) return;
     setError("");
     try {
-      const response = await api.patch<CalendarSummary>(`${calendarPath}/downtime/${editingId}`, {
+      await api.patch<CalendarSummary>(`${calendarPath}/downtime/${editingId}`, {
         start_date: editForm.start_date,
         days: Number(editForm.days),
         reason: editForm.reason
       });
+      const response = await api.get<CalendarSummary>(calendarPath, { params: { page, page_size: 10 } });
       setSummary(response.data);
       setEditingId(null);
     } catch (editError) {
@@ -562,6 +599,13 @@ function CalendarPanel({ characterId, agentType = "character", title = "Кале
                   )}
                 </div>
               ))
+            )}
+            {summary.pages > 1 && (
+              <div className="mt-3 flex items-center justify-between gap-3 text-sm">
+                <button className="btn-secondary" disabled={page <= 1} onClick={() => setPage(page - 1)} type="button">Назад</button>
+                <span>Страница {summary.page} из {summary.pages} · записей: {summary.total_entries}</span>
+                <button className="btn-secondary" disabled={page >= summary.pages} onClick={() => setPage(page + 1)} type="button">Вперёд</button>
+              </div>
             )}
           </div>
         </>
@@ -691,6 +735,7 @@ function CharacterPage() {
           <Stat label="Путь" value={character.route || "-"} />
           <Stat label="Уровень" value={character.level} />
           <Stat label="XP" value={character.xp} />
+          <Stat label="Бонус мастерства" value={signed(proficiencyBonus(character.level))} />
         </dl>
       </section>
 
@@ -709,6 +754,8 @@ function CharacterPage() {
               <Stat label="Расследование" value={signed(character.investigation)} />
             </dl>
           </section>
+
+          <SkillsPanel character={character} onChange={setCharacter} />
 
           <CalendarPanel characterId={id} />
 
@@ -847,6 +894,59 @@ function SavingThrowCard({ label, short, value, onRoll }: { label: string; short
         <div className="text-lg font-semibold text-white/75">{signed(modifier)}</div>
       </div>
     </button>
+  );
+}
+
+function SkillsPanel({ character, onChange }: { character: Character; onChange: (character: Character) => void }) {
+  const proficiencies = character.skill_proficiencies ?? [];
+  const expertise = character.skill_expertise ?? [];
+  const bonus = proficiencyBonus(character.level);
+  const [error, setError] = useState("");
+
+  async function save(nextProficiencies: string[], nextExpertise: string[]) {
+    setError("");
+    try {
+      const response = await api.patch<Character>(`/characters/${character.id}`, {
+        skill_proficiencies: nextProficiencies,
+        skill_expertise: nextExpertise
+      });
+      onChange(response.data);
+    } catch (saveError) {
+      setError(apiErrorDetail(saveError, "Не удалось сохранить навыки"));
+    }
+  }
+
+  return (
+    <section className="panel p-5">
+      <div className="flex items-center justify-between gap-3">
+        <h2 className="text-lg font-semibold text-ember">Навыки</h2>
+        <span className="text-sm text-white/60">Бонус мастерства {signed(bonus)}</span>
+      </div>
+      {error && <p className="mt-3 text-sm text-red-300">{error}</p>}
+      <div className="mt-4 grid gap-2 lg:grid-cols-2">
+        {skills.map((skill) => {
+          const proficient = proficiencies.includes(skill.key);
+          const expert = expertise.includes(skill.key);
+          const score = character[skill.ability];
+          const value = abilityModifier(score) + (expert ? bonus * 2 : proficient ? bonus : 0);
+          return (
+            <div className="grid grid-cols-[minmax(0,1fr)_auto_auto_auto] items-center gap-3 rounded-md border border-white/10 px-3 py-2" key={skill.key}>
+              <span>{skill.label}</span>
+              <strong className="text-ember">{signed(value)}</strong>
+              <label className="flex items-center gap-1 text-xs"><input type="checkbox" checked={proficient} onChange={(event) => {
+                const nextProficiencies = event.target.checked ? [...proficiencies, skill.key] : proficiencies.filter((key) => key !== skill.key);
+                const nextExpertise = event.target.checked ? expertise : expertise.filter((key) => key !== skill.key);
+                save(nextProficiencies, nextExpertise);
+              }} />Владение</label>
+              <label className="flex items-center gap-1 text-xs"><input type="checkbox" checked={expert} disabled={!proficient} onChange={(event) => {
+                const nextExpertise = event.target.checked ? [...expertise, skill.key] : expertise.filter((key) => key !== skill.key);
+                save(proficiencies, nextExpertise);
+              }} />Компетентность</label>
+            </div>
+          );
+        })}
+      </div>
+    </section>
   );
 }
 
