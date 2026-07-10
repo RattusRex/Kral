@@ -14,7 +14,7 @@ Every administrative modification (create / update / delete) is recorded in the
 
 from datetime import date, timedelta
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from app.api.users import get_current_user
@@ -241,10 +241,16 @@ def charge_character_downtime(
     return entries
 
 
+DEFAULT_PAGE_SIZE = 10
+MAX_PAGE_SIZE = 100
+
+
 def build_summary(
     character: Character,
     can_manage: bool = False,
     agent_type: str = AGENT_CHARACTER,
+    page: int = 1,
+    page_size: int = DEFAULT_PAGE_SIZE,
 ) -> dict:
     normalized_agent = normalize_calendar_agent(agent_type)
     entries = downtime_for_agent(character, normalized_agent)
@@ -253,10 +259,18 @@ def build_summary(
         agent_created_at(character, normalized_agent),
     )
     summary["can_manage"] = can_manage
-    summary["entries"] = sorted(
+    sorted_entries = sorted(
         entries,
         key=lambda entry: (entry.start_date, entry.id),
+        reverse=True,
     )
+    total_entries = len(sorted_entries)
+    summary["page"] = page
+    summary["page_size"] = page_size
+    summary["total_entries"] = total_entries
+    summary["pages"] = (total_entries + page_size - 1) // page_size
+    start = (page - 1) * page_size
+    summary["entries"] = sorted_entries[start:start + page_size]
     return summary
 
 
@@ -378,11 +392,15 @@ def create_manual_downtime_entry(
 )
 def get_character_calendar(
     character_id: int,
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=DEFAULT_PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
     character = get_character_for_current_user(character_id, current_user, db)
-    return build_summary(character, can_manage=current_user.is_admin)
+    return build_summary(
+        character, can_manage=current_user.is_admin, page=page, page_size=page_size
+    )
 
 
 @router.get(
@@ -392,6 +410,8 @@ def get_character_calendar(
 def get_agent_calendar(
     character_id: int,
     agent_type: str,
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=DEFAULT_PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
@@ -403,6 +423,8 @@ def get_agent_calendar(
         character,
         can_manage=current_user.is_admin,
         agent_type=normalized_agent,
+        page=page,
+        page_size=page_size,
     )
 
 

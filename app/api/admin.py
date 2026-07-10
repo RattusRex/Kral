@@ -191,6 +191,8 @@ def serialize_character(character: Character):
         "wisdom": character.wisdom,
         "charisma": character.charisma,
         "investigation": character.investigation,
+        "skill_proficiencies": character.skill_proficiencies,
+        "skill_expertise": character.skill_expertise,
         "game_created_at": character.game_created_at,
         "total_days": character_calendar["total_days"],
         "busy_days": character_calendar["busy_days"],
