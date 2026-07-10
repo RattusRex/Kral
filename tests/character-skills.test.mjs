@@ -40,3 +40,7 @@ test("character calendar exposes work controls and earnings metadata", () => {
   assert.match(source, /entry\.income_copper/);
   assert.match(source, />работа</);
 });
+
+test("admins can delete work entries but cannot edit paid work", () => {
+  assert.match(source, /canManage && \([\s\S]*entry\.source !== "work" && <button[\s\S]*Изменить[\s\S]*removeEntry\(entry\.id\)[\s\S]*Удалить/);
+});

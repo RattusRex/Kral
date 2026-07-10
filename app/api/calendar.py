@@ -137,6 +137,12 @@ def describe_entry(entry: DowntimeEntry) -> str:
     )
 
 
+def set_inventory_total_copper(inventory: Inventory, total_copper: int) -> None:
+    """Store a non-negative copper total in normalized gold/silver/copper fields."""
+    inventory.gold, remainder = divmod(total_copper, 100)
+    inventory.silver, inventory.copper = divmod(remainder, 10)
+
+
 def normalize_calendar_agent(agent_type: str) -> str:
     normalized = agent_type.strip().casefold().replace("-", "_")
     if normalized not in CALENDAR_AGENT_LABELS:
@@ -702,15 +708,27 @@ def delete_downtime_entry(
             status_code=404,
             detail="Запись календаря не найдена"
         )
+    audit_details = f"Удалена запись: {describe_entry(entry)}"
     if entry.source == "work":
-        raise HTTPException(
-            status_code=409,
-            detail="Запись работы нельзя удалить после начисления заработка.",
+        income_copper = entry.income_copper or 0
+        inventory = character.inventory
+        wallet_copper = 0 if inventory is None else (
+            inventory.gold * 100 + inventory.silver * 10 + inventory.copper
         )
+        if wallet_copper < income_copper:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "Недостаточно средств для отмены работы: заработок уже потрачен. "
+                    f"Требуется {income_copper} мед., доступно {wallet_copper} мед."
+                ),
+            )
+        set_inventory_total_copper(inventory, wallet_copper - income_copper)
+        audit_details += f"; списан заработок: {income_copper} мед."
 
     record_calendar_audit(
         db, current_user, character, "delete", entry,
-        f"Удалена запись: {describe_entry(entry)}",
+        audit_details,
     )
     db.delete(entry)
     db.commit()

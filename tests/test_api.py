@@ -3664,11 +3664,31 @@ def test_player_work_reserves_days_credits_wallet_and_records_finance_log(monkey
         admin_headers = {
             "Authorization": f"Bearer {login(client, 'admin', 'admin123')}"
         }
-        immutable = client.delete(
+        removable = client.delete(
             f"/api/characters/{cid}/calendar/downtime/{entry['id']}",
             headers=admin_headers,
         )
-        assert immutable.status_code == 409, immutable.text
+        assert removable.status_code == 200, removable.text
+        assert removable.json()["busy_days"] == 0
+        assert removable.json()["entries"] == []
+
+        inventory = client.get(
+            f"/api/characters/{cid}/inventory", headers=headers
+        )
+        assert inventory.status_code == 200, inventory.text
+        assert inventory.json()["gold"] == 0
+        assert inventory.json()["silver"] == 0
+        assert inventory.json()["copper"] == 0
+
+        audit_logs = client.get(
+            "/api/admin/calendar-logs",
+            headers=admin_headers,
+            params={"action": "delete", "character_id": cid},
+        )
+        assert audit_logs.status_code == 200, audit_logs.text
+        assert len(audit_logs.json()) == 1
+        assert audit_logs.json()[0]["username"] == "admin"
+        assert "150" in audit_logs.json()[0]["details"]
 
         logs = client.get(
             "/api/admin/shop-logs",
@@ -3682,6 +3702,118 @@ def test_player_work_reserves_days_credits_wallet_and_records_finance_log(monkey
         assert logs.json()[0]["item_price"] == 1
         assert logs.json()[0]["total_amount"] == 1
         assert logs.json()[0]["total_copper"] == 150
+
+
+def test_player_cannot_delete_work_and_admin_reverses_exact_income(monkeypatch):
+    from app.core import calendar as game_calendar
+
+    monkeypatch.setattr(game_calendar, "current_game_date", lambda: date(2025, 6, 10))
+
+    with TestClient(app) as client:
+        player_headers, cid = _make_player_with_character(
+            client, "work-delete-player", "Working Hero"
+        )
+        admin_headers = {
+            "Authorization": f"Bearer {login(client, 'admin', 'admin123')}"
+        }
+        funded = client.post(
+            f"/api/admin/characters/{cid}/currency/add",
+            headers=admin_headers,
+            json={"gold": 1, "silver": 2, "copper": 3, "reason": "Starting wallet"},
+        )
+        assert funded.status_code == 200, funded.text
+
+        worked = client.post(
+            f"/api/characters/{cid}/calendar/work",
+            headers=player_headers,
+            json={
+                "start_date": "2025-06-02",
+                "days": 3,
+                "tools": "Инструменты кузнеца",
+                "proficiency_modifier": 3,
+            },
+        )
+        assert worked.status_code == 200, worked.text
+        entry_id = worked.json()["entry"]["id"]
+        assert worked.json()["inventory"]["gold"] == 2
+        assert worked.json()["inventory"]["silver"] == 7
+        assert worked.json()["inventory"]["copper"] == 3
+
+        forbidden = client.delete(
+            f"/api/characters/{cid}/calendar/downtime/{entry_id}",
+            headers=player_headers,
+        )
+        assert forbidden.status_code == 403, forbidden.text
+
+        deleted = client.delete(
+            f"/api/characters/{cid}/calendar/downtime/{entry_id}",
+            headers=admin_headers,
+        )
+        assert deleted.status_code == 200, deleted.text
+        assert deleted.json()["busy_days"] == 0
+
+        inventory = client.get(
+            f"/api/characters/{cid}/inventory", headers=player_headers
+        )
+        assert inventory.status_code == 200, inventory.text
+        assert inventory.json()["gold"] == 1
+        assert inventory.json()["silver"] == 2
+        assert inventory.json()["copper"] == 3
+
+
+def test_work_deletion_is_atomic_when_earned_gold_was_spent(monkeypatch):
+    from app.core import calendar as game_calendar
+
+    monkeypatch.setattr(game_calendar, "current_game_date", lambda: date(2025, 6, 10))
+
+    with TestClient(app) as client:
+        player_headers, cid = _make_player_with_character(
+            client, "spent-work-player", "Spent Earnings"
+        )
+        admin_headers = {
+            "Authorization": f"Bearer {login(client, 'admin', 'admin123')}"
+        }
+        worked = client.post(
+            f"/api/characters/{cid}/calendar/work",
+            headers=player_headers,
+            json={
+                "start_date": "2025-06-02",
+                "days": 3,
+                "tools": "Инструменты кузнеца",
+                "proficiency_modifier": 3,
+            },
+        )
+        assert worked.status_code == 200, worked.text
+        entry_id = worked.json()["entry"]["id"]
+
+        spent = client.post(
+            f"/api/admin/characters/{cid}/gold",
+            headers=admin_headers,
+            json={"amount": -1, "reason": "Spent earnings"},
+        )
+        assert spent.status_code == 200, spent.text
+
+        rejected = client.delete(
+            f"/api/characters/{cid}/calendar/downtime/{entry_id}",
+            headers=admin_headers,
+        )
+        assert rejected.status_code == 409, rejected.text
+        assert "заработок уже потрачен" in rejected.json()["detail"]
+
+        calendar = client.get(
+            f"/api/characters/{cid}/calendar", headers=player_headers
+        )
+        assert calendar.status_code == 200, calendar.text
+        assert calendar.json()["busy_days"] == 3
+        assert calendar.json()["entries"][0]["id"] == entry_id
+
+        inventory = client.get(
+            f"/api/characters/{cid}/inventory", headers=player_headers
+        )
+        assert inventory.status_code == 200, inventory.text
+        assert inventory.json()["gold"] == 0
+        assert inventory.json()["silver"] == 5
+        assert inventory.json()["copper"] == 0
 
 
 def test_work_rejects_overlap_cross_user_access_and_invalid_fields(monkeypatch):
