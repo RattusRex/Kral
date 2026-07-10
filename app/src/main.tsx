@@ -1768,14 +1768,14 @@ function AdminPage() {
       if (characterResponse.data.pages > 0 && characterPage > characterResponse.data.pages) {
         setCharacterPage(characterResponse.data.pages);
       }
-      setSelected((current) => characterResponse.data.items.some((character) => String(character.id) === current) ? current : String(characterResponse.data.items[0]?.id ?? ""));
+      setSelected((current) => characterResponse.data.items.some((character) => String(character.id) === current) ? current : "");
       setUsers(userResponse.data.items);
       setUserTotal(userResponse.data.total);
       setUserPages(userResponse.data.pages);
       if (userResponse.data.pages > 0 && userPage > userResponse.data.pages) {
         setUserPage(userResponse.data.pages);
       }
-      setKarmaUserId((current) => userResponse.data.items.some((row) => String(row.id) === current) ? current : String(userResponse.data.items[0]?.id ?? ""));
+      setKarmaUserId((current) => userResponse.data.items.some((row) => String(row.id) === current) ? current : "");
     });
   }
 
@@ -1830,6 +1830,7 @@ function AdminPage() {
           <label className="field-label">
             <span>Персонаж</span>
             <select className="field" value={selected} onChange={(event) => setSelected(event.target.value)}>
+              <option value="">Выберите персонажа</option>
               {characters.map((character) => <option value={character.id} key={character.id}>{character.name} · {character.owner_username}</option>)}
             </select>
           </label>
@@ -1838,16 +1839,16 @@ function AdminPage() {
             <input className="field" type="number" value={amount} onChange={(event) => setAmount(Number(event.target.value))} />
           </label>
           <label className="field-label"><span>Причина выдачи</span><textarea className="field" required value={reason} onChange={(event) => setReason(event.target.value)} /></label>
-          <button className="btn" disabled={!reason.trim()} onClick={() => action("xp", { amount })}>Применить XP</button>
-          <button className="btn" disabled={!reason.trim()} onClick={() => action("gold", { amount })}>Применить золото</button>
-          <button className="btn-secondary" onClick={() => action("revive")}>Воскресить персонажа</button>
+          <button className="btn" disabled={!selected || !reason.trim()} onClick={() => action("xp", { amount })}>Применить XP</button>
+          <button className="btn" disabled={!selected || !reason.trim()} onClick={() => action("gold", { amount })}>Применить золото</button>
+          <button className="btn-secondary" disabled={!selected} onClick={() => action("revive")}>Воскресить персонажа</button>
           <div className="mt-2 border-t border-white/10 pt-3">
             <h2 className="text-lg font-semibold text-ember">{selectedCharacter?.name ?? "Персонаж"}</h2>
             <div className="mt-3 flex flex-col gap-3">
               <input className="field" placeholder="название" value={item.name} onChange={(event) => setItem({ ...item, name: event.target.value })} />
               <select className="field" value={item.rarity} onChange={(event) => setItem({ ...item, rarity: event.target.value })}>{rarities.map((rarity) => <option key={rarity}>{rarity}</option>)}</select>
               <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={item.is_consumable} onChange={(event) => setItem({ ...item, is_consumable: event.target.checked })} />Расходуемый</label>
-              <button className="btn" disabled={!reason.trim()} onClick={() => action("item", item)}>Выдать предмет</button>
+              <button className="btn" disabled={!selected || !reason.trim()} onClick={() => action("item", item)}>Выдать предмет</button>
             </div>
           </div>
         </section>
@@ -1856,6 +1857,7 @@ function AdminPage() {
           <label className="field-label">
             <span>Игрок</span>
             <select className="field" value={karmaUserId} onChange={(event) => setKarmaUserId(event.target.value)}>
+              <option value="">Выберите пользователя</option>
               {users.map((user) => <option value={user.id} key={user.id}>{user.username} · {user.karma} кармы</option>)}
             </select>
           </label>
@@ -1865,7 +1867,7 @@ function AdminPage() {
           </label>
           <p className="text-sm text-white/65">{selectedUser?.username ?? "Игрок"}: {selectedUser?.karma ?? 0}</p>
           <label className="field-label"><span>Причина выдачи</span><textarea className="field" required value={reason} onChange={(event) => setReason(event.target.value)} /></label>
-          <button className="btn" disabled={!reason.trim()} onClick={applyKarma}>Применить</button>
+          <button className="btn" disabled={!karmaUserId || !reason.trim()} onClick={applyKarma}>Применить</button>
         </section>
         {canManageRoles && (
           <section className="panel flex flex-col gap-3 p-5">
