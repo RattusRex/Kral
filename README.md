@@ -46,6 +46,7 @@ Notable protected API routes:
 - `GET /api/characters/{id}/calendar` and `POST /api/characters/{id}/calendar/downtime` let players view their character calendar and **add** character busy days. `PATCH`/`DELETE /api/characters/{id}/calendar/downtime/{entry_id}` edit or remove entries and are **restricted to administrators** — a player request is rejected with `403`. Admins may manage the calendar of *any* character.
 - `GET /api/characters/{id}/calendar/agents/{personal_hireling|simulacrum}` shows a granted unit's own calendar. `POST`/`PATCH`/`DELETE /api/characters/{id}/calendar/agents/{agent}/downtime...` are admin-only manual busy-day controls for those units.
 - `GET /api/admin/calendar-logs` returns the audit trail of administrative calendar changes (who, which character, action type, timestamp), filterable by `character_id`, `user_id`, `action`, and date range.
+- `GET /api/admin/grant-logs` returns the administrator resource-grant audit trail (karma, XP, gold, and items), filterable by player, character, administrator, operation type, and date. Every grant request requires a non-empty `reason`.
 - `GET /api/admin/characters` includes each character's assembled date and free-day totals, plus separate free-day totals for a personal hireling and simulacrum when those units are enabled.
 
 ## Calendar Permissions

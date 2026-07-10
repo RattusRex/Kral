@@ -6,17 +6,18 @@ from sqlalchemy.orm import Session
 from app.api.inventory import add_currency, get_character_inventory, validate_rarity
 from app.api.users import get_current_user, get_db
 from app.models.character import CalendarAuditLog, Character
-from app.models.inventory import InventoryItem, ShopTransactionLog, TransferLog
+from app.models.inventory import AdminGrantLog, InventoryItem, ShopTransactionLog, TransferLog
 from app.models.user import User
 from app.schemas.character import CalendarAuditLogResponse, CharacterUpdate
 from app.schemas.inventory import (
-    AddItemRequest,
-    CurrencyUpdateRequest,
+    AdminAddItemRequest,
+    AdminCurrencyUpdateRequest,
+    AdminGrantLogResponse,
     InventoryResponse,
     ShopTransactionLogResponse,
     TransferLogResponse,
 )
-from app.schemas.user import KarmaUpdate, RoleUpdate
+from app.schemas.user import AdminResourceUpdate, RoleUpdate
 from app.core import calendar as game_calendar
 from app.core.calendar import GAME_EPOCH
 from app.core.roles import Role, VALID_ROLES, normalize_role, can_manage_roles
@@ -61,6 +62,28 @@ def get_character_or_404(character_id: int, db: Session) -> Character:
             detail="Character not found"
         )
     return character
+
+
+def add_grant_log(
+    db: Session,
+    admin: User,
+    user: User,
+    operation_type: str,
+    value: str,
+    reason: str,
+    character: Character | None = None,
+) -> None:
+    db.add(AdminGrantLog(
+        admin_id=admin.id,
+        admin_username=admin.username,
+        user_id=user.id,
+        username=user.username,
+        character_id=character.id if character else None,
+        character_name=character.name if character else None,
+        operation_type=operation_type,
+        value=value,
+        reason=reason.strip(),
+    ))
 
 
 def downtime_for_agent(character: Character, agent_type: str):
@@ -256,12 +279,16 @@ def list_users(
 @router.post("/characters/{character_id}/xp")
 def add_character_xp(
     character_id: int,
-    xp_data: KarmaUpdate,
+    xp_data: AdminResourceUpdate,
     db: Session = Depends(get_db),
-    _: User = Depends(require_admin)
+    current_user: User = Depends(require_admin)
 ):
     character = get_character_or_404(character_id, db)
     apply_xp_delta(character, xp_data.amount)
+    add_grant_log(
+        db, current_user, character.owner, "xp",
+        f"{xp_data.amount:+d}", xp_data.reason, character,
+    )
     db.commit()
     db.refresh(character)
     return character
@@ -270,13 +297,17 @@ def add_character_xp(
 @router.post("/characters/{character_id}/gold", response_model=InventoryResponse)
 def add_character_gold(
     character_id: int,
-    gold_data: KarmaUpdate,
+    gold_data: AdminResourceUpdate,
     db: Session = Depends(get_db),
-    _: User = Depends(require_admin)
+    current_user: User = Depends(require_admin)
 ):
     character = get_character_or_404(character_id, db)
     inventory = get_character_inventory(character.id, character.owner, db)
     inventory.gold = max(0, inventory.gold + gold_data.amount)
+    add_grant_log(
+        db, current_user, character.owner, "gold",
+        f"{gold_data.amount:+d}", gold_data.reason, character,
+    )
     db.commit()
     db.refresh(inventory)
     return inventory
@@ -285,9 +316,9 @@ def add_character_gold(
 @router.post("/characters/{character_id}/currency/add", response_model=InventoryResponse)
 def add_character_currency(
     character_id: int,
-    currency_data: CurrencyUpdateRequest,
+    currency_data: AdminCurrencyUpdateRequest,
     db: Session = Depends(get_db),
-    _: User = Depends(require_admin)
+    current_user: User = Depends(require_admin)
 ):
     character = get_character_or_404(character_id, db)
     inventory = get_character_inventory(character.id, character.owner, db)
@@ -296,6 +327,14 @@ def add_character_currency(
         currency_data.gold,
         currency_data.silver,
         currency_data.copper
+    )
+    value = (
+        f"{currency_data.gold:+d} зм / {currency_data.silver:+d} см / "
+        f"{currency_data.copper:+d} мм"
+    )
+    add_grant_log(
+        db, current_user, character.owner, "gold",
+        value, currency_data.reason, character,
     )
     db.commit()
     db.refresh(inventory)
@@ -447,6 +486,48 @@ def list_calendar_logs(
     return query.order_by(CalendarAuditLog.created_at.desc()).all()
 
 
+@router.get("/grant-logs", response_model=list[AdminGrantLogResponse])
+def list_grant_logs(
+    character_id: int | None = None,
+    user_id: int | None = None,
+    admin_id: int | None = None,
+    operation_type: str | None = None,
+    operation_date: date | None = Query(default=None, alias="date"),
+    date_from: date | None = None,
+    date_to: date | None = None,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_admin),
+):
+    query = db.query(AdminGrantLog)
+    if character_id is not None:
+        query = query.filter(AdminGrantLog.character_id == character_id)
+    if user_id is not None:
+        query = query.filter(AdminGrantLog.user_id == user_id)
+    if admin_id is not None:
+        query = query.filter(AdminGrantLog.admin_id == admin_id)
+    if operation_type:
+        if operation_type not in {"karma", "xp", "gold", "item"}:
+            raise HTTPException(status_code=400, detail="Unknown grant operation type")
+        query = query.filter(AdminGrantLog.operation_type == operation_type)
+    if operation_date is not None:
+        start = datetime.combine(operation_date, time.min)
+        query = query.filter(
+            AdminGrantLog.created_at >= start,
+            AdminGrantLog.created_at < start + timedelta(days=1),
+        )
+    else:
+        if date_from is not None:
+            query = query.filter(
+                AdminGrantLog.created_at >= datetime.combine(date_from, time.min)
+            )
+        if date_to is not None:
+            query = query.filter(
+                AdminGrantLog.created_at
+                < datetime.combine(date_to, time.min) + timedelta(days=1)
+            )
+    return query.order_by(AdminGrantLog.created_at.desc(), AdminGrantLog.id.desc()).all()
+
+
 @router.post("/characters/{character_id}/revive")
 def revive_character(
     character_id: int,
@@ -483,9 +564,9 @@ def delete_admin_character(
 @router.post("/characters/{character_id}/item", response_model=InventoryResponse)
 def grant_character_item(
     character_id: int,
-    item_data: AddItemRequest,
+    item_data: AdminAddItemRequest,
     db: Session = Depends(get_db),
-    _: User = Depends(require_admin)
+    current_user: User = Depends(require_admin)
 ):
     validate_rarity(item_data.rarity)
     character = get_character_or_404(character_id, db)
@@ -496,6 +577,12 @@ def grant_character_item(
         is_consumable=item_data.is_consumable,
         inventory_id=inventory.id
     ))
+    consumable = "расходуемый" if item_data.is_consumable else "постоянный"
+    add_grant_log(
+        db, current_user, character.owner, "item",
+        f"{item_data.name} · {item_data.rarity} · {consumable}",
+        item_data.reason, character,
+    )
     db.commit()
     db.refresh(inventory)
     return inventory
@@ -504,7 +591,9 @@ def grant_character_item(
 def update_user_karma(
     user_id: int,
     amount: int,
-    db: Session
+    reason: str,
+    admin: User,
+    db: Session,
 ):
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
@@ -514,6 +603,7 @@ def update_user_karma(
         )
 
     user.karma = max(0, user.karma + amount)
+    add_grant_log(db, admin, user, "karma", f"{amount:+d}", reason)
     db.commit()
     db.refresh(user)
     return serialize_user(user)
@@ -595,30 +685,30 @@ def change_user_role(
 @router.post("/users/{user_id}/karma")
 def change_user_karma(
     user_id: int,
-    karma_data: KarmaUpdate,
+    karma_data: AdminResourceUpdate,
     db: Session = Depends(get_db),
-    _: User = Depends(require_admin)
+    current_user: User = Depends(require_admin)
 ):
-    return update_user_karma(user_id, karma_data.amount, db)
+    return update_user_karma(user_id, karma_data.amount, karma_data.reason, current_user, db)
 
 
 @router.post("/users/{user_id}/karma/add")
 def add_user_karma(
     user_id: int,
-    karma_data: KarmaUpdate,
+    karma_data: AdminResourceUpdate,
     db: Session = Depends(get_db),
-    _: User = Depends(require_admin)
+    current_user: User = Depends(require_admin)
 ):
-    return update_user_karma(user_id, karma_data.amount, db)
+    return update_user_karma(user_id, karma_data.amount, karma_data.reason, current_user, db)
 
 
 @router.post("/users/{user_id}/karma/subtract")
 def subtract_user_karma(
     user_id: int,
-    karma_data: KarmaUpdate,
+    karma_data: AdminResourceUpdate,
     db: Session = Depends(get_db),
-    _: User = Depends(require_admin)
+    current_user: User = Depends(require_admin)
 ):
     if karma_data.amount < 0:
-        return update_user_karma(user_id, karma_data.amount, db)
-    return update_user_karma(user_id, -karma_data.amount, db)
+        return update_user_karma(user_id, karma_data.amount, karma_data.reason, current_user, db)
+    return update_user_karma(user_id, -karma_data.amount, karma_data.reason, current_user, db)

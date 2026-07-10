@@ -16,5 +16,9 @@ class KarmaUpdate(BaseModel):
     amount: int
 
 
+class AdminResourceUpdate(KarmaUpdate):
+    reason: str = Field(min_length=1, max_length=1000, pattern=r".*\S.*")
+
+
 class RoleUpdate(BaseModel):
     role: str

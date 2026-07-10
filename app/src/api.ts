@@ -251,6 +251,20 @@ export interface TransferLog {
   item_is_consumable: boolean | null;
 }
 
+export interface AdminGrantLog {
+  id: number;
+  created_at: string;
+  admin_id: number;
+  admin_username: string;
+  user_id: number;
+  username: string;
+  character_id: number | null;
+  character_name: string | null;
+  operation_type: "karma" | "xp" | "gold" | "item";
+  value: string;
+  reason: string;
+}
+
 export const api = axios.create({
   baseURL: API_BASE_URL
 });
