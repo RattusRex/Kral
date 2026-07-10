@@ -185,7 +185,10 @@ def apply_xp_delta(character: Character, amount: int):
     if amount <= 0:
         return
 
-    while character.xp >= character.level + 1:
+    while (
+        character.level < MAX_CHARACTER_LEVEL
+        and character.xp >= character.level + 1
+    ):
         character.xp -= character.level + 1
         character.level += 1
 

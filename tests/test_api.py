@@ -65,6 +65,15 @@ def test_xp_grant_normalizes_legacy_invalid_level_before_progression():
     assert character.xp == 0
 
 
+def test_xp_grant_does_not_advance_past_campaign_maximum_level():
+    character = Character(level=20, xp=0)
+
+    apply_xp_delta(character, 21)
+
+    assert character.level == 20
+    assert character.xp == 21
+
+
 def test_admin_character_level_edit_stays_within_campaign_bounds():
     with TestClient(app) as client:
         token = login(client, "admin", "admin123")
