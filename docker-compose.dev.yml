@@ -1,0 +1,9 @@
+# Development-only Compose override. Use this file explicitly when a local
+# debugger or API client must bypass nginx and connect to FastAPI directly:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build
+
+services:
+  backend:
+    ports:
+      - "8000:8000"
