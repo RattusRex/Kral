@@ -3,21 +3,25 @@ from datetime import date
 from unittest.mock import patch
 
 import anyio
+import pytest
 
 os.environ["DATABASE_URL"] = "sqlite://"
 os.environ.setdefault("SECRET_KEY", "test-secret-key-for-pytest-only")
 os.environ.setdefault("ADMIN_PASSWORD", "admin123")
 
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from starlette.types import Message, Scope
 
 from app.core.auth_abuse import reset_auth_abuse_state
 from app.core.request_limits import RequestBodyLimitMiddleware
 from app.core.text_limits import MAX_CHAT_MESSAGE_LENGTH, MAX_INVENTORY_NOTES_LENGTH
-from app.db.database import Base, engine
+from app.db.database import Base, SessionLocal, engine
 from app.main import app
 from app.api.admin import apply_xp_delta
+from app.api.inventory import consume_quote_for_inventory
 from app.models.character import Character
+from app.models.inventory import ShopQuote
 
 
 def setup_function():
@@ -582,6 +586,14 @@ def test_shop_search_charges_hireling_in_gold_before_buy_confirmation():
         )
         assert confirmed_payload["inventory"]["items"][0]["name"] == "Healing Potion"
 
+        replayed = client.post(
+            f"/api/characters/{character_id}/shop/buy",
+            headers=headers,
+            json={"quote_id": payload["quote_id"]}
+        )
+        assert replayed.status_code == 409
+        assert replayed.json()["detail"] == "Shop result has already been used"
+
 
 def test_shop_sell_search_waits_for_confirmation_and_adds_gold():
     with TestClient(app) as client:
@@ -630,6 +642,82 @@ def test_shop_sell_search_waits_for_confirmation_and_adds_gold():
         assert confirmed_payload["inventory"]["gold"] == (
             1000 - payload["hireling_cost"] + payload["item_price"]
         )
+
+        replayed = client.post(
+            f"/api/characters/{character_id}/shop/sell",
+            headers=headers,
+            json={"quote_id": payload["quote_id"]}
+        )
+        assert replayed.status_code == 409
+        assert replayed.json()["detail"] == "Shop result has already been used"
+
+
+def create_shop_quote(client: TestClient, headers: dict, mode: str):
+    created = client.post("/api/characters", headers=headers, json={
+        "name": f"Atomic {mode}", "class_name": "Fighter",
+        "level": 1, "route": "Trade", "investigation": 20,
+    })
+    character_id = created.json()["id"]
+    client.post(
+        f"/api/admin/characters/{character_id}/currency/add", headers=headers,
+        json={"gold": 10000, "silver": 0, "copper": 0, "reason": "Test"},
+    )
+    search_data = {
+        "mode": mode, "searcher_type": "hireling", "hireling_level": "Эксперт",
+    }
+    if mode == "buy":
+        search_data.update({
+            "item_name": "Healing Potion", "rarity": "Обычный",
+            "is_consumable": True,
+        })
+    else:
+        granted = client.post(
+            f"/api/admin/characters/{character_id}/item", headers=headers,
+            json={
+                "name": "Old Wand", "rarity": "Обычный",
+                "is_consumable": False, "reason": "Test",
+            },
+        ).json()
+        search_data["item_id"] = granted["items"][0]["id"]
+    quote = client.post(
+        f"/api/characters/{character_id}/shop/search",
+        headers=headers,
+        json=search_data,
+    )
+    assert quote.status_code == 200, quote.text
+    return character_id, quote.json()
+
+
+def assert_quote_compare_and_set_is_atomic(quote_id: int):
+    with SessionLocal() as first_db, SessionLocal() as second_db:
+        first_quote = first_db.get(ShopQuote, quote_id)
+        second_quote = second_db.get(ShopQuote, quote_id)
+        assert first_quote.is_consumed is False
+        assert second_quote.is_consumed is False
+
+        consume_quote_for_inventory(first_quote, first_db)
+        first_db.commit()
+
+        with pytest.raises(HTTPException) as replay:
+            consume_quote_for_inventory(second_quote, second_db)
+        assert replay.value.status_code == 409
+        assert replay.value.detail == "Shop result has already been used"
+
+
+def test_buy_quote_can_only_be_claimed_once_from_stale_sessions():
+    with TestClient(app) as client:
+        headers = {"Authorization": f"Bearer {login(client, 'admin', 'admin123')}"}
+        _, quote = create_shop_quote(client, headers, "buy")
+
+        assert_quote_compare_and_set_is_atomic(quote["quote_id"])
+
+
+def test_sell_quote_can_only_be_claimed_once_from_stale_sessions():
+    with TestClient(app) as client:
+        headers = {"Authorization": f"Bearer {login(client, 'admin', 'admin123')}"}
+        _, quote = create_shop_quote(client, headers, "sell")
+
+        assert_quote_compare_and_set_is_atomic(quote["quote_id"])
 
 
 def test_magic_item_catalog_only_lists_allowed_rarities_and_supports_search():
