@@ -2,7 +2,7 @@ import { Component, FormEvent, useEffect, useLayoutEffect, useMemo, useRef, useS
 import { createRoot } from "react-dom/client";
 import { Link, Navigate, Route, BrowserRouter as Router, Routes, useNavigate, useParams } from "react-router-dom";
 import { CalendarDays, Check, Dice5, LogOut, MessageSquare, Pencil, Plus, RefreshCw, Save, ScrollText, Search, Send, Shield, ShoppingBag, Swords, Trash2, Trophy, UserRound, UsersRound, X } from "lucide-react";
-import { AbilityRoll, AdminGrantLog, AdminUser, api, AttackRoll, CalendarSummary, Character, CharacterAttack, ChatMessage, DamageRoll, Inventory, InventoryItem, KarmaPurchase, KarmaPurchaseResult, LeaderboardEntry, MagicItem, PaginatedResponse, ROLE_LABELS, SavingThrowRoll, ShopResult, ShopTransactionLog, TOKEN_KEY, TransferLog, TransferTarget, User, UserRole } from "./api";
+import { AbilityRoll, AdminGrantLog, AdminUser, api, AttackRoll, CalendarSummary, Character, CharacterAttack, ChatMessage, DamageRoll, Inventory, InventoryItem, KarmaPurchase, KarmaPurchaseResult, LeaderboardEntry, MagicItem, PaginatedResponse, ROLE_LABELS, SavingThrowRoll, ShopResult, ShopTransactionLog, SkillRoll, TOKEN_KEY, TransferLog, TransferTarget, User, UserRole } from "./api";
 import "./styles.css";
 
 const rarities = ["Обычный", "Необычный", "Редкий"];
@@ -954,6 +954,17 @@ function SkillsPanel({ character, onChange }: { character: Character; onChange: 
   const expertise = character.skill_expertise ?? [];
   const bonus = proficiencyBonus(character.level);
   const [error, setError] = useState("");
+  const [skillRoll, setSkillRoll] = useState<SkillRoll | null>(null);
+
+  async function rollSkill(skill: string) {
+    setError("");
+    try {
+      const response = await api.post<SkillRoll>(`/characters/${character.id}/roll-skill/${skill}`);
+      setSkillRoll(response.data);
+    } catch (rollError) {
+      setError(apiErrorDetail(rollError, "Не удалось выполнить бросок навыка"));
+    }
+  }
 
   async function save(nextProficiencies: string[], nextExpertise: string[]) {
     setError("");
@@ -970,9 +981,13 @@ function SkillsPanel({ character, onChange }: { character: Character; onChange: 
 
   return (
     <section className="panel p-5">
-      <div className="flex items-center justify-between gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <h2 className="text-lg font-semibold text-ember">Навыки</h2>
-        <span className="text-sm text-white/60">Бонус мастерства {signed(bonus)}</span>
+        {skillRoll ? (
+          <span className="rounded-md border border-ember/40 px-3 py-2 text-sm">
+            <span className="font-semibold text-ember">{skills.find((skill) => skill.key === skillRoll.skill)?.label}</span>: d20 {signed(skillRoll.modifier)} = <span className="font-bold text-ember">{skillRoll.total}</span>
+          </span>
+        ) : <span className="text-sm text-white/60">Бонус мастерства {signed(bonus)}</span>}
       </div>
       {error && <p className="mt-3 text-sm text-red-300">{error}</p>}
       <div className="mt-4 grid gap-2 lg:grid-cols-2">
@@ -983,8 +998,10 @@ function SkillsPanel({ character, onChange }: { character: Character; onChange: 
           const value = abilityModifier(score) + (expert ? bonus * 2 : proficient ? bonus : 0);
           return (
             <div className="grid grid-cols-[minmax(0,1fr)_auto_auto_auto] items-center gap-3 rounded-md border border-white/10 px-3 py-2" key={skill.key}>
-              <span>{skill.label}</span>
-              <strong className="text-ember">{signed(value)}</strong>
+              <button className="flex min-w-0 items-center justify-between gap-3 rounded-sm text-left transition hover:text-ember focus-visible:outline focus-visible:outline-2 focus-visible:outline-ember" type="button" onClick={() => rollSkill(skill.key)} aria-label={`Бросить навык ${skill.label} ${signed(value)}`}>
+                <span>{skill.label}</span>
+                <strong className="text-ember">{signed(value)}</strong>
+              </button>
               <label className="flex items-center gap-1 text-xs"><input type="checkbox" checked={proficient} onChange={(event) => {
                 const nextProficiencies = event.target.checked ? [...proficiencies, skill.key] : proficiencies.filter((key) => key !== skill.key);
                 const nextExpertise = event.target.checked ? expertise : expertise.filter((key) => key !== skill.key);

@@ -26,6 +26,13 @@ test("expertise control depends on proficiency and doubles only proficiency bonu
   assert.match(source, /expertise\.filter\(\(key\) => key !== skill\.key\)/);
 });
 
+test("skill values are clickable and use the character skill-roll endpoint", () => {
+  assert.match(source, /async function rollSkill\(skill: string\)/);
+  assert.match(source, /roll-skill\/\$\{skill\}/);
+  assert.match(source, /onClick=\{\(\) => rollSkill\(skill\.key\)\}/);
+  assert.match(source, /aria-label=\{`Бросить навык/);
+});
+
 test("character calendar exposes work controls and earnings metadata", () => {
   assert.match(source, /Используемые инструменты/);
   assert.match(source, /Модификатор владения/);

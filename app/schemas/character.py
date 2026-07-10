@@ -163,6 +163,14 @@ class SavingThrowRollResponse(BaseModel):
     total: int
 
 
+class SkillRollResponse(BaseModel):
+    skill: str
+    ability: str
+    modifier: int
+    roll: int
+    total: int
+
+
 class DowntimeEntryCreate(BaseModel):
     start_date: date
     days: int

@@ -2159,6 +2159,96 @@ def test_saving_throw_proficiency_is_persisted_and_added_to_roll():
         assert invalid.status_code == 422
 
 
+def test_skill_roll_uses_ability_proficiency_expertise_and_logs():
+    with TestClient(app) as client:
+        headers = {"Authorization": f"Bearer {login(client, 'admin', 'admin123')}"}
+        created = client.post("/api/characters", headers=headers, json={
+            "name": "Skill Roller",
+            "class_name": "Следопыт",
+            "level": 9,
+            "route": "Wilds",
+            "strength": 16,
+            "intelligence": 8,
+            "wisdom": 14,
+            "skill_proficiencies": ["athletics", "perception"],
+            "skill_expertise": ["perception"],
+        })
+        assert created.status_code == 200, created.text
+        character_id = created.json()["id"]
+
+        with patch("app.api.characters.random.randint", side_effect=[8, 9, 10]):
+            athletics = client.post(
+                f"/api/characters/{character_id}/roll-skill/athletics",
+                headers=headers,
+            )
+            perception = client.post(
+                f"/api/characters/{character_id}/roll-skill/perception",
+                headers=headers,
+            )
+            arcana = client.post(
+                f"/api/characters/{character_id}/roll-skill/arcana",
+                headers=headers,
+            )
+
+        assert athletics.status_code == 200, athletics.text
+        assert athletics.json() == {
+            "skill": "athletics",
+            "ability": "strength",
+            "modifier": 7,
+            "roll": 8,
+            "total": 15,
+        }
+        assert perception.status_code == 200, perception.text
+        assert perception.json()["modifier"] == 10
+        assert perception.json()["total"] == 19
+        assert arcana.status_code == 200, arcana.text
+        assert arcana.json()["modifier"] == -1
+        assert arcana.json()["total"] == 9
+
+        roll_messages = client.get(
+            "/api/chat/messages",
+            headers=headers,
+            params={"channel": "rolls"},
+        )
+        assert roll_messages.status_code == 200, roll_messages.text
+        contents = [message["content"] for message in roll_messages.json()]
+        assert any("Атлетика" in content and "1d20+7" in content and "Итог: 15" in content for content in contents)
+        assert any("Восприятие" in content and "1d20+10" in content and "Итог: 19" in content for content in contents)
+        assert any("Магия" in content and "1d20-1" in content and "Итог: 9" in content for content in contents)
+
+
+def test_skill_roll_rejects_unknown_skill_and_other_users_character():
+    with TestClient(app) as client:
+        admin_headers = {"Authorization": f"Bearer {login(client, 'admin', 'admin123')}"}
+        created = client.post("/api/characters", headers=admin_headers, json={
+            "name": "Private Skill Roller",
+            "class_name": "Воин",
+            "level": 1,
+            "route": "Frontline",
+        })
+        assert created.status_code == 200, created.text
+        character_id = created.json()["id"]
+
+        unknown = client.post(
+            f"/api/characters/{character_id}/roll-skill/luck",
+            headers=admin_headers,
+        )
+        assert unknown.status_code == 400
+
+        user = client.post("/api/users", json={
+            "username": "other-skill-user",
+            "email": "other-skill-user@example.com",
+            "password": "secret123",
+        })
+        assert user.status_code == 200, user.text
+        other_headers = {"Authorization": f"Bearer {login(client, 'other-skill-user', 'secret123')}"}
+        forbidden = client.post(
+            f"/api/characters/{character_id}/roll-skill/athletics",
+            headers=other_headers,
+        )
+        assert forbidden.status_code == 404
+
+
 def test_chat_messages_pagination_with_limit_and_before_id():
     with TestClient(app) as client:
         token = login(client, "admin", "admin123")
