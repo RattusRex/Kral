@@ -170,6 +170,12 @@ class Character(Base):
         order_by="DowntimeEntry.start_date"
     )
 
+    game_applications = relationship(
+        "GameApplication",
+        back_populates="character",
+        cascade="all, delete-orphan",
+    )
+
 
 class DowntimeEntry(Base):
     """A span of in-world days a character spent on out-of-game activities."""
