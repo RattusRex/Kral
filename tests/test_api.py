@@ -2455,7 +2455,12 @@ def test_admin_downtime_update_rejects_overlap_but_ignores_edited_entry():
             json={"start_date": "2025-06-10", "days": 3, "reason": "Второе"},
         )
         assert second.status_code == 200, second.text
-        second_id = second.json()["entries"][1]["id"]
+        second_id = next(
+            entry["id"]
+            for entry in second.json()["entries"]
+            if entry["start_date"] == "2025-06-10"
+            and entry["reason"] == "Второе"
+        )
 
         unchanged_window = client.patch(
             f"/api/characters/{cid}/calendar/downtime/{second_id}",
