@@ -405,6 +405,7 @@ function CharactersPage() {
 function CalendarPanel({ characterId, agentType = "character", title = "Календарь персонажа" }: { characterId: number; agentType?: CalendarAgentType; title?: string }) {
   const [summary, setSummary] = useState<CalendarSummary | null>(null);
   const [form, setForm] = useState({ start_date: GAME_EPOCH, days: 1, reason: "" });
+  const [workForm, setWorkForm] = useState({ start_date: GAME_EPOCH, days: 1, tools: "", proficiency_modifier: 0 });
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   const [editingId, setEditingId] = useState<number | null>(null);
@@ -427,6 +428,7 @@ function CalendarPanel({ characterId, agentType = "character", title = "Кале
         if (!active) return;
         setSummary(response.data);
         setForm((current) => ({ ...current, start_date: response.data.created_at }));
+        setWorkForm((current) => ({ ...current, start_date: response.data.created_at }));
       })
       .catch((loadError) => active && setError(apiErrorDetail(loadError, "Не удалось загрузить календарь")))
       .finally(() => active && setLoading(false));
@@ -453,6 +455,24 @@ function CalendarPanel({ characterId, agentType = "character", title = "Кале
       setForm({ start_date: summary?.created_at ?? GAME_EPOCH, days: 1, reason: "" });
     } catch (addError) {
       setError(apiErrorDetail(addError, "Не удалось добавить запись"));
+    }
+  }
+
+  async function addWork(event: FormEvent) {
+    event.preventDefault();
+    setError("");
+    try {
+      await api.post(`${calendarPath}/work`, {
+        ...workForm,
+        days: Number(workForm.days),
+        proficiency_modifier: Number(workForm.proficiency_modifier)
+      });
+      const response = await api.get<CalendarSummary>(calendarPath, { params: { page: 1, page_size: 10 } });
+      setSummary(response.data);
+      setPage(1);
+      setWorkForm({ start_date: response.data.created_at, days: 1, tools: "", proficiency_modifier: 0 });
+    } catch (workError) {
+      setError(apiErrorDetail(workError, "Не удалось оформить работу"));
     }
   }
 
@@ -513,7 +533,17 @@ function CalendarPanel({ characterId, agentType = "character", title = "Кале
           </dl>
 
           {!isUnitCalendar && (
-            <form className="mt-5 grid gap-3 md:grid-cols-[150px_110px_1fr_auto]" onSubmit={addEntry}>
+            <form className="mt-5 grid gap-3 md:grid-cols-[150px_110px_1fr_auto]" onSubmit={addWork}>
+              <label className="field-label"><span>Дата начала</span><input className="field" type="date" min={summary.created_at} max={summary.current_date} value={workForm.start_date} onChange={(event) => setWorkForm({ ...workForm, start_date: event.target.value })} /></label>
+              <label className="field-label"><span>Дней работы</span><input className="field" type="number" min={1} value={workForm.days} onChange={(event) => setWorkForm({ ...workForm, days: Number(event.target.value) })} /></label>
+              <label className="field-label"><span>Используемые инструменты</span><input className="field" required maxLength={255} placeholder="Инструменты кузнеца" value={workForm.tools} onChange={(event) => setWorkForm({ ...workForm, tools: event.target.value })} /></label>
+              <label className="field-label"><span>Модификатор владения</span><input className="field" type="number" min={-20} max={100} value={workForm.proficiency_modifier} onChange={(event) => setWorkForm({ ...workForm, proficiency_modifier: Number(event.target.value) })} /></label>
+              <button className="btn self-end" type="submit"><Plus size={16} />Работать</button>
+            </form>
+          )}
+
+          {!isUnitCalendar && (
+            <details className="mt-4"><summary className="cursor-pointer text-sm text-white/60">Добавить другую занятость</summary><form className="mt-3 grid gap-3 md:grid-cols-[150px_110px_1fr_auto]" onSubmit={addEntry}>
               <label className="field-label">
                 <span>Дата начала</span>
                 <input
@@ -545,7 +575,7 @@ function CalendarPanel({ characterId, agentType = "character", title = "Кале
                 />
               </label>
               <button className="btn self-end" type="submit"><Plus size={16} />Занять дни</button>
-            </form>
+            </form></details>
           )}
           {error && <p className="mt-3 text-sm text-red-300">{error}</p>}
 
@@ -564,17 +594,19 @@ function CalendarPanel({ characterId, agentType = "character", title = "Кале
                       <div className="font-semibold">
                         {formatGameDate(entry.start_date)} · {entry.days} дн.
                         {entry.source === "shop" && <span className="ml-2 rounded bg-amber-400/15 px-2 py-0.5 text-xs text-amber-200">магазин</span>}
+                        {entry.source === "work" && <span className="ml-2 rounded bg-emerald-400/15 px-2 py-0.5 text-xs text-emerald-200">работа</span>}
                       </div>
                       <div className="text-sm text-white/60">{entry.reason || "Без описания"}</div>
+                      {entry.source === "work" && <div className="text-xs text-emerald-200">Модификатор {entry.proficiency_modifier! >= 0 ? "+" : ""}{entry.proficiency_modifier} · заработок {Math.floor((entry.income_copper ?? 0) / 100)} зм {Math.floor(((entry.income_copper ?? 0) % 100) / 10)} см {(entry.income_copper ?? 0) % 10} мм</div>}
                     </div>
-                    {canManage && (
+                    {canManage && entry.source !== "work" && (
                       <div className="flex gap-2">
                         <button className="btn-secondary" onClick={() => startEdit(entry)} type="button"><Pencil size={16} />Изменить</button>
                         <button className="btn-secondary" onClick={() => removeEntry(entry.id)} type="button"><Trash2 size={16} />Удалить</button>
                       </div>
                     )}
                   </div>
-                  {canManage && editingId === entry.id && (
+                  {canManage && entry.source !== "work" && editingId === entry.id && (
                     <form className="mt-3 grid gap-3 md:grid-cols-[150px_110px_1fr_auto_auto]" onSubmit={saveEdit}>
                       <label className="field-label">
                         <span>Дата начала</span>
@@ -2252,7 +2284,7 @@ function ShopLogsPage() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-xl font-bold text-ember">Логи магазина</h1>
-          <p className="text-sm text-white/60">Покупки и продажи персонажей</p>
+          <p className="text-sm text-white/60">Покупки, продажи и заработок персонажей</p>
         </div>
         <Link className="btn-secondary" to="/admin">Назад</Link>
       </div>
@@ -2277,6 +2309,7 @@ function ShopLogsPage() {
             <option value="">Все</option>
             <option value="buy">Покупка</option>
             <option value="sell">Продажа</option>
+            <option value="work">Работа</option>
           </select>
         </label>
         <label className="field-label">
@@ -2308,11 +2341,11 @@ function ShopLogsPage() {
                 <td className="py-3 pr-3">{new Date(log.created_at).toLocaleString("ru-RU")}</td>
                 <td className="py-3 pr-3">{log.username}</td>
                 <td className="py-3 pr-3">{log.character_name}</td>
-                <td className="py-3 pr-3">{log.mode === "buy" ? "Покупка" : "Продажа"}</td>
+                <td className="py-3 pr-3">{log.mode === "buy" ? "Покупка" : log.mode === "sell" ? "Продажа" : "Работа"}</td>
                 <td className="py-3 pr-3">{log.item_name} · {log.rarity}</td>
                 <td className="py-3 pr-3">{log.item_price} зм</td>
                 <td className="py-3 pr-3">{log.hireling_cost} зм</td>
-                <td className="py-3 pr-3 font-semibold text-ember">{log.total_amount} зм</td>
+                <td className="py-3 pr-3 font-semibold text-ember">{log.mode === "work" && log.total_copper != null ? `${Math.floor(log.total_copper / 100)} зм ${Math.floor(log.total_copper % 100 / 10)} см ${log.total_copper % 10} мм` : `${log.total_amount} зм`}</td>
               </tr>
             ))}
             {logs.length === 0 && (

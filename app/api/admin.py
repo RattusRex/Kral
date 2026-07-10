@@ -435,7 +435,7 @@ def list_shop_logs(
     if user_id is not None:
         query = query.filter(ShopTransactionLog.user_id == user_id)
     if mode:
-        if mode not in {"buy", "sell"}:
+        if mode not in {"buy", "sell", "work"}:
             raise HTTPException(
                 status_code=400,
                 detail="Unknown shop operation type"

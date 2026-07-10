@@ -22,6 +22,22 @@ from typing import Iterable, Sequence
 GAME_EPOCH = date(2025, 6, 1)
 
 
+def work_income_copper(proficiency_modifier: int, days: int) -> int:
+    """Return campaign work income in copper for a modifier and day count."""
+    if days <= 0:
+        raise ValueError("Work days must be positive")
+    daily_income = {
+        3: 50, 4: 100, 5: 200, 6: 500,
+        7: 1500, 8: 2500, 9: 4000,
+    }.get(proficiency_modifier)
+    if daily_income is None:
+        daily_income = (
+            2 if proficiency_modifier <= 2
+            else 4000 + (proficiency_modifier - 9) * 1000
+        )
+    return daily_income * days
+
+
 def current_game_date() -> date:
     """Return the current in-world date.
 

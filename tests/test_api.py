@@ -3293,6 +3293,118 @@ def _add_downtime(client, headers, character_id, start="2025-06-01", days=3, rea
     return response.json()
 
 
+def test_player_work_reserves_days_credits_wallet_and_records_finance_log(monkeypatch):
+    from app.core import calendar as game_calendar
+
+    monkeypatch.setattr(game_calendar, "current_game_date", lambda: date(2025, 6, 10))
+
+    with TestClient(app) as client:
+        headers, cid = _make_player_with_character(client, "working-player", "Smith")
+
+        worked = client.post(
+            f"/api/characters/{cid}/calendar/work",
+            headers=headers,
+            json={
+                "start_date": "2025-06-02",
+                "days": 3,
+                "tools": "Инструменты кузнеца",
+                "proficiency_modifier": 3,
+            },
+        )
+
+        assert worked.status_code == 200, worked.text
+        result = worked.json()
+        assert result["income_copper"] == 150
+        assert result["income"] == {"gold": 1, "silver": 5, "copper": 0}
+        assert result["inventory"]["gold"] == 1
+        assert result["inventory"]["silver"] == 5
+        entry = result["entry"]
+        assert entry["source"] == "work"
+        assert entry["reason"] == "Работа: Инструменты кузнеца"
+        assert entry["tools"] == "Инструменты кузнеца"
+        assert entry["proficiency_modifier"] == 3
+        assert entry["income_copper"] == 150
+
+        calendar = client.get(f"/api/characters/{cid}/calendar", headers=headers)
+        assert calendar.status_code == 200
+        assert calendar.json()["busy_days"] == 3
+        assert calendar.json()["entries"][0]["income_copper"] == 150
+
+        admin_headers = {
+            "Authorization": f"Bearer {login(client, 'admin', 'admin123')}"
+        }
+        immutable = client.delete(
+            f"/api/characters/{cid}/calendar/downtime/{entry['id']}",
+            headers=admin_headers,
+        )
+        assert immutable.status_code == 409, immutable.text
+
+        logs = client.get(
+            "/api/admin/shop-logs",
+            headers=admin_headers,
+            params={"mode": "work", "character_id": cid},
+        )
+        assert logs.status_code == 200, logs.text
+        assert len(logs.json()) == 1
+        assert logs.json()[0]["mode"] == "work"
+        assert logs.json()[0]["item_name"] == "Инструменты кузнеца"
+        assert logs.json()[0]["item_price"] == 1
+        assert logs.json()[0]["total_amount"] == 1
+        assert logs.json()[0]["total_copper"] == 150
+
+
+def test_work_rejects_overlap_cross_user_access_and_invalid_fields(monkeypatch):
+    from app.core import calendar as game_calendar
+
+    monkeypatch.setattr(game_calendar, "current_game_date", lambda: date(2025, 6, 10))
+
+    with TestClient(app) as client:
+        owner_headers, cid = _make_player_with_character(client, "work-owner")
+        stranger_headers, _ = _make_player_with_character(client, "work-stranger")
+        first = client.post(
+            f"/api/characters/{cid}/calendar/work",
+            headers=owner_headers,
+            json={
+                "start_date": "2025-06-02", "days": 2,
+                "tools": "Инструменты плотника", "proficiency_modifier": 4,
+            },
+        )
+        assert first.status_code == 200, first.text
+
+        overlap = client.post(
+            f"/api/characters/{cid}/calendar/work",
+            headers=owner_headers,
+            json={
+                "start_date": "2025-06-03", "days": 1,
+                "tools": "Инструменты алхимика", "proficiency_modifier": 8,
+            },
+        )
+        assert overlap.status_code == 409, overlap.text
+
+        forbidden = client.post(
+            f"/api/characters/{cid}/calendar/work",
+            headers=stranger_headers,
+            json={
+                "start_date": "2025-06-05", "days": 1,
+                "tools": "Инструменты вора", "proficiency_modifier": 5,
+            },
+        )
+        assert forbidden.status_code == 404, forbidden.text
+
+        for field, value in (("tools", "  "), ("days", 0)):
+            payload = {
+                "start_date": "2025-06-05", "days": 1,
+                "tools": "Инструменты ювелира", "proficiency_modifier": 5,
+            }
+            payload[field] = value
+            invalid = client.post(
+                f"/api/characters/{cid}/calendar/work",
+                headers=owner_headers,
+                json=payload,
+            )
+            assert invalid.status_code == 422, invalid.text
+
+
 def test_player_can_add_and_view_but_cannot_edit_or_delete_downtime():
     with TestClient(app) as client:
         headers, cid = _make_player_with_character(client, "calendar-player")

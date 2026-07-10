@@ -7,6 +7,27 @@ import pytest
 from app.core import calendar as game_calendar
 
 
+def test_work_income_uses_campaign_pay_table():
+    expected_copper = {
+        -5: 2,
+        2: 2,
+        3: 50,
+        4: 100,
+        5: 200,
+        6: 500,
+        7: 1500,
+        8: 2500,
+        9: 4000,
+        10: 5000,
+        11: 6000,
+        12: 7000,
+    }
+
+    for modifier, daily_income in expected_copper.items():
+        assert game_calendar.work_income_copper(modifier, 1) == daily_income
+        assert game_calendar.work_income_copper(modifier, 3) == daily_income * 3
+
+
 class FakeEntry:
     """Lightweight stand-in for a DowntimeEntry row."""
 

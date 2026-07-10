@@ -25,3 +25,11 @@ test("expertise control depends on proficiency and doubles only proficiency bonu
   assert.match(source, /expert \? bonus \* 2 : proficient \? bonus : 0/);
   assert.match(source, /expertise\.filter\(\(key\) => key !== skill\.key\)/);
 });
+
+test("character calendar exposes work controls and earnings metadata", () => {
+  assert.match(source, /Используемые инструменты/);
+  assert.match(source, /Модификатор владения/);
+  assert.match(source, /\/work/);
+  assert.match(source, /entry\.income_copper/);
+  assert.match(source, />работа</);
+});
