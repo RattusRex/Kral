@@ -19,6 +19,7 @@ from app.api.calendar import router as calendar_router
 from app.api.admin import router as admin_router
 from app.api.attacks import router as attacks_router
 from app.api.chat import router as chat_router
+from app.api.karma_shop import router as karma_shop_router
 from app.models.chat import ChatMessage
 from app.core.calendar import GAME_EPOCH
 from app.core.security import hash_password
@@ -187,6 +188,7 @@ app.include_router(character_router, prefix="/api")
 app.include_router(admin_router, prefix="/api")
 app.include_router(attacks_router, prefix="/api")
 app.include_router(chat_router, prefix="/api")
+app.include_router(karma_shop_router, prefix="/api")
 app.include_router(users_router, prefix="/api")
 
 @app.get("/")

@@ -49,6 +49,8 @@ Notable protected API routes:
 - `GET /api/characters/{id}/calendar/agents/{personal_hireling|simulacrum}` shows a granted unit's own calendar. `POST`/`PATCH`/`DELETE /api/characters/{id}/calendar/agents/{agent}/downtime...` are admin-only manual busy-day controls for those units.
 - `GET /api/admin/calendar-logs` returns the audit trail of administrative calendar changes (who, which character, action type, timestamp), filterable by `character_id`, `user_id`, `action`, and date range.
 - `GET /api/admin/grant-logs` returns the administrator resource-grant audit trail (karma, XP, gold, and items), filterable by player, character, administrator, operation type, and date. Every grant request requires a non-empty `reason`.
+- `POST /api/karma-shop/xp`, `/purchases`, and `/resurrect` atomically spend the authenticated player's karma on XP, persistent goods/openers, or an eligible dead character's resurrection. `GET /api/karma-shop/purchases` returns the player's saved goods and openers.
+- `GET /api/admin/karma-shop-logs` returns the complete Karma Shop audit trail, including the user, optional character, purchase type, cost, timestamp, and character level captured for character purchases.
 - `GET /api/admin/characters` includes each character's assembled date and free-day totals, plus separate free-day totals for a personal hireling and simulacrum when those units are enabled.
 - `PATCH /api/admin/characters/{id}` lets administrators correct a character's appearance date; calendar totals are recalculated from that date. Only owners and head administrators may delete characters.
 

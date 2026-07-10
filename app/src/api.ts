@@ -284,6 +284,27 @@ export interface AdminGrantLog {
   reason: string;
 }
 
+export interface KarmaPurchase {
+  id: number;
+  created_at: string;
+  user_id: number;
+  username: string;
+  character_id: number | null;
+  character_name: string | null;
+  character_level: number | null;
+  purchase_type: "xp" | "item" | "opener" | "resurrection";
+  name: string;
+  cost: number;
+}
+
+export interface KarmaPurchaseResult {
+  purchase: KarmaPurchase;
+  remaining_karma: number;
+  character_level: number | null;
+  character_xp: number | null;
+  character_is_dead: boolean | null;
+}
+
 export const api = axios.create({
   baseURL: API_BASE_URL
 });

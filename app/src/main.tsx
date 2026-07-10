@@ -2,7 +2,7 @@ import { Component, FormEvent, useEffect, useLayoutEffect, useMemo, useRef, useS
 import { createRoot } from "react-dom/client";
 import { Link, Navigate, Route, BrowserRouter as Router, Routes, useNavigate, useParams } from "react-router-dom";
 import { CalendarDays, Check, Dice5, LogOut, MessageSquare, Pencil, Plus, RefreshCw, Save, ScrollText, Search, Send, Shield, ShoppingBag, Swords, Trash2, Trophy, UserRound, UsersRound, X } from "lucide-react";
-import { AbilityRoll, AdminGrantLog, AdminUser, api, AttackRoll, CalendarSummary, Character, CharacterAttack, ChatMessage, DamageRoll, Inventory, InventoryItem, LeaderboardEntry, MagicItem, PaginatedResponse, ROLE_LABELS, SavingThrowRoll, ShopResult, ShopTransactionLog, TOKEN_KEY, TransferLog, TransferTarget, User, UserRole } from "./api";
+import { AbilityRoll, AdminGrantLog, AdminUser, api, AttackRoll, CalendarSummary, Character, CharacterAttack, ChatMessage, DamageRoll, Inventory, InventoryItem, KarmaPurchase, KarmaPurchaseResult, LeaderboardEntry, MagicItem, PaginatedResponse, ROLE_LABELS, SavingThrowRoll, ShopResult, ShopTransactionLog, TOKEN_KEY, TransferLog, TransferTarget, User, UserRole } from "./api";
 import "./styles.css";
 
 const rarities = ["Обычный", "Необычный", "Редкий"];
@@ -208,12 +208,14 @@ function Shell({ children, user }: { children: React.ReactNode; user: User | nul
             <Link className="btn-secondary" to="/"><UsersRound size={16} />Меню</Link>
             <Link className="btn-secondary" to="/characters"><UsersRound size={16} />Персонажи</Link>
             <Link className="btn-secondary" to="/shop"><ShoppingBag size={16} />Магазин</Link>
+            <Link className="btn-secondary" to="/karma-shop"><ShoppingBag size={16} />Карма</Link>
             <Link className="btn-secondary" to="/leaderboard"><Trophy size={16} />Лидеры</Link>
             <Link className="btn-secondary" to="/chat"><MessageSquare size={16} />Чат</Link>
             <Link className="btn-secondary" to="/profile"><UserRound size={16} />Профиль</Link>
             {user?.is_admin && <Link className="btn-secondary" to="/admin"><Shield size={16} />Админ</Link>}
             {user?.is_admin && <Link className="btn-secondary" to="/admin/shop-logs"><ScrollText size={16} />Логи</Link>}
             {user?.is_admin && <Link className="btn-secondary" to="/admin/transfer-logs"><ScrollText size={16} />Передачи</Link>}
+            {user?.is_admin && <Link className="btn-secondary" to="/admin/karma-shop-logs"><ScrollText size={16} />Карма-логи</Link>}
             <button className="btn-secondary" onClick={logout}><LogOut size={16} />Выйти</button>
           </div>
         </nav>
@@ -230,8 +232,9 @@ function HomePage() {
     <div className="grid gap-4 md:grid-cols-[1fr_320px]">
       <section className="panel p-5">
         <h1 className="text-2xl font-bold text-ember">Главное меню</h1>
-        <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+        <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           <Link className="btn" to="/shop"><ShoppingBag size={18} />Shop</Link>
+          <Link className="btn" to="/karma-shop"><ShoppingBag size={18} />Магазин Кармы</Link>
           <Link className="btn" to="/characters"><UsersRound size={18} />My Characters</Link>
           <Link className="btn" to="/characters/new"><Plus size={18} />Create Character</Link>
           <Link className="btn" to="/leaderboard"><Trophy size={18} />Таблица лидеров</Link>
@@ -1514,8 +1517,46 @@ function ResultPanel({ result, onConfirm, onContinue }: { result: ShopResult | n
 
 function ProfilePage() {
   const { user, loading } = useAuth();
+  const [purchases, setPurchases] = useState<KarmaPurchase[]>([]);
+  useEffect(() => {
+    if (user) api.get<KarmaPurchase[]>("/karma-shop/purchases").then((response) => setPurchases(response.data));
+  }, [user]);
   if (loading || !user) return <p>Загрузка...</p>;
-  return <section className="panel max-w-xl p-5"><h1 className="text-xl font-bold text-ember">{user.username}</h1><p>{user.email}</p><p className="mt-2">Карма: {user.karma}</p></section>;
+  return <div className="grid gap-4 md:grid-cols-2"><section className="panel p-5"><h1 className="text-xl font-bold text-ember">{user.username}</h1><p>{user.email}</p><p className="mt-2">Карма: {user.karma}</p></section><section className="panel p-5"><h2 className="text-xl font-bold text-ember">Открывашки</h2><div className="mt-4 space-y-2">{purchases.map((purchase) => <div className="rounded-md bg-black/25 p-3" key={purchase.id}><p className="font-semibold">{purchase.name}</p><p className="text-sm text-white/55">{purchase.purchase_type === "opener" ? "Открывашка" : "Товар"} · {purchase.cost} кармы</p></div>)}{!purchases.length && <p className="text-white/55">Покупок пока нет</p>}</div></section></div>;
+}
+
+function KarmaShopPage() {
+  const { user, setUser } = useAuth();
+  const [characters, setCharacters] = useState<Character[]>([]);
+  const [characterId, setCharacterId] = useState("");
+  const [xpAmount, setXpAmount] = useState(1);
+  const [purchaseType, setPurchaseType] = useState<"item" | "opener">("opener");
+  const [name, setName] = useState("");
+  const [cost, setCost] = useState(1);
+  const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    api.get<Character[]>("/characters").then((response) => {
+      setCharacters(response.data);
+      if (response.data[0]) setCharacterId(String(response.data[0].id));
+    });
+  }, []);
+
+  async function execute(path: string, payload: object, success: string) {
+    setError(""); setMessage("");
+    try {
+      const response = await api.post<KarmaPurchaseResult>(path, payload);
+      if (user) setUser({ ...user, karma: response.data.remaining_karma });
+      setMessage(success);
+      const refreshed = await api.get<Character[]>("/characters");
+      setCharacters(refreshed.data);
+    } catch (purchaseError) {
+      setError(apiErrorDetail(purchaseError, "Покупка не выполнена"));
+    }
+  }
+
+  return <div className="space-y-4"><section className="panel p-5"><h1 className="text-2xl font-bold text-ember">Магазин Кармы</h1><p className="mt-2 text-white/70">Баланс: {user?.karma ?? 0} кармы</p>{message && <p className="mt-3 text-emerald-200">{message}</p>}{error && <p className="mt-3 text-red-300">{error}</p>}</section><div className="grid gap-4 lg:grid-cols-3"><section className="panel p-5"><h2 className="text-lg font-semibold text-ember">Покупка опыта</h2><p className="text-sm text-white/55">1 опыт = 5 кармы</p><select className="field mt-4" value={characterId} onChange={(event) => setCharacterId(event.target.value)}><option value="">Выберите персонажа</option>{characters.map((character) => <option key={character.id} value={character.id}>{character.name} · ур. {character.level}</option>)}</select><input className="field mt-3" min={1} type="number" value={xpAmount} onChange={(event) => setXpAmount(Number(event.target.value))} /><button className="btn mt-3" disabled={!characterId || xpAmount < 1} onClick={() => execute("/karma-shop/xp", { character_id: Number(characterId), amount: xpAmount }, `Куплено ${xpAmount} опыта`)}>Купить за {xpAmount * 5} кармы</button></section><section className="panel p-5"><h2 className="text-lg font-semibold text-ember">Специальная покупка</h2><select className="field mt-4" value={purchaseType} onChange={(event) => setPurchaseType(event.target.value as "item" | "opener")}><option value="opener">Открывашка</option><option value="item">Другой товар</option></select><input className="field mt-3" placeholder="Название" value={name} onChange={(event) => setName(event.target.value)} /><input className="field mt-3" min={1} type="number" value={cost} onChange={(event) => setCost(Number(event.target.value))} /><button className="btn mt-3" disabled={!name.trim() || cost < 1} onClick={() => execute("/karma-shop/purchases", { purchase_type: purchaseType, name, cost }, "Покупка сохранена")}>Купить за {cost} кармы</button></section><section className="panel p-5"><h2 className="text-lg font-semibold text-ember">Воскресить персонажа</h2><p className="text-sm text-white/55">1–5 уровень: 5 кармы · 6–10: 10 кармы · 11+: недоступно</p><select className="field mt-4" value={characterId} onChange={(event) => setCharacterId(event.target.value)}><option value="">Выберите персонажа</option>{characters.map((character) => <option key={character.id} value={character.id}>{character.name} · ур. {character.level}{character.is_dead ? " · погиб" : " · жив"}</option>)}</select><button className="btn mt-3" disabled={!characterId} onClick={() => execute("/karma-shop/resurrect", { character_id: Number(characterId) }, "Персонаж воскрешён")}>Воскресить персонажа</button></section></div></div>;
 }
 
 function LeaderboardPage() {
@@ -2004,6 +2045,7 @@ function AdminCharacterPage() {
     });
     payload.personal_hireling_enabled = form.personal_hireling_enabled ?? false;
     payload.simulacrum_enabled = form.simulacrum_enabled ?? false;
+    payload.is_dead = form.is_dead ?? false;
     payload.saving_throw_proficiencies = form.saving_throw_proficiencies ?? [];
 
     try {
@@ -2099,6 +2141,17 @@ function AdminCharacterPage() {
             ))}
           </div>
           <div className="md:col-span-2 grid gap-3 rounded-md border border-white/10 p-3 md:grid-cols-2">
+            <label className="flex items-center gap-2 text-sm md:col-span-2">
+              <input
+                type="checkbox"
+                checked={Boolean(form.is_dead)}
+                onChange={(event) => {
+                  setSaved(false);
+                  setForm({ ...form, is_dead: event.target.checked });
+                }}
+              />
+              Смерть
+            </label>
             <label className="flex items-center gap-2 text-sm">
               <input
                 type="checkbox"
@@ -2144,6 +2197,7 @@ function AdminCharacterPage() {
         <dl className="mt-5 grid grid-cols-2 gap-3 md:grid-cols-4">
           <Stat label="Уровень" value={character.level} />
           <Stat label="XP" value={character.xp} />
+          <Stat label="Смерть" value={character.is_dead ? "Да" : "Нет"} />
           <Stat label="HP" value={character.hp} />
           <Stat label="КД" value={character.armor_class} />
           <Stat label="Дата сбора" value={formatGameDate(character.game_created_at)} />
@@ -2362,6 +2416,24 @@ function ShopLogsPage() {
   );
 }
 
+const karmaPurchaseLabels: Record<KarmaPurchase["purchase_type"], string> = {
+  xp: "Покупка опыта",
+  item: "Товар магазина",
+  opener: "Покупка открывашки",
+  resurrection: "Воскрешение персонажа"
+};
+
+function KarmaShopLogsPage() {
+  const [logs, setLogs] = useState<KarmaPurchase[]>([]);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    api.get<KarmaPurchase[]>("/admin/karma-shop-logs")
+      .then((response) => setLogs(response.data))
+      .catch((loadError) => setError(apiErrorDetail(loadError, "Не удалось загрузить логи")));
+  }, []);
+  return <section className="panel p-5"><div className="flex flex-wrap items-center justify-between gap-3"><div><h1 className="text-2xl font-bold text-ember">Логи магазина кармы</h1><p className="text-sm text-white/55">История всех покупок за карму</p></div><Link className="btn-secondary" to="/admin">Назад</Link></div>{error && <p className="mt-3 text-red-300">{error}</p>}<div className="mt-5 overflow-x-auto"><table className="w-full min-w-[850px] text-left text-sm"><thead className="text-xs uppercase text-white/45"><tr><th className="py-2 pr-3">Дата</th><th className="py-2 pr-3">Игрок</th><th className="py-2 pr-3">Персонаж</th><th className="py-2 pr-3">Тип</th><th className="py-2 pr-3">Наименование</th><th className="py-2 pr-3">Стоимость</th><th className="py-2 pr-3">Уровень</th></tr></thead><tbody>{logs.map((log) => <tr className="border-t border-white/10" key={log.id}><td className="py-3 pr-3">{new Date(log.created_at).toLocaleString("ru-RU")}</td><td className="py-3 pr-3">{log.username}</td><td className="py-3 pr-3">{log.character_name ?? "-"}</td><td className="py-3 pr-3">{karmaPurchaseLabels[log.purchase_type]}</td><td className="py-3 pr-3">{log.name}</td><td className="py-3 pr-3">{log.cost} кармы</td><td className="py-3 pr-3">{log.character_level ?? "-"}</td></tr>)}</tbody></table>{!logs.length && <p className="py-6 text-center text-white/55">Записей нет</p>}</div></section>;
+}
+
 function TransferLogsPage() {
   const [logs, setLogs] = useState<TransferLog[]>([]);
   const [characters, setCharacters] = useState<Character[]>([]);
@@ -2542,10 +2614,12 @@ function App() {
         <Route path="/characters/:id" element={<Protected><CharacterPage /></Protected>} />
         <Route path="/characters/:id/edit" element={<Protected><CharacterFormPage edit /></Protected>} />
         <Route path="/shop" element={<Protected><ShopPage /></Protected>} />
+        <Route path="/karma-shop" element={<Protected><KarmaShopPage /></Protected>} />
         <Route path="/leaderboard" element={<Protected><LeaderboardPage /></Protected>} />
         <Route path="/chat" element={<Protected><ChatPage /></Protected>} />
         <Route path="/profile" element={<Protected><ProfilePage /></Protected>} />
         <Route path="/admin/shop-logs" element={<Protected><ShopLogsPage /></Protected>} />
+        <Route path="/admin/karma-shop-logs" element={<Protected><KarmaShopLogsPage /></Protected>} />
         <Route path="/admin/transfer-logs" element={<Protected><TransferLogsPage /></Protected>} />
         <Route path="/admin/grant-logs" element={<Protected><GrantLogsPage /></Protected>} />
         <Route path="/admin/characters/:id" element={<Protected><AdminCharacterPage /></Protected>} />
