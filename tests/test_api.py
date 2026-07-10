@@ -1,13 +1,18 @@
 import os
 from datetime import date
 
+import anyio
+
 os.environ["DATABASE_URL"] = "sqlite://"
 os.environ.setdefault("SECRET_KEY", "test-secret-key-for-pytest-only")
 os.environ.setdefault("ADMIN_PASSWORD", "admin123")
 
 from fastapi.testclient import TestClient
+from starlette.types import Message, Scope
 
 from app.core.auth_abuse import reset_auth_abuse_state
+from app.core.request_limits import RequestBodyLimitMiddleware
+from app.core.text_limits import MAX_CHAT_MESSAGE_LENGTH, MAX_INVENTORY_NOTES_LENGTH
 from app.db.database import Base, engine
 from app.main import app
 
@@ -1333,6 +1338,101 @@ def test_chat_messages_and_dice_roll_commands_persist_to_channels():
         formulas = [message["formula"] for message in rolls.json()]
         assert "2d6" in formulas
         assert "1d37" in formulas
+
+
+def test_persisted_text_fields_enforce_boundaries():
+    with TestClient(app) as client:
+        token = login(client, "admin", "admin123")
+        headers = {"Authorization": f"Bearer {token}"}
+        created = client.post("/api/characters", headers=headers, json={
+            "name": "Bounded Text Hero",
+            "class_name": "Воин",
+            "level": 1,
+            "route": "Frontline",
+        })
+        assert created.status_code == 200, created.text
+        character_id = created.json()["id"]
+
+        accepted_message = client.post(
+            "/api/chat/messages",
+            headers=headers,
+            json={"content": "x" * MAX_CHAT_MESSAGE_LENGTH},
+        )
+        assert accepted_message.status_code == 200, accepted_message.text
+
+        rejected_message = client.post(
+            "/api/chat/messages",
+            headers=headers,
+            json={"content": "x" * (MAX_CHAT_MESSAGE_LENGTH + 1)},
+        )
+        assert rejected_message.status_code == 422
+
+        accepted_notes = client.patch(
+            f"/api/characters/{character_id}/inventory/notes",
+            headers=headers,
+            json={"notes": "x" * MAX_INVENTORY_NOTES_LENGTH},
+        )
+        assert accepted_notes.status_code == 200, accepted_notes.text
+
+        rejected_notes = client.patch(
+            f"/api/characters/{character_id}/inventory/notes",
+            headers=headers,
+            json={"notes": "x" * (MAX_INVENTORY_NOTES_LENGTH + 1)},
+        )
+        assert rejected_notes.status_code == 422
+
+
+def test_direct_backend_rejects_oversized_request_body():
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/login",
+            content=b"x" * (1_048_576 + 1),
+            headers={"content-type": "application/json"},
+        )
+
+        assert response.status_code == 413
+
+
+def test_chunked_request_body_is_limited_without_content_length():
+    app_called = False
+
+    async def downstream(_scope, receive, _send):
+        nonlocal app_called
+        app_called = True
+        while (await receive()).get("more_body", False):
+            pass
+
+    middleware = RequestBodyLimitMiddleware(downstream, max_body_bytes=5)
+    scope: Scope = {
+        "type": "http",
+        "asgi": {"version": "3.0"},
+        "http_version": "1.1",
+        "method": "POST",
+        "scheme": "http",
+        "path": "/",
+        "raw_path": b"/",
+        "query_string": b"",
+        "root_path": "",
+        "headers": [],
+        "client": ("testclient", 50000),
+        "server": ("testserver", 80),
+    }
+    requests: list[Message] = [
+        {"type": "http.request", "body": b"123", "more_body": True},
+        {"type": "http.request", "body": b"456", "more_body": False},
+    ]
+    responses: list[Message] = []
+
+    async def receive() -> Message:
+        return requests.pop(0)
+
+    async def send(message: Message) -> None:
+        responses.append(message)
+
+    anyio.run(middleware, scope, receive, send)
+
+    assert app_called is True
+    assert responses[0]["status"] == 413
 
 
 def test_damage_roll_returns_dice_results_and_logs_to_rolls_channel():

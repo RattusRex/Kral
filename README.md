@@ -131,6 +131,17 @@ AUTH_REGISTRATION_WINDOW_SECONDS=3600
 Docker deployments also apply nginx `limit_req` throttling to `/api/login` and
 `/api/users` before requests reach FastAPI.
 
+## Persisted Text and Request Limits
+
+The backend rejects request bodies larger than 1 MiB, including requests sent
+directly to FastAPI. Persisted user text is also bounded independently:
+
+- chat messages: 2,000 characters;
+- inventory notes: 10,000 characters.
+
+Chat history is returned in pages of at most 200 messages. These application
+limits do not depend on nginx and therefore also apply during local development.
+
 ## Frontend Setup
 
 1. Install Node.js 20+.

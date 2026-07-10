@@ -24,6 +24,7 @@ from app.core.calendar import GAME_EPOCH
 from app.core.security import hash_password
 from app.core.roles import Role
 from app.core.env import load_env
+from app.core.request_limits import RequestBodyLimitMiddleware
 from sqlalchemy import inspect, text
 from sqlalchemy.orm import Session
 
@@ -158,6 +159,8 @@ _raw_origins = os.getenv("ALLOWED_ORIGINS", "")
 _allowed_origins = [o.strip() for o in _raw_origins.split(",") if o.strip()]
 
 app = FastAPI(lifespan=lifespan)
+
+app.add_middleware(RequestBodyLimitMiddleware)
 
 app.add_middleware(
     CORSMiddleware,
