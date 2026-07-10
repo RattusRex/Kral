@@ -56,11 +56,6 @@ class Inventory(Base):
         cascade="all, delete-orphan"
     )
 
-    shop_transaction_logs = relationship(
-        "ShopTransactionLog",
-        back_populates="inventory"
-    )
-
 
 class InventoryItem(Base):
     __tablename__ = "inventory_items"
@@ -215,16 +210,6 @@ class ShopTransactionLog(Base):
 
     user = relationship(
         "User",
-        back_populates="shop_transaction_logs"
-    )
-
-    character = relationship(
-        "Character",
-        back_populates="shop_transaction_logs"
-    )
-
-    inventory = relationship(
-        "Inventory",
         back_populates="shop_transaction_logs"
     )
 

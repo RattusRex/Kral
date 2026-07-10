@@ -142,11 +142,6 @@ class Character(Base):
         cascade="all, delete-orphan"
     )
 
-    shop_transaction_logs = relationship(
-        "ShopTransactionLog",
-        back_populates="character"
-    )
-
     attacks = relationship(
         "CharacterAttack",
         back_populates="character",
