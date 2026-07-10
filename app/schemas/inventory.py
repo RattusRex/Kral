@@ -3,6 +3,8 @@ from typing import Any, List
 from pydantic import ConfigDict
 from datetime import datetime
 
+from app.core.text_limits import MAX_INVENTORY_NOTES_LENGTH
+
 
 class InventoryItemResponse(BaseModel):
     id: int
@@ -40,7 +42,7 @@ class CurrencyUpdateRequest(BaseModel):
     copper: int = 0
 
 class InventoryNotesUpdateRequest(BaseModel):
-    notes: str = ""
+    notes: str = Field(default="", max_length=MAX_INVENTORY_NOTES_LENGTH)
 
 class CurrencyTransferRequest(CurrencyUpdateRequest):
     recipient_character_id: int

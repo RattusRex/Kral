@@ -1,10 +1,12 @@
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
+
+from app.core.text_limits import MAX_CHAT_MESSAGE_LENGTH
 
 
 class ChatMessageCreate(BaseModel):
-    content: str
+    content: str = Field(max_length=MAX_CHAT_MESSAGE_LENGTH)
 
 
 class DiceRollRequest(BaseModel):
