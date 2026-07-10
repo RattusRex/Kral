@@ -134,6 +134,7 @@ class ShopTransactionLogResponse(BaseModel):
     item_price: int
     hireling_cost: int
     total_amount: int
+    total_copper: int | None = None
 
     model_config = ConfigDict(from_attributes=True)
 

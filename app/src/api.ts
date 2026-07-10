@@ -77,6 +77,9 @@ export interface DowntimeEntry {
   reason: string;
   source: string;
   agent_type: string;
+  tools?: string | null;
+  proficiency_modifier?: number | null;
+  income_copper?: number | null;
 }
 
 export interface CalendarSummary {
@@ -240,12 +243,13 @@ export interface ShopTransactionLog {
   username: string;
   character_id: number;
   character_name: string;
-  mode: "buy" | "sell";
+  mode: "buy" | "sell" | "work";
   item_name: string;
   rarity: string;
   item_price: number;
   hireling_cost: number;
   total_amount: number;
+  total_copper?: number | null;
 }
 
 export interface TransferLog {

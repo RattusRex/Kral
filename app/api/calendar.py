@@ -25,11 +25,14 @@ from app.models.character import (
     Character,
     DowntimeEntry,
 )
+from app.models.inventory import Inventory, ShopTransactionLog
 from app.models.user import User
 from app.schemas.character import (
     CalendarSummaryResponse,
     DowntimeEntryCreate,
     DowntimeEntryUpdate,
+    WorkEntryCreate,
+    WorkEntryResponse,
 )
 
 router = APIRouter()
@@ -386,6 +389,87 @@ def create_manual_downtime_entry(
     )
 
 
+@router.post(
+    "/characters/{character_id}/calendar/work",
+    response_model=WorkEntryResponse,
+)
+def create_work_entry(
+    character_id: int,
+    work: WorkEntryCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Reserve a work span, credit its income, and record one finance log."""
+    character = get_character_for_current_user(character_id, current_user, db)
+    validate_downtime_window(
+        character.game_created_at,
+        work.start_date,
+        work.days,
+        CALENDAR_AGENT_START_LABELS[AGENT_CHARACTER],
+    )
+    validate_no_downtime_overlap(
+        downtime_for_agent(character, AGENT_CHARACTER),
+        work.start_date,
+        work.days,
+    )
+    income_copper = game_calendar.work_income_copper(
+        work.proficiency_modifier,
+        work.days,
+    )
+    entry = DowntimeEntry(
+        character_id=character.id,
+        start_date=work.start_date,
+        days=work.days,
+        reason=f"Работа: {work.tools}",
+        source="work",
+        agent_type=AGENT_CHARACTER,
+        tools=work.tools,
+        proficiency_modifier=work.proficiency_modifier,
+        income_copper=income_copper,
+    )
+    db.add(entry)
+    inventory = character.inventory
+    if inventory is None:
+        inventory = Inventory(character_id=character.id)
+        db.add(inventory)
+        db.flush()
+    total_copper = (
+        inventory.gold * 100 + inventory.silver * 10 + inventory.copper
+        + income_copper
+    )
+    inventory.gold = total_copper // 100
+    total_copper %= 100
+    inventory.silver = total_copper // 10
+    inventory.copper = total_copper % 10
+    db.add(ShopTransactionLog(
+        user_id=character.owner.id,
+        username=character.owner.username,
+        character_id=character.id,
+        character_name=character.name,
+        inventory_id=inventory.id,
+        mode="work",
+        item_name=work.tools,
+        rarity=f"Модификатор {work.proficiency_modifier:+d} · {work.days} дн.",
+        item_price=income_copper // 100,
+        hireling_cost=0,
+        total_amount=income_copper // 100,
+        total_copper=income_copper,
+    ))
+    db.commit()
+    db.refresh(entry)
+    db.refresh(inventory)
+    return {
+        "entry": entry,
+        "income_copper": income_copper,
+        "income": {
+            "gold": income_copper // 100,
+            "silver": income_copper % 100 // 10,
+            "copper": income_copper % 10,
+        },
+        "inventory": inventory,
+    }
+
+
 @router.get(
     "/characters/{character_id}/calendar",
     response_model=CalendarSummaryResponse
@@ -494,6 +578,11 @@ def update_downtime_entry(
             status_code=404,
             detail="Запись календаря не найдена"
         )
+    if entry.source == "work":
+        raise HTTPException(
+            status_code=409,
+            detail="Запись работы нельзя изменить после начисления заработка.",
+        )
 
     before = describe_entry(entry)
     new_start = entry_data.start_date if entry_data.start_date is not None else entry.start_date
@@ -553,7 +642,6 @@ def update_agent_downtime_entry(
             status_code=404,
             detail="Запись календаря не найдена"
         )
-
     before = describe_entry(entry)
     new_start = entry_data.start_date if entry_data.start_date is not None else entry.start_date
     new_days = entry_data.days if entry_data.days is not None else entry.days
@@ -613,6 +701,11 @@ def delete_downtime_entry(
         raise HTTPException(
             status_code=404,
             detail="Запись календаря не найдена"
+        )
+    if entry.source == "work":
+        raise HTTPException(
+            status_code=409,
+            detail="Запись работы нельзя удалить после начисления заработка.",
         )
 
     record_calendar_audit(

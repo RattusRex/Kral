@@ -142,6 +142,10 @@ def ensure_schema_columns() -> None:
         "agent_type",
         "VARCHAR(32) NOT NULL DEFAULT 'character'"
     )
+    ensure_column("downtime_entries", "tools", "VARCHAR(255)")
+    ensure_column("downtime_entries", "proficiency_modifier", "INTEGER")
+    ensure_column("downtime_entries", "income_copper", "INTEGER")
+    ensure_column("shop_transaction_logs", "total_copper", "INTEGER")
     ensure_column(
         "shop_quotes",
         "searcher_type",

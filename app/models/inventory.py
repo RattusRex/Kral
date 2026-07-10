@@ -207,6 +207,7 @@ class ShopTransactionLog(Base):
     item_price: Mapped[int]
     hireling_cost: Mapped[int]
     total_amount: Mapped[int]
+    total_copper: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     user = relationship(
         "User",

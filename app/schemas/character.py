@@ -1,7 +1,9 @@
 from datetime import date, datetime
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from typing import Optional
+
+from app.schemas.inventory import InventoryResponse
 
 MIN_CHARACTER_LEVEL = 1
 MAX_CHARACTER_LEVEL = 20
@@ -167,6 +169,21 @@ class DowntimeEntryCreate(BaseModel):
     reason: str = ""
 
 
+class WorkEntryCreate(BaseModel):
+    start_date: date
+    days: int = Field(ge=1)
+    tools: str = Field(min_length=1, max_length=255)
+    proficiency_modifier: int = Field(ge=-20, le=100)
+
+    @field_validator("tools")
+    @classmethod
+    def validate_tools(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("Tools are required")
+        return normalized
+
+
 class DowntimeEntryUpdate(BaseModel):
     start_date: Optional[date] = None
     days: Optional[int] = None
@@ -181,8 +198,24 @@ class DowntimeEntryResponse(BaseModel):
     reason: str
     source: str
     agent_type: str
+    tools: Optional[str] = None
+    proficiency_modifier: Optional[int] = None
+    income_copper: Optional[int] = None
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class WorkIncomeResponse(BaseModel):
+    gold: int
+    silver: int
+    copper: int
+
+
+class WorkEntryResponse(BaseModel):
+    entry: DowntimeEntryResponse
+    income_copper: int
+    income: WorkIncomeResponse
+    inventory: InventoryResponse
 
 
 class CalendarSummaryResponse(BaseModel):
