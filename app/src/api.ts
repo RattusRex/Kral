@@ -163,6 +163,14 @@ export interface SavingThrowRoll {
   total: number;
 }
 
+export interface SkillRoll {
+  skill: string;
+  ability: string;
+  modifier: number;
+  roll: number;
+  total: number;
+}
+
 export interface ChatMessage {
   id: number;
   created_at: string;
