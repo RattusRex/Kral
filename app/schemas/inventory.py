@@ -33,6 +33,10 @@ class AddItemRequest(BaseModel):
     is_consumable: bool = False
 
 
+class AdminAddItemRequest(AddItemRequest):
+    reason: str = Field(min_length=1, max_length=1000, pattern=r".*\S.*")
+
+
 class GoldUpdateRequest(BaseModel):
     amount: int
 
@@ -40,6 +44,9 @@ class CurrencyUpdateRequest(BaseModel):
     gold: int = 0
     silver: int = 0
     copper: int = 0
+
+class AdminCurrencyUpdateRequest(CurrencyUpdateRequest):
+    reason: str = Field(min_length=1, max_length=1000, pattern=r".*\S.*")
 
 class InventoryNotesUpdateRequest(BaseModel):
     notes: str = Field(default="", max_length=MAX_INVENTORY_NOTES_LENGTH)
@@ -147,5 +154,21 @@ class TransferLogResponse(BaseModel):
     item_name: str | None
     item_rarity: str | None
     item_is_consumable: bool | None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class AdminGrantLogResponse(BaseModel):
+    id: int
+    created_at: datetime
+    admin_id: int
+    admin_username: str
+    user_id: int
+    username: str
+    character_id: int | None
+    character_name: str | None
+    operation_type: str
+    value: str
+    reason: str
 
     model_config = ConfigDict(from_attributes=True)

@@ -2,7 +2,7 @@ import { Component, FormEvent, useEffect, useLayoutEffect, useMemo, useRef, useS
 import { createRoot } from "react-dom/client";
 import { Link, Navigate, Route, BrowserRouter as Router, Routes, useNavigate, useParams } from "react-router-dom";
 import { CalendarDays, Check, Dice5, LogOut, MessageSquare, Pencil, Plus, RefreshCw, Save, ScrollText, Search, Send, Shield, ShoppingBag, Swords, Trash2, Trophy, UserRound, UsersRound, X } from "lucide-react";
-import { AbilityRoll, AdminUser, api, AttackRoll, CalendarSummary, Character, CharacterAttack, ChatMessage, DamageRoll, Inventory, InventoryItem, LeaderboardEntry, MagicItem, ROLE_LABELS, SavingThrowRoll, ShopResult, ShopTransactionLog, TOKEN_KEY, TransferLog, TransferTarget, User, UserRole } from "./api";
+import { AbilityRoll, AdminGrantLog, AdminUser, api, AttackRoll, CalendarSummary, Character, CharacterAttack, ChatMessage, DamageRoll, Inventory, InventoryItem, LeaderboardEntry, MagicItem, ROLE_LABELS, SavingThrowRoll, ShopResult, ShopTransactionLog, TOKEN_KEY, TransferLog, TransferTarget, User, UserRole } from "./api";
 import "./styles.css";
 
 const rarities = ["Обычный", "Необычный", "Редкий"];
@@ -1541,6 +1541,7 @@ function AdminPage() {
   const [karmaUserId, setKarmaUserId] = useState("");
   const [karmaAmount, setKarmaAmount] = useState(1);
   const [item, setItem] = useState({ name: "", rarity: "Обычный", is_consumable: false });
+  const [reason, setReason] = useState("");
   const [roleError, setRoleError] = useState("");
 
   const selectedCharacter = useMemo(() => characters.find((character) => String(character.id) === selected), [characters, selected]);
@@ -1561,12 +1562,13 @@ function AdminPage() {
   useEffect(load, []);
 
   async function action(path: string, body?: unknown) {
-    await api.post(`/admin/characters/${selected}/${path}`, body ?? {});
+    const payload = body && typeof body === "object" ? body : {};
+    await api.post(`/admin/characters/${selected}/${path}`, { ...payload, reason });
     load();
   }
 
   async function applyKarma() {
-    await api.post(`/admin/users/${karmaUserId}/karma`, { amount: karmaAmount });
+    await api.post(`/admin/users/${karmaUserId}/karma`, { amount: karmaAmount, reason });
     load();
   }
 
@@ -1605,6 +1607,7 @@ function AdminPage() {
             <h1 className="text-xl font-bold text-ember">Админка мастера</h1>
             <Link className="btn-secondary" to="/admin/shop-logs"><ScrollText size={16} />Магазин</Link>
             <Link className="btn-secondary" to="/admin/transfer-logs"><ScrollText size={16} />Передачи</Link>
+            <Link className="btn-secondary" to="/admin/grant-logs"><ScrollText size={16} />Журнал выдач</Link>
           </div>
           <label className="field-label">
             <span>Персонаж</span>
@@ -1616,8 +1619,9 @@ function AdminPage() {
             <span>Изменение</span>
             <input className="field" type="number" value={amount} onChange={(event) => setAmount(Number(event.target.value))} />
           </label>
-          <button className="btn" onClick={() => action("xp", { amount })}>Применить XP</button>
-          <button className="btn" onClick={() => action("gold", { amount })}>Применить золото</button>
+          <label className="field-label"><span>Причина выдачи</span><textarea className="field" required value={reason} onChange={(event) => setReason(event.target.value)} /></label>
+          <button className="btn" disabled={!reason.trim()} onClick={() => action("xp", { amount })}>Применить XP</button>
+          <button className="btn" disabled={!reason.trim()} onClick={() => action("gold", { amount })}>Применить золото</button>
           <button className="btn-secondary" onClick={() => action("revive")}>Воскресить персонажа</button>
           <div className="mt-2 border-t border-white/10 pt-3">
             <h2 className="text-lg font-semibold text-ember">{selectedCharacter?.name ?? "Персонаж"}</h2>
@@ -1625,7 +1629,7 @@ function AdminPage() {
               <input className="field" placeholder="название" value={item.name} onChange={(event) => setItem({ ...item, name: event.target.value })} />
               <select className="field" value={item.rarity} onChange={(event) => setItem({ ...item, rarity: event.target.value })}>{rarities.map((rarity) => <option key={rarity}>{rarity}</option>)}</select>
               <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={item.is_consumable} onChange={(event) => setItem({ ...item, is_consumable: event.target.checked })} />Расходуемый</label>
-              <button className="btn" onClick={() => action("item", item)}>Выдать предмет</button>
+              <button className="btn" disabled={!reason.trim()} onClick={() => action("item", item)}>Выдать предмет</button>
             </div>
           </div>
         </section>
@@ -1642,7 +1646,8 @@ function AdminPage() {
             <input className="field" type="number" value={karmaAmount} onChange={(event) => setKarmaAmount(Number(event.target.value))} />
           </label>
           <p className="text-sm text-white/65">{selectedUser?.username ?? "Игрок"}: {selectedUser?.karma ?? 0}</p>
-          <button className="btn" onClick={applyKarma}>Применить</button>
+          <label className="field-label"><span>Причина выдачи</span><textarea className="field" required value={reason} onChange={(event) => setReason(event.target.value)} /></label>
+          <button className="btn" disabled={!reason.trim()} onClick={applyKarma}>Применить</button>
         </section>
         {canManageRoles && (
           <section className="panel flex flex-col gap-3 p-5">
@@ -1915,6 +1920,62 @@ function AdminCharacterPage() {
       </section>
       <ReadOnlyInventoryPanel inventory={inventory} />
     </div>
+  );
+}
+
+const grantTypeLabels: Record<AdminGrantLog["operation_type"], string> = {
+  karma: "Карма",
+  xp: "Опыт",
+  gold: "Золото",
+  item: "Предмет"
+};
+
+function GrantLogsPage() {
+  const [logs, setLogs] = useState<AdminGrantLog[]>([]);
+  const [characters, setCharacters] = useState<Character[]>([]);
+  const [users, setUsers] = useState<AdminUser[]>([]);
+  const [filters, setFilters] = useState({ character_id: "", user_id: "", operation_type: "", date: "" });
+  const [error, setError] = useState("");
+
+  function loadLogs(nextFilters = filters) {
+    const params = Object.fromEntries(Object.entries(nextFilters).filter(([, value]) => value));
+    setError("");
+    api.get<AdminGrantLog[]>("/admin/grant-logs", { params })
+      .then((response) => setLogs(response.data))
+      .catch((loadError) => setError(apiErrorDetail(loadError, "Не удалось загрузить журнал выдач")));
+  }
+
+  useEffect(() => {
+    Promise.all([api.get<Character[]>("/admin/characters"), api.get<AdminUser[]>("/admin/users")])
+      .then(([characterResponse, userResponse]) => {
+        setCharacters(characterResponse.data);
+        setUsers(userResponse.data);
+      });
+    loadLogs();
+  }, []);
+
+  return (
+    <section className="panel p-5">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div><h1 className="text-2xl font-bold text-ember">Журнал выдач</h1><p className="text-sm text-white/55">История выдачи игровых ресурсов администраторами</p></div>
+        <Link className="btn-secondary" to="/admin">Назад</Link>
+      </div>
+      <div className="mt-5 grid gap-3 md:grid-cols-4">
+        <select className="field" value={filters.user_id} onChange={(event) => setFilters({ ...filters, user_id: event.target.value })}><option value="">Все игроки</option>{users.map((row) => <option key={row.id} value={row.id}>{row.username}</option>)}</select>
+        <select className="field" value={filters.character_id} onChange={(event) => setFilters({ ...filters, character_id: event.target.value })}><option value="">Все персонажи</option>{characters.map((row) => <option key={row.id} value={row.id}>{row.name}</option>)}</select>
+        <select className="field" value={filters.operation_type} onChange={(event) => setFilters({ ...filters, operation_type: event.target.value })}><option value="">Все типы</option>{Object.entries(grantTypeLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select>
+        <input className="field" type="date" value={filters.date} onChange={(event) => setFilters({ ...filters, date: event.target.value })} />
+      </div>
+      <button className="btn mt-3" onClick={() => loadLogs()}>Применить фильтры</button>
+      {error && <p className="mt-3 text-sm text-red-300">{error}</p>}
+      <div className="mt-5 overflow-x-auto">
+        <table className="w-full min-w-[1040px] text-left text-sm">
+          <thead className="text-xs uppercase text-white/45"><tr><th className="py-2 pr-3">Дата и время</th><th className="py-2 pr-3">Администратор</th><th className="py-2 pr-3">Игрок</th><th className="py-2 pr-3">Персонаж</th><th className="py-2 pr-3">Тип</th><th className="py-2 pr-3">Значение</th><th className="py-2 pr-3">Причина</th></tr></thead>
+          <tbody>{logs.map((log) => <tr className="border-t border-white/10" key={log.id}><td className="py-3 pr-3">{new Date(log.created_at).toLocaleString("ru-RU")}</td><td className="py-3 pr-3">{log.admin_username}</td><td className="py-3 pr-3">{log.username}</td><td className="py-3 pr-3">{log.character_name ?? "-"}</td><td className="py-3 pr-3">{grantTypeLabels[log.operation_type]}</td><td className="py-3 pr-3">{log.value}</td><td className="py-3 pr-3 whitespace-pre-wrap">{log.reason}</td></tr>)}</tbody>
+        </table>
+        {!logs.length && <p className="py-6 text-center text-white/55">Записей нет</p>}
+      </div>
+    </section>
   );
 }
 
@@ -2222,6 +2283,7 @@ function App() {
         <Route path="/profile" element={<Protected><ProfilePage /></Protected>} />
         <Route path="/admin/shop-logs" element={<Protected><ShopLogsPage /></Protected>} />
         <Route path="/admin/transfer-logs" element={<Protected><TransferLogsPage /></Protected>} />
+        <Route path="/admin/grant-logs" element={<Protected><GrantLogsPage /></Protected>} />
         <Route path="/admin/characters/:id" element={<Protected><AdminCharacterPage /></Protected>} />
         <Route path="/admin" element={<Protected><AdminPage /></Protected>} />
         <Route path="*" element={<Navigate to="/" replace />} />

@@ -295,3 +295,19 @@ class TransferLog(Base):
         Boolean,
         nullable=True
     )
+
+
+class AdminGrantLog(Base):
+    __tablename__ = "admin_grant_logs"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+    admin_id: Mapped[int] = mapped_column(Integer)
+    admin_username: Mapped[str] = mapped_column(String(50))
+    user_id: Mapped[int] = mapped_column(Integer)
+    username: Mapped[str] = mapped_column(String(50))
+    character_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    character_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    operation_type: Mapped[str] = mapped_column(String(20))
+    value: Mapped[str] = mapped_column(String(500))
+    reason: Mapped[str] = mapped_column(Text)

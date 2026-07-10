@@ -285,7 +285,7 @@ def test_admin_character_xp_rolls_over_remaining_xp():
         response = client.post(
             f"/api/admin/characters/{character_id}/xp",
             headers=headers,
-            json={"amount": 6}
+            json={"amount": 6, "reason": "Тест"}
         )
         assert response.status_code == 200, response.text
         assert response.json()["level"] == 4
@@ -386,13 +386,13 @@ def test_players_cannot_directly_grant_inventory_currency_or_items():
         direct_currency = client.post(
             f"/api/characters/{character_id}/inventory/currency/add",
             headers=player_headers,
-            json={"gold": 50, "silver": 5, "copper": 4}
+            json={"gold": 50, "silver": 5, "copper": 4, "reason": "Тест"}
         )
         assert direct_currency.status_code == 403
         direct_gold = client.post(
             f"/api/characters/{character_id}/inventory/gold/add",
             headers=player_headers,
-            json={"amount": 50}
+            json={"amount": 50, "reason": "Тест"}
         )
         assert direct_gold.status_code == 403
         direct_item = client.post(
@@ -415,13 +415,13 @@ def test_players_cannot_directly_grant_inventory_currency_or_items():
         granted_currency = client.post(
             f"/api/admin/characters/{character_id}/currency/add",
             headers=admin_headers,
-            json={"gold": 5, "silver": 2, "copper": 1}
+            json={"gold": 5, "silver": 2, "copper": 1, "reason": "Тест"}
         )
         assert granted_currency.status_code == 200, granted_currency.text
         granted_item = client.post(
             f"/api/admin/characters/{character_id}/item",
             headers=admin_headers,
-            json={"name": "Reviewed Wand", "rarity": "Обычный", "is_consumable": False}
+            json={"name": "Reviewed Wand", "rarity": "Обычный", "is_consumable": False, "reason": "Тест"}
         )
         assert granted_item.status_code == 200, granted_item.text
         assert granted_item.json()["gold"] == 5
@@ -445,7 +445,7 @@ def test_shop_search_charges_hireling_in_gold_before_buy_confirmation():
         client.post(
             f"/api/admin/characters/{character_id}/currency/add",
             headers=headers,
-            json={"gold": 10000, "silver": 0, "copper": 0}
+            json={"gold": 10000, "silver": 0, "copper": 0, "reason": "Тест"}
         )
 
         response = client.post(f"/api/characters/{character_id}/shop/search", headers=headers, json={
@@ -494,12 +494,12 @@ def test_shop_sell_search_waits_for_confirmation_and_adds_gold():
         client.post(
             f"/api/admin/characters/{character_id}/currency/add",
             headers=headers,
-            json={"gold": 1000, "silver": 0, "copper": 0}
+            json={"gold": 1000, "silver": 0, "copper": 0, "reason": "Тест"}
         )
         granted = client.post(
             f"/api/admin/characters/{character_id}/item",
             headers=headers,
-            json={"name": "Old Wand", "rarity": "Обычный", "is_consumable": False}
+            json={"name": "Old Wand", "rarity": "Обычный", "is_consumable": False, "reason": "Тест"}
         )
         item_id = granted.json()["items"][0]["id"]
 
@@ -574,7 +574,7 @@ def test_shop_search_uses_selected_magic_item_without_manual_name_or_rarity():
         client.post(
             f"/api/admin/characters/{character_id}/currency/add",
             headers=headers,
-            json={"gold": 10000, "silver": 0, "copper": 0}
+            json={"gold": 10000, "silver": 0, "copper": 0, "reason": "Тест"}
         )
         catalog = client.get(
             "/api/shop/magic-items",
@@ -649,14 +649,14 @@ def test_admin_can_change_karma_and_view_all_characters_with_owner():
         added = client.post(
             f"/api/admin/users/{user_id}/karma/add",
             headers=admin_headers,
-            json={"amount": 3}
+            json={"amount": 3, "reason": "Тест"}
         )
         assert added.status_code == 200, added.text
         assert added.json()["karma"] == 3
         subtracted = client.post(
             f"/api/admin/users/{user_id}/karma/subtract",
             headers=admin_headers,
-            json={"amount": 1}
+            json={"amount": 1, "reason": "Тест"}
         )
         assert subtracted.status_code == 200, subtracted.text
         assert subtracted.json()["karma"] == 2
@@ -673,6 +673,87 @@ def test_admin_can_change_karma_and_view_all_characters_with_owner():
         assert isinstance(nessa["free_days"], int)
         assert "personal_hireling_free_days" in nessa
         assert "simulacrum_free_days" in nessa
+
+
+def test_admin_resource_grants_require_reasons_and_create_filterable_logs():
+    with TestClient(app) as client:
+        admin_token = login(client, "admin", "admin123")
+        admin_headers = {"Authorization": f"Bearer {admin_token}"}
+        admin = client.get("/api/me", headers=admin_headers).json()
+        created_user = client.post("/api/users", json={
+            "username": "grant-target",
+            "email": "grant-target@example.com",
+            "password": "secret123"
+        })
+        assert created_user.status_code == 200, created_user.text
+        user_id = created_user.json()["id"]
+        player_token = login(client, "grant-target", "secret123")
+        player_headers = {"Authorization": f"Bearer {player_token}"}
+        created_character = client.post("/api/characters", headers=player_headers, json={
+            "name": "Logan",
+            "class_name": "Wizard",
+            "level": 1,
+            "route": "Arcane"
+        })
+        assert created_character.status_code == 200, created_character.text
+        character_id = created_character.json()["id"]
+
+        missing_reason = client.post(
+            f"/api/admin/characters/{character_id}/xp",
+            headers=admin_headers,
+            json={"amount": 4}
+        )
+        assert missing_reason.status_code == 422
+        blank_reason = client.post(
+            f"/api/admin/characters/{character_id}/xp",
+            headers=admin_headers,
+            json={"amount": 4, "reason": "   "}
+        )
+        assert blank_reason.status_code == 422
+
+        grants = [
+            (f"/api/admin/users/{user_id}/karma", {"amount": 2, "reason": "За игру"}),
+            (f"/api/admin/characters/{character_id}/xp", {"amount": 4, "reason": "Награда за ивент"}),
+            (f"/api/admin/characters/{character_id}/gold", {"amount": 7, "reason": "Компенсация"}),
+            (f"/api/admin/characters/{character_id}/item", {
+                "name": "Жезл",
+                "rarity": "Необычный",
+                "is_consumable": False,
+                "reason": "Решение мастера"
+            }),
+        ]
+        for path, payload in grants:
+            response = client.post(path, headers=admin_headers, json=payload)
+            assert response.status_code == 200, response.text
+
+        logs = client.get("/api/admin/grant-logs", headers=admin_headers)
+        assert logs.status_code == 200, logs.text
+        payload = logs.json()
+        assert [row["operation_type"] for row in payload] == [
+            "item", "gold", "xp", "karma"
+        ]
+        assert all(row["admin_id"] == admin["id"] for row in payload)
+        assert all(row["admin_username"] == "admin" for row in payload)
+        assert all(row["user_id"] == user_id for row in payload)
+        assert all(row["username"] == "grant-target" for row in payload)
+        assert payload[0]["character_id"] == character_id
+        assert payload[0]["character_name"] == "Logan"
+        assert payload[0]["value"] == "Жезл · Необычный · постоянный"
+        assert payload[0]["reason"] == "Решение мастера"
+        assert payload[-1]["character_id"] is None
+        assert payload[-1]["value"] == "+2"
+
+        filtered = client.get(
+            "/api/admin/grant-logs",
+            headers=admin_headers,
+            params={"operation_type": "xp", "user_id": user_id}
+        )
+        assert filtered.status_code == 200, filtered.text
+        assert len(filtered.json()) == 1
+        assert filtered.json()[0]["reason"] == "Награда за ивент"
+
+        player_logs = client.get("/api/admin/grant-logs", headers=player_headers)
+        assert player_logs.status_code == 403
 
 
 def test_openapi_uses_russian_investigation_title():
@@ -702,7 +783,7 @@ def test_players_cannot_change_own_karma_through_me_endpoints():
         player_headers = {"Authorization": f"Bearer {player_token}"}
 
         for path in ("/api/me/karma/add", "/api/me/karma/subtract"):
-            blocked = client.post(path, headers=player_headers, json={"amount": 77})
+            blocked = client.post(path, headers=player_headers, json={"amount": 77, "reason": "Тест"})
             assert blocked.status_code == 404
 
         me = client.get("/api/me", headers=player_headers)
@@ -712,7 +793,7 @@ def test_players_cannot_change_own_karma_through_me_endpoints():
         added = client.post(
             f"/api/admin/users/{user_id}/karma/add",
             headers=admin_headers,
-            json={"amount": 3}
+            json={"amount": 3, "reason": "Тест"}
         )
         assert added.status_code == 200, added.text
         assert added.json()["karma"] == 3
@@ -734,20 +815,20 @@ def test_admin_signed_adjustments_clamp_resources_to_zero():
         added_xp = client.post(
             f"/api/admin/characters/{character_id}/xp",
             headers=headers,
-            json={"amount": 10}
+            json={"amount": 10, "reason": "Тест"}
         )
         assert added_xp.status_code == 200, added_xp.text
         reduced_xp = client.post(
             f"/api/admin/characters/{character_id}/xp",
             headers=headers,
-            json={"amount": -5}
+            json={"amount": -5, "reason": "Тест"}
         )
         assert reduced_xp.status_code == 200, reduced_xp.text
         assert reduced_xp.json()["xp"] == 5
         clamped_xp = client.post(
             f"/api/admin/characters/{character_id}/xp",
             headers=headers,
-            json={"amount": -99}
+            json={"amount": -99, "reason": "Тест"}
         )
         assert clamped_xp.status_code == 200, clamped_xp.text
         assert clamped_xp.json()["xp"] == 0
@@ -755,20 +836,20 @@ def test_admin_signed_adjustments_clamp_resources_to_zero():
         added_gold = client.post(
             f"/api/admin/characters/{character_id}/gold",
             headers=headers,
-            json={"amount": 100}
+            json={"amount": 100, "reason": "Тест"}
         )
         assert added_gold.status_code == 200, added_gold.text
         reduced_gold = client.post(
             f"/api/admin/characters/{character_id}/gold",
             headers=headers,
-            json={"amount": -25}
+            json={"amount": -25, "reason": "Тест"}
         )
         assert reduced_gold.status_code == 200, reduced_gold.text
         assert reduced_gold.json()["gold"] == 75
         clamped_gold = client.post(
             f"/api/admin/characters/{character_id}/gold",
             headers=headers,
-            json={"amount": -999}
+            json={"amount": -999, "reason": "Тест"}
         )
         assert clamped_gold.status_code == 200, clamped_gold.text
         assert clamped_gold.json()["gold"] == 0
@@ -783,20 +864,20 @@ def test_admin_signed_adjustments_clamp_resources_to_zero():
         added_karma = client.post(
             f"/api/admin/users/{user_id}/karma",
             headers=headers,
-            json={"amount": 20}
+            json={"amount": 20, "reason": "Тест"}
         )
         assert added_karma.status_code == 200, added_karma.text
         reduced_karma = client.post(
             f"/api/admin/users/{user_id}/karma",
             headers=headers,
-            json={"amount": -7}
+            json={"amount": -7, "reason": "Тест"}
         )
         assert reduced_karma.status_code == 200, reduced_karma.text
         assert reduced_karma.json()["karma"] == 13
         clamped_karma = client.post(
             f"/api/admin/users/{user_id}/karma",
             headers=headers,
-            json={"amount": -99}
+            json={"amount": -99, "reason": "Тест"}
         )
         assert clamped_karma.status_code == 200, clamped_karma.text
         assert clamped_karma.json()["karma"] == 0
@@ -913,7 +994,7 @@ def test_shop_buy_and_sell_confirmations_create_filterable_persistent_logs():
         currency = client.post(
             f"/api/admin/characters/{character_id}/currency/add",
             headers=headers,
-            json={"gold": 10000, "silver": 0, "copper": 0}
+            json={"gold": 10000, "silver": 0, "copper": 0, "reason": "Тест"}
         )
         assert currency.status_code == 200, currency.text
 
@@ -937,7 +1018,7 @@ def test_shop_buy_and_sell_confirmations_create_filterable_persistent_logs():
         granted = client.post(
             f"/api/admin/characters/{character_id}/item",
             headers=headers,
-            json={"name": "Audit Wand", "rarity": "Обычный", "is_consumable": False}
+            json={"name": "Audit Wand", "rarity": "Обычный", "is_consumable": False, "reason": "Тест"}
         )
         assert granted.status_code == 200, granted.text
         sell_item_id = next(
@@ -1007,12 +1088,12 @@ def test_admin_delete_character_requires_confirmation_and_cascades_inventory():
         client.post(
             f"/api/admin/characters/{character_id}/currency/add",
             headers=headers,
-            json={"gold": 5, "silver": 4, "copper": 3}
+            json={"gold": 5, "silver": 4, "copper": 3, "reason": "Тест"}
         )
         client.post(
             f"/api/admin/characters/{character_id}/item",
             headers=headers,
-            json={"name": "Marked Sword", "rarity": "Обычный", "is_consumable": False}
+            json={"name": "Marked Sword", "rarity": "Обычный", "is_consumable": False, "reason": "Тест"}
         )
 
         blocked = client.delete(
@@ -1080,13 +1161,13 @@ def test_cross_player_currency_and_item_transfers_create_persistent_logs():
         currency = client.post(
             f"/api/admin/characters/{sender_id}/currency/add",
             headers=admin_headers,
-            json={"gold": 2, "silver": 5, "copper": 4}
+            json={"gold": 2, "silver": 5, "copper": 4, "reason": "Тест"}
         )
         assert currency.status_code == 200, currency.text
         granted = client.post(
             f"/api/admin/characters/{sender_id}/item",
             headers=admin_headers,
-            json={"name": "Courier Ring", "rarity": "Обычный", "is_consumable": False}
+            json={"name": "Courier Ring", "rarity": "Обычный", "is_consumable": False, "reason": "Тест"}
         )
         assert granted.status_code == 200, granted.text
         item_id = granted.json()["items"][0]["id"]
@@ -1265,7 +1346,7 @@ def test_leaderboard_orders_users_by_karma_with_rank():
             adjusted = client.post(
                 f"/api/admin/users/{created.json()['id']}/karma",
                 headers=admin_headers,
-                json={"amount": karma}
+                json={"amount": karma, "reason": "Тест"}
             )
             assert adjusted.status_code == 200, adjusted.text
 
@@ -1775,7 +1856,7 @@ def test_admin_role_cannot_manage_roles_only_owner_can():
         karma = client.post(
             f"/api/admin/users/{target_id}/karma/add",
             headers=admin_headers,
-            json={"amount": 2}
+            json={"amount": 2, "reason": "Тест"}
         )
         assert karma.status_code == 200, karma.text
 
@@ -2222,7 +2303,7 @@ def test_shop_search_spends_oldest_free_days_first():
         client.post(
             f"/api/admin/characters/{cid}/currency/add",
             headers=headers,
-            json={"gold": 10000, "silver": 0, "copper": 0},
+            json={"gold": 10000, "silver": 0, "copper": 0, "reason": "Тест"},
         )
 
         search = client.post(
@@ -2260,7 +2341,7 @@ def test_shop_search_blocked_when_not_enough_free_days():
         client.post(
             f"/api/admin/characters/{cid}/currency/add",
             headers=headers,
-            json={"gold": 10000, "silver": 0, "copper": 0},
+            json={"gold": 10000, "silver": 0, "copper": 0, "reason": "Тест"},
         )
         # Occupy the single available free day so none remain.
         client.post(
@@ -2302,7 +2383,7 @@ def test_paid_hireling_search_spends_gold_but_not_character_free_days():
         client.post(
             f"/api/admin/characters/{cid}/currency/add",
             headers=headers,
-            json={"gold": 10000, "silver": 0, "copper": 0},
+            json={"gold": 10000, "silver": 0, "copper": 0, "reason": "Тест"},
         )
         occupied = client.post(
             f"/api/characters/{cid}/calendar/downtime",
@@ -2357,7 +2438,7 @@ def test_personal_hireling_search_uses_own_day_pool(monkeypatch):
         client.post(
             f"/api/admin/characters/{cid}/currency/add",
             headers=headers,
-            json={"gold": 10000, "silver": 0, "copper": 0},
+            json={"gold": 10000, "silver": 0, "copper": 0, "reason": "Тест"},
         )
         updated = client.patch(
             f"/api/admin/characters/{cid}",
@@ -2600,7 +2681,7 @@ def test_simulacrum_search_uses_own_day_pool(monkeypatch):
         client.post(
             f"/api/admin/characters/{cid}/currency/add",
             headers=headers,
-            json={"gold": 10000, "silver": 0, "copper": 0},
+            json={"gold": 10000, "silver": 0, "copper": 0, "reason": "Тест"},
         )
         updated = client.patch(
             f"/api/admin/characters/{cid}",
