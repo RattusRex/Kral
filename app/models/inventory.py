@@ -297,3 +297,18 @@ class AdminGrantLog(Base):
     operation_type: Mapped[str] = mapped_column(String(20))
     value: Mapped[str] = mapped_column(String(500))
     reason: Mapped[str] = mapped_column(Text)
+
+
+class KarmaPurchase(Base):
+    __tablename__ = "karma_purchases"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+    user_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    username: Mapped[str] = mapped_column(String(50))
+    character_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    character_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    character_level: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    purchase_type: Mapped[str] = mapped_column(String(32))
+    name: Mapped[str] = mapped_column(String(255))
+    cost: Mapped[int] = mapped_column(Integer)

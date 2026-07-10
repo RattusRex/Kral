@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from app.api.inventory import add_currency, get_character_inventory, validate_rarity
 from app.api.users import get_current_user, get_db
 from app.models.character import CalendarAuditLog, Character
-from app.models.inventory import AdminGrantLog, InventoryItem, ShopTransactionLog, TransferLog
+from app.models.inventory import AdminGrantLog, InventoryItem, KarmaPurchase, ShopTransactionLog, TransferLog
 from app.models.user import User
 from app.schemas.character import (
     MAX_CHARACTER_LEVEL,
@@ -23,6 +23,7 @@ from app.schemas.inventory import (
     TransferLogResponse,
 )
 from app.schemas.user import AdminResourceUpdate, RoleUpdate
+from app.schemas.karma_shop import KarmaPurchaseResponse
 from app.core import calendar as game_calendar
 from app.core.calendar import GAME_EPOCH
 from app.core.roles import Role, VALID_ROLES, normalize_role, can_manage_roles
@@ -56,6 +57,16 @@ def require_admin(current_user: User = Depends(get_current_user)) -> User:
             detail="Admin permissions required"
         )
     return current_user
+
+
+@router.get("/karma-shop-logs", response_model=list[KarmaPurchaseResponse])
+def list_karma_shop_logs(
+    db: Session = Depends(get_db),
+    _: User = Depends(require_admin),
+):
+    return db.query(KarmaPurchase).order_by(
+        KarmaPurchase.created_at.desc(), KarmaPurchase.id.desc()
+    ).all()
 
 
 def require_owner(current_user: User = Depends(get_current_user)) -> User:

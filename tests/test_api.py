@@ -469,6 +469,136 @@ def test_player_character_patch_rejects_progression_and_death_state_changes():
         assert revived.json()["hp"] == 8
 
 
+def test_karma_shop_purchases_are_atomic_persistent_and_audited():
+    with TestClient(app) as client:
+        admin_headers = {"Authorization": f"Bearer {login(client, 'admin', 'admin123')}"}
+        created_user = client.post("/api/users", json={
+            "username": "karma-shopper",
+            "email": "karma-shopper@example.com",
+            "password": "secret123",
+        })
+        assert created_user.status_code == 200, created_user.text
+        player_headers = {
+            "Authorization": f"Bearer {login(client, 'karma-shopper', 'secret123')}"
+        }
+        character = client.post("/api/characters", headers=player_headers, json={
+            "name": "Phoenix", "class_name": "Wizard", "level": 3,
+            "route": "Arcane",
+        })
+        assert character.status_code == 200, character.text
+        character_id = character.json()["id"]
+        granted = client.post(
+            f"/api/admin/users/{created_user.json()['id']}/karma",
+            headers=admin_headers,
+            json={"amount": 50, "reason": "Тест магазина"},
+        )
+        assert granted.status_code == 200, granted.text
+
+        xp_purchase = client.post("/api/karma-shop/xp", headers=player_headers, json={
+            "character_id": character_id, "amount": 4,
+        })
+        assert xp_purchase.status_code == 200, xp_purchase.text
+        assert xp_purchase.json()["remaining_karma"] == 30
+        assert xp_purchase.json()["character_xp"] == 0
+        assert xp_purchase.json()["character_level"] == 4
+
+        item_purchase = client.post("/api/karma-shop/purchases", headers=player_headers, json={
+            "purchase_type": "opener", "name": "Доступ в тайную библиотеку", "cost": 7,
+        })
+        assert item_purchase.status_code == 200, item_purchase.text
+        assert item_purchase.json()["remaining_karma"] == 23
+
+        purchases = client.get("/api/karma-shop/purchases", headers=player_headers)
+        assert purchases.status_code == 200, purchases.text
+        assert [(row["purchase_type"], row["name"]) for row in purchases.json()] == [
+            ("opener", "Доступ в тайную библиотеку")
+        ]
+
+        insufficient = client.post("/api/karma-shop/purchases", headers=player_headers, json={
+            "purchase_type": "item", "name": "Слишком дорогой товар", "cost": 24,
+        })
+        assert insufficient.status_code == 400, insufficient.text
+        assert client.get("/api/me", headers=player_headers).json()["karma"] == 23
+        assert len(client.get("/api/karma-shop/purchases", headers=player_headers).json()) == 1
+
+        logs = client.get("/api/admin/karma-shop-logs", headers=admin_headers)
+        assert logs.status_code == 200, logs.text
+        assert [row["purchase_type"] for row in logs.json()] == ["opener", "xp"]
+        assert logs.json()[1]["character_id"] == character_id
+        assert logs.json()[1]["cost"] == 20
+        assert client.get("/api/admin/karma-shop-logs", headers=player_headers).status_code == 403
+
+        deleted = client.delete(
+            f"/api/admin/characters/{character_id}", headers=admin_headers,
+            params={"confirmation": "УДАЛИТЬ"},
+        )
+        assert deleted.status_code == 200, deleted.text
+        preserved_logs = client.get("/api/admin/karma-shop-logs", headers=admin_headers)
+        assert len(preserved_logs.json()) == 2
+
+
+def test_karma_resurrection_enforces_ownership_death_level_and_balance():
+    with TestClient(app) as client:
+        admin_headers = {"Authorization": f"Bearer {login(client, 'admin', 'admin123')}"}
+
+        def create_player(username: str):
+            user = client.post("/api/users", json={
+                "username": username,
+                "email": f"{username}@example.com",
+                "password": "secret123",
+            }).json()
+            headers = {"Authorization": f"Bearer {login(client, username, 'secret123')}"}
+            return user, headers
+
+        user, headers = create_player("resurrection-owner")
+        _, other_headers = create_player("resurrection-other")
+        character = client.post("/api/characters", headers=headers, json={
+            "name": "Fallen", "class_name": "Cleric", "level": 6, "route": "Dawn",
+        }).json()
+        character_id = character["id"]
+        client.post(
+            f"/api/admin/users/{user['id']}/karma", headers=admin_headers,
+            json={"amount": 10, "reason": "Тест воскрешения"},
+        )
+
+        assert client.post(
+            "/api/karma-shop/resurrect", headers=other_headers,
+            json={"character_id": character_id},
+        ).status_code == 404
+        alive = client.post(
+            "/api/karma-shop/resurrect", headers=headers,
+            json={"character_id": character_id},
+        )
+        assert alive.status_code == 400
+
+        client.patch(
+            f"/api/admin/characters/{character_id}", headers=admin_headers,
+            json={"is_dead": True, "level": 11},
+        )
+        unavailable = client.post(
+            "/api/karma-shop/resurrect", headers=headers,
+            json={"character_id": character_id},
+        )
+        assert unavailable.status_code == 400
+        assert client.get("/api/me", headers=headers).json()["karma"] == 10
+
+        client.patch(
+            f"/api/admin/characters/{character_id}", headers=admin_headers,
+            json={"level": 6},
+        )
+        resurrected = client.post(
+            "/api/karma-shop/resurrect", headers=headers,
+            json={"character_id": character_id},
+        )
+        assert resurrected.status_code == 200, resurrected.text
+        assert resurrected.json()["remaining_karma"] == 0
+        assert resurrected.json()["character_is_dead"] is False
+        log = client.get("/api/admin/karma-shop-logs", headers=admin_headers).json()[0]
+        assert log["purchase_type"] == "resurrection"
+        assert log["character_level"] == 6
+        assert log["cost"] == 10
+
+
 def test_players_cannot_directly_grant_inventory_currency_or_items():
     with TestClient(app) as client:
         admin_token = login(client, "admin", "admin123")
