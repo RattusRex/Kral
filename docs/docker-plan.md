@@ -150,7 +150,7 @@ origin** (фронтенд‑nginx проксирует `/api` на backend), б
                     │ /api
                     ▼
         ┌──────────────────────┐
-        │  backend (FastAPI)   │  :8000 → host :8000 (для /docs, опц.)
+        │  backend (FastAPI)   │  :8000 (только внутр. сеть; host через dev override)
         │  uvicorn, N воркеров  │
         └───────────┬──────────┘
                     │ SQLAlchemy
@@ -185,7 +185,8 @@ origin** (фронтенд‑nginx проксирует `/api` на backend), б
 | `docker/backend.Dockerfile` | Образ backend: python:3.11‑slim, установка зависимостей, запуск uvicorn, непривилегированный пользователь, healthcheck |
 | `docker/frontend.Dockerfile` | Многоступенчатый образ: сборка Vite (node:20‑alpine) → раздача nginx |
 | `docker/nginx.conf` | Конфиг nginx: статика + SPA‑fallback + reverse‑proxy `/api` |
-| `docker-compose.yml` | Оркестрация `db` + `backend` + `frontend` (+ `cloudflared` по профилю) |
+| `docker-compose.yml` | Оркестрация `db` + `backend` + `frontend` (+ `cloudflared` по профилю); backend доступен только внутри сети |
+| `docker-compose.dev.yml` | Явный dev override для публикации FastAPI на host `:8000` |
 | `.dockerignore` | Исключение `.git`, `.venv`, `node_modules`, `dist`, `.env`, docs из контекста сборки |
 
 ### 4.2 Изменить

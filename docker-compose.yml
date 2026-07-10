@@ -7,7 +7,8 @@
 #   docker compose up -d --build
 #
 # The app is then available at http://localhost:8080
-# Swagger docs (direct backend) at http://localhost:8000/docs
+# To publish the backend directly for local debugging, add the development
+# override: docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build
 #
 # Optional Cloudflare Tunnel:
 #   docker compose --profile tunnel up -d --build
@@ -48,10 +49,10 @@ services:
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:8080}
       ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-30}
       WEB_CONCURRENCY: ${WEB_CONCURRENCY:-2}
-    # Exposes the API directly for debugging / Swagger. Remove for hardened
-    # deployments where only nginx should reach the backend.
-    ports:
-      - "8000:8000"
+    # Keep FastAPI private to the compose network. nginx reaches this port by
+    # service name; use docker-compose.dev.yml to publish it on the host.
+    expose:
+      - "8000"
 
   frontend:
     build:

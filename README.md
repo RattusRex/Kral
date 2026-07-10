@@ -234,11 +234,26 @@ For the full analysis, container architecture, risks, and the rollout plan see
 
 3. Open the app:
    - Frontend: <http://localhost:8080>
-   - Swagger (direct backend): <http://localhost:8000/docs>
 
    The database schema and the `admin` account are created automatically on the
    first backend start. PostgreSQL data is persisted in the named volume
    `pgdata` and survives container recreation.
+
+   The default deployment does not publish FastAPI's port on the host. All
+   production traffic should enter through nginx (or a tunnel targeting nginx),
+   so nginx request limits and security headers cannot be bypassed.
+
+### Direct backend access for development
+
+If a local debugger or API client needs direct access to FastAPI and Swagger on
+<http://localhost:8000>, opt in with the development override:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build
+```
+
+Do not use this override for production deployments because it bypasses the
+nginx proxy controls.
 
 ### Updating after code changes
 
