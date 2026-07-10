@@ -12,7 +12,7 @@ Every administrative modification (create / update / delete) is recorded in the
 :class:`CalendarAuditLog` so corrections can be audited later.
 """
 
-from datetime import date
+from datetime import date, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
@@ -300,6 +300,28 @@ def validate_downtime_window(
         )
 
 
+def validate_no_downtime_overlap(
+    entries: list[DowntimeEntry],
+    start_date: date,
+    days: int,
+    excluded_entry_id: int | None = None,
+) -> None:
+    """Reject a busy span that intersects another entry for the same actor."""
+    end_date = start_date + timedelta(days=days)
+    for entry in entries:
+        if entry.id == excluded_entry_id:
+            continue
+        entry_end = entry.start_date + timedelta(days=entry.days)
+        if start_date < entry_end and entry.start_date < end_date:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "Запись занятых дней пересекается с существующей записью "
+                    f"({entry.start_date.strftime('%d.%m.%Y')} · {entry.days} дн.)."
+                ),
+            )
+
+
 def create_manual_downtime_entry(
     character: Character,
     entry_data: DowntimeEntryCreate,
@@ -314,6 +336,11 @@ def create_manual_downtime_entry(
         entry_data.start_date,
         entry_data.days,
         CALENDAR_AGENT_START_LABELS[normalized_agent],
+    )
+    validate_no_downtime_overlap(
+        downtime_for_agent(character, normalized_agent),
+        entry_data.start_date,
+        entry_data.days,
     )
 
     entry = DowntimeEntry(
@@ -455,6 +482,12 @@ def update_downtime_entry(
         new_days,
         CALENDAR_AGENT_START_LABELS[AGENT_CHARACTER],
     )
+    validate_no_downtime_overlap(
+        downtime_for_agent(character, AGENT_CHARACTER),
+        new_start,
+        new_days,
+        excluded_entry_id=entry.id,
+    )
 
     entry.start_date = new_start
     entry.days = new_days
@@ -507,6 +540,12 @@ def update_agent_downtime_entry(
         new_start,
         new_days,
         CALENDAR_AGENT_START_LABELS[normalized_agent],
+    )
+    validate_no_downtime_overlap(
+        downtime_for_agent(character, normalized_agent),
+        new_start,
+        new_days,
+        excluded_entry_id=entry.id,
     )
 
     entry.start_date = new_start

@@ -2399,6 +2399,127 @@ def test_manual_downtime_rejects_non_positive_days():
         assert rejected.status_code == 400, rejected.text
 
 
+def test_manual_downtime_rejects_duplicate_and_overlapping_entries():
+    with TestClient(app) as client:
+        headers = {"Authorization": f"Bearer {login(client, 'admin', 'admin123')}"}
+        cid = _make_character(client, headers)["id"]
+        created = client.post(
+            f"/api/characters/{cid}/calendar/downtime",
+            headers=headers,
+            json={"start_date": "2025-06-10", "days": 5, "reason": "Крафт"},
+        )
+        assert created.status_code == 200, created.text
+
+        for start_date, days in (
+            ("2025-06-10", 5),  # exact duplicate
+            ("2025-06-09", 2),  # overlaps the beginning
+            ("2025-06-12", 1),  # contained by the existing entry
+            ("2025-06-14", 2),  # overlaps the end
+        ):
+            rejected = client.post(
+                f"/api/characters/{cid}/calendar/downtime",
+                headers=headers,
+                json={"start_date": start_date, "days": days, "reason": "Дубль"},
+            )
+            assert rejected.status_code == 409, rejected.text
+            assert "пересекается" in rejected.json()["detail"]
+
+        before = client.post(
+            f"/api/characters/{cid}/calendar/downtime",
+            headers=headers,
+            json={"start_date": "2025-06-09", "days": 1, "reason": "До"},
+        )
+        assert before.status_code == 200, before.text
+        after = client.post(
+            f"/api/characters/{cid}/calendar/downtime",
+            headers=headers,
+            json={"start_date": "2025-06-15", "days": 1, "reason": "После"},
+        )
+        assert after.status_code == 200, after.text
+        assert len(after.json()["entries"]) == 3
+
+
+def test_admin_downtime_update_rejects_overlap_but_ignores_edited_entry():
+    with TestClient(app) as client:
+        headers = {"Authorization": f"Bearer {login(client, 'admin', 'admin123')}"}
+        cid = _make_character(client, headers)["id"]
+        first = client.post(
+            f"/api/characters/{cid}/calendar/downtime",
+            headers=headers,
+            json={"start_date": "2025-06-01", "days": 3, "reason": "Первое"},
+        )
+        assert first.status_code == 200, first.text
+        second = client.post(
+            f"/api/characters/{cid}/calendar/downtime",
+            headers=headers,
+            json={"start_date": "2025-06-10", "days": 3, "reason": "Второе"},
+        )
+        assert second.status_code == 200, second.text
+        second_id = second.json()["entries"][1]["id"]
+
+        unchanged_window = client.patch(
+            f"/api/characters/{cid}/calendar/downtime/{second_id}",
+            headers=headers,
+            json={"reason": "Новое описание"},
+        )
+        assert unchanged_window.status_code == 200, unchanged_window.text
+
+        rejected = client.patch(
+            f"/api/characters/{cid}/calendar/downtime/{second_id}",
+            headers=headers,
+            json={"start_date": "2025-06-03", "days": 2},
+        )
+        assert rejected.status_code == 409, rejected.text
+
+        summary = client.get(f"/api/characters/{cid}/calendar", headers=headers)
+        edited = next(row for row in summary.json()["entries"] if row["id"] == second_id)
+        assert edited["start_date"] == "2025-06-10"
+        assert edited["days"] == 3
+
+
+def test_downtime_overlap_is_scoped_to_calendar_actor(monkeypatch):
+    from app.core import calendar as game_calendar
+
+    monkeypatch.setattr(
+        game_calendar,
+        "current_game_date",
+        lambda: date(2025, 6, 10),
+    )
+
+    with TestClient(app) as client:
+        headers = {"Authorization": f"Bearer {login(client, 'admin', 'admin123')}"}
+        cid = _make_character(client, headers)["id"]
+        updated = client.patch(
+            f"/api/admin/characters/{cid}",
+            headers=headers,
+            json={
+                "personal_hireling_enabled": True,
+                "personal_hireling_acquired_at": "2025-06-01",
+            },
+        )
+        assert updated.status_code == 200, updated.text
+
+        character_entry = client.post(
+            f"/api/characters/{cid}/calendar/downtime",
+            headers=headers,
+            json={"start_date": "2025-06-01", "days": 2, "reason": "Персонаж"},
+        )
+        assert character_entry.status_code == 200, character_entry.text
+        hireling_entry = client.post(
+            f"/api/characters/{cid}/calendar/agents/personal_hireling/downtime",
+            headers=headers,
+            json={"start_date": "2025-06-01", "days": 2, "reason": "Наёмник"},
+        )
+        assert hireling_entry.status_code == 200, hireling_entry.text
+
+        overlapping_hireling_entry = client.post(
+            f"/api/characters/{cid}/calendar/agents/personal_hireling/downtime",
+            headers=headers,
+            json={"start_date": "2025-06-02", "days": 1, "reason": "Дубль"},
+        )
+        assert overlapping_hireling_entry.status_code == 409
+
+
 def test_manual_downtime_rejects_span_past_current_game_date(monkeypatch):
     from app.core import calendar as game_calendar
 
