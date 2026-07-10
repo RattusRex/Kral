@@ -1847,6 +1847,79 @@ def _register(client: TestClient, username: str) -> int:
     return created.json()["id"]
 
 
+def test_admin_user_list_supports_bounded_pagination_and_reports_total():
+    with TestClient(app) as client:
+        token = login(client, "admin", "admin123")
+        headers = {"Authorization": f"Bearer {token}"}
+        for index in range(5):
+            _register(client, f"paged-user-{index}")
+
+        response = client.get(
+            "/api/admin/users",
+            headers=headers,
+            params={"page": 2, "page_size": 2},
+        )
+
+        assert response.status_code == 200, response.text
+        assert [item["username"] for item in response.json()["items"]] == [
+            "paged-user-1",
+            "paged-user-2",
+        ]
+        assert response.json()["page"] == 2
+        assert response.json()["page_size"] == 2
+        assert response.json()["total"] == 6
+        assert response.json()["pages"] == 3
+
+        invalid = client.get(
+            "/api/admin/users",
+            headers=headers,
+            params={"page_size": 101},
+        )
+        assert invalid.status_code == 422
+
+
+def test_admin_character_list_supports_bounded_pagination_and_reports_total():
+    with TestClient(app) as client:
+        token = login(client, "admin", "admin123")
+        headers = {"Authorization": f"Bearer {token}"}
+        for index in range(5):
+            created = client.post(
+                "/api/characters",
+                headers=headers,
+                json={
+                    "name": f"Paged Character {index}",
+                    "class_name": "Fighter",
+                    "level": 1,
+                    "route": "Open Table",
+                },
+            )
+            assert created.status_code == 200, created.text
+
+        response = client.get(
+            "/api/admin/characters",
+            headers=headers,
+            params={"page": 3, "page_size": 2},
+        )
+
+        assert response.status_code == 200, response.text
+        assert [item["name"] for item in response.json()["items"]] == [
+            "Paged Character 4"
+        ]
+        assert response.json()["page"] == 3
+        assert response.json()["page_size"] == 2
+        assert response.json()["total"] == 5
+        assert response.json()["pages"] == 3
+
+        beyond_last_page = client.get(
+            "/api/admin/characters",
+            headers=headers,
+            params={"page": 4, "page_size": 2},
+        )
+        assert beyond_last_page.status_code == 200, beyond_last_page.text
+        assert beyond_last_page.json()["items"] == []
+        assert beyond_last_page.json()["total"] == 5
+
+
 def test_seeded_admin_account_has_owner_role():
     with TestClient(app) as client:
         token = login(client, "admin", "admin123")

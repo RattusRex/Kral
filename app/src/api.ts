@@ -218,6 +218,14 @@ export interface AdminUser extends User {
   is_head_admin: boolean;
 }
 
+export interface PaginatedResponse<T> {
+  items: T[];
+  page: number;
+  page_size: number;
+  total: number;
+  pages: number;
+}
+
 export interface ShopTransactionLog {
   id: number;
   created_at: string;

@@ -2,7 +2,7 @@ import { Component, FormEvent, useEffect, useLayoutEffect, useMemo, useRef, useS
 import { createRoot } from "react-dom/client";
 import { Link, Navigate, Route, BrowserRouter as Router, Routes, useNavigate, useParams } from "react-router-dom";
 import { CalendarDays, Check, Dice5, LogOut, MessageSquare, Pencil, Plus, RefreshCw, Save, ScrollText, Search, Send, Shield, ShoppingBag, Swords, Trash2, Trophy, UserRound, UsersRound, X } from "lucide-react";
-import { AbilityRoll, AdminGrantLog, AdminUser, api, AttackRoll, CalendarSummary, Character, CharacterAttack, ChatMessage, DamageRoll, Inventory, InventoryItem, LeaderboardEntry, MagicItem, ROLE_LABELS, SavingThrowRoll, ShopResult, ShopTransactionLog, TOKEN_KEY, TransferLog, TransferTarget, User, UserRole } from "./api";
+import { AbilityRoll, AdminGrantLog, AdminUser, api, AttackRoll, CalendarSummary, Character, CharacterAttack, ChatMessage, DamageRoll, Inventory, InventoryItem, LeaderboardEntry, MagicItem, PaginatedResponse, ROLE_LABELS, SavingThrowRoll, ShopResult, ShopTransactionLog, TOKEN_KEY, TransferLog, TransferTarget, User, UserRole } from "./api";
 import "./styles.css";
 
 const rarities = ["Обычный", "Необычный", "Редкий"];
@@ -1531,6 +1531,40 @@ const ROLE_OPTIONS: UserRole[] = ["owner", "head_admin", "admin", "player"];
 // Roles that a head administrator is allowed to assign. Owners may assign any
 // role, while head admins can only manage admins and players.
 const HEAD_ADMIN_ASSIGNABLE_ROLES: UserRole[] = ["admin", "player"];
+const ADMIN_PAGE_SIZE_OPTIONS = [10, 20, 50, 100];
+
+interface PaginationControlsProps {
+  page: number;
+  pageSize: number;
+  pages: number;
+  total: number;
+  onPageChange: (page: number) => void;
+  onPageSizeChange: (pageSize: number) => void;
+}
+
+function PaginationControls({ page, pageSize, pages, total, onPageChange, onPageSizeChange }: PaginationControlsProps) {
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-3 text-sm text-white/65">
+      <span>Всего: {total}</span>
+      <label className="flex items-center gap-2">
+        <span>На странице</span>
+        <select
+          className="field w-auto min-w-20"
+          aria-label="Количество записей на странице"
+          value={pageSize}
+          onChange={(event) => onPageSizeChange(Number(event.target.value))}
+        >
+          {ADMIN_PAGE_SIZE_OPTIONS.map((option) => <option value={option} key={option}>{option}</option>)}
+        </select>
+      </label>
+      <div className="flex items-center gap-2">
+        <button className="btn-secondary" disabled={page <= 1} onClick={() => onPageChange(page - 1)}>Назад</button>
+        <span>Страница {page} из {Math.max(pages, 1)}</span>
+        <button className="btn-secondary" disabled={page >= pages} onClick={() => onPageChange(page + 1)}>Вперёд</button>
+      </div>
+    </div>
+  );
+}
 
 function AdminPage() {
   const { user } = useAuth();
@@ -1543,23 +1577,41 @@ function AdminPage() {
   const [item, setItem] = useState({ name: "", rarity: "Обычный", is_consumable: false });
   const [reason, setReason] = useState("");
   const [roleError, setRoleError] = useState("");
+  const [characterPage, setCharacterPage] = useState(1);
+  const [characterPageSize, setCharacterPageSize] = useState(20);
+  const [characterTotal, setCharacterTotal] = useState(0);
+  const [characterPages, setCharacterPages] = useState(0);
+  const [userPage, setUserPage] = useState(1);
+  const [userPageSize, setUserPageSize] = useState(20);
+  const [userTotal, setUserTotal] = useState(0);
+  const [userPages, setUserPages] = useState(0);
 
   const selectedCharacter = useMemo(() => characters.find((character) => String(character.id) === selected), [characters, selected]);
   const selectedUser = useMemo(() => users.find((user) => String(user.id) === karmaUserId), [users, karmaUserId]);
 
   function load() {
     Promise.all([
-      api.get<Character[]>("/admin/characters"),
-      api.get<AdminUser[]>("/admin/users")
+      api.get<PaginatedResponse<Character>>("/admin/characters", { params: { page: characterPage, page_size: characterPageSize } }),
+      api.get<PaginatedResponse<AdminUser>>("/admin/users", { params: { page: userPage, page_size: userPageSize } })
     ]).then(([characterResponse, userResponse]) => {
-      setCharacters(characterResponse.data);
-      setSelected((current) => characterResponse.data.some((character) => String(character.id) === current) ? current : String(characterResponse.data[0]?.id ?? ""));
-      setUsers(userResponse.data);
-      setKarmaUserId((current) => userResponse.data.some((user) => String(user.id) === current) ? current : String(userResponse.data[0]?.id ?? ""));
+      setCharacters(characterResponse.data.items);
+      setCharacterTotal(characterResponse.data.total);
+      setCharacterPages(characterResponse.data.pages);
+      if (characterResponse.data.pages > 0 && characterPage > characterResponse.data.pages) {
+        setCharacterPage(characterResponse.data.pages);
+      }
+      setSelected((current) => characterResponse.data.items.some((character) => String(character.id) === current) ? current : String(characterResponse.data.items[0]?.id ?? ""));
+      setUsers(userResponse.data.items);
+      setUserTotal(userResponse.data.total);
+      setUserPages(userResponse.data.pages);
+      if (userResponse.data.pages > 0 && userPage > userResponse.data.pages) {
+        setUserPage(userResponse.data.pages);
+      }
+      setKarmaUserId((current) => userResponse.data.items.some((row) => String(row.id) === current) ? current : String(userResponse.data.items[0]?.id ?? ""));
     });
   }
 
-  useEffect(load, []);
+  useEffect(load, [characterPage, characterPageSize, userPage, userPageSize]);
 
   async function action(path: string, body?: unknown) {
     const payload = body && typeof body === "object" ? body : {};
@@ -1605,8 +1657,6 @@ function AdminPage() {
         <section className="panel flex flex-col gap-3 p-5">
           <div className="flex items-center justify-between gap-3">
             <h1 className="text-xl font-bold text-ember">Админка мастера</h1>
-            <Link className="btn-secondary" to="/admin/shop-logs"><ScrollText size={16} />Магазин</Link>
-            <Link className="btn-secondary" to="/admin/transfer-logs"><ScrollText size={16} />Передачи</Link>
             <Link className="btn-secondary" to="/admin/grant-logs"><ScrollText size={16} />Журнал выдач</Link>
           </div>
           <label className="field-label">
@@ -1677,6 +1727,14 @@ function AdminPage() {
                 </div>
               ))}
             </div>
+            <PaginationControls
+              page={userPage}
+              pageSize={userPageSize}
+              pages={userPages}
+              total={userTotal}
+              onPageChange={setUserPage}
+              onPageSizeChange={(value) => { setUserPageSize(value); setUserPage(1); }}
+            />
             {roleError && <p className="text-sm text-red-300">{roleError}</p>}
           </section>
         )}
@@ -1714,6 +1772,16 @@ function AdminPage() {
               ))}
             </tbody>
           </table>
+        </div>
+        <div className="mt-4 border-t border-white/10 pt-4">
+          <PaginationControls
+            page={characterPage}
+            pageSize={characterPageSize}
+            pages={characterPages}
+            total={characterTotal}
+            onPageChange={setCharacterPage}
+            onPageSizeChange={(value) => { setCharacterPageSize(value); setCharacterPage(1); }}
+          />
         </div>
       </section>
     </div>
