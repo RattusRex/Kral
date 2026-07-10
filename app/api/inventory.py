@@ -3,6 +3,7 @@ from functools import lru_cache
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import update
 from sqlalchemy.orm import Session
 from app.db.database import SessionLocal
 from app.models.character import Character
@@ -712,7 +713,7 @@ def get_quote_for_inventory(
         )
     if quote.is_consumed:
         raise HTTPException(
-            status_code=400,
+            status_code=409,
             detail="Shop result has already been used"
         )
     if not quote.success or quote.item_price is None:
@@ -721,6 +722,29 @@ def get_quote_for_inventory(
             detail="Search did not find a valid deal"
         )
     return quote
+
+def consume_quote_for_inventory(
+    quote: ShopQuote,
+    db: Session
+) -> None:
+    consumed_count = db.execute(
+        update(ShopQuote)
+        .where(
+            ShopQuote.id == quote.id,
+            ShopQuote.inventory_id == quote.inventory_id,
+            ShopQuote.is_consumed.is_(False)
+        )
+        .values(is_consumed=True)
+        .execution_options(synchronize_session=False)
+    ).rowcount
+    if consumed_count != 1:
+        db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail="Shop result has already been used"
+        )
+    quote.is_consumed = True
+
 
 def record_shop_transaction(
     quote: ShopQuote,
@@ -1093,6 +1117,7 @@ def buy_shop_item(
             detail="Shop result is not a buy result"
         )
 
+    consume_quote_for_inventory(quote, db)
     subtract_gold_amount(inventory, quote.item_price, "Недостаточно золота")
     db.add(InventoryItem(
         name=quote.item_name,
@@ -1100,7 +1125,6 @@ def buy_shop_item(
         is_consumable=quote.is_consumable,
         inventory_id=inventory.id
     ))
-    quote.is_consumed = True
     record_shop_transaction(quote, character, inventory, current_user, db)
     db.commit()
     db.refresh(quote)
@@ -1135,9 +1159,9 @@ def sell_shop_item(
             detail="Предмета нет в инвентаре"
         )
 
+    consume_quote_for_inventory(quote, db)
     add_currency(inventory, gold=quote.item_price)
     db.delete(item)
-    quote.is_consumed = True
     record_shop_transaction(quote, character, inventory, current_user, db)
     db.commit()
     db.refresh(quote)
