@@ -2560,6 +2560,15 @@ def test_player_cannot_manually_manage_personal_hireling_calendar():
         )
         assert updated.status_code == 200, updated.text
 
+        visible = client.get(
+            f"/api/characters/{cid}/calendar/agents/personal_hireling",
+            headers=player_headers,
+        )
+        assert visible.status_code == 200, visible.text
+        assert visible.json()["created_at"] == "2025-06-01"
+        assert visible.json()["busy_days"] == 0
+        assert visible.json()["can_manage"] is False
+
         forbidden = client.post(
             f"/api/characters/{cid}/calendar/agents/personal_hireling/downtime",
             headers=player_headers,
