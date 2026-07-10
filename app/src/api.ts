@@ -37,6 +37,8 @@ export interface Character {
   wisdom: number;
   charisma: number;
   investigation: number;
+  skill_proficiencies: string[];
+  skill_expertise: string[];
   hp: number;
   temp_hp: number;
   armor_class: number;
@@ -84,6 +86,10 @@ export interface CalendarSummary {
   busy_days: number;
   free_days: number;
   can_manage: boolean;
+  page: number;
+  page_size: number;
+  total_entries: number;
+  pages: number;
   entries: DowntimeEntry[];
 }
 

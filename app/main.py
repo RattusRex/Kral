@@ -95,6 +95,8 @@ def migrate_user_roles() -> None:
 def ensure_schema_columns() -> None:
     ensure_column("characters", "temp_hp", "INTEGER NOT NULL DEFAULT 0")
     ensure_column("characters", "speed", "INTEGER NOT NULL DEFAULT 30")
+    ensure_column("characters", "skill_proficiencies", "JSON NOT NULL DEFAULT '[]'")
+    ensure_column("characters", "skill_expertise", "JSON NOT NULL DEFAULT '[]'")
     ensure_column(
         "characters",
         "game_created_at",
