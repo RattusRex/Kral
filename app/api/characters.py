@@ -14,6 +14,7 @@ from app.schemas.character import (
     CharacterCreate,
     PlayerCharacterUpdate,
     SavingThrowRollResponse,
+    SkillRollResponse,
 )
 from app.api.users import get_db
 
@@ -24,6 +25,27 @@ ABILITY_FIELDS = {
     "intelligence": "Интеллект",
     "wisdom": "Мудрость",
     "charisma": "Харизма",
+}
+
+SKILL_FIELDS = {
+    "acrobatics": ("Акробатика", "dexterity"),
+    "animal_handling": ("Уход за животными", "wisdom"),
+    "arcana": ("Магия", "intelligence"),
+    "athletics": ("Атлетика", "strength"),
+    "deception": ("Обман", "charisma"),
+    "history": ("История", "intelligence"),
+    "insight": ("Проницательность", "wisdom"),
+    "intimidation": ("Запугивание", "charisma"),
+    "investigation": ("Расследование", "intelligence"),
+    "medicine": ("Медицина", "wisdom"),
+    "nature": ("Природа", "intelligence"),
+    "perception": ("Восприятие", "wisdom"),
+    "performance": ("Выступление", "charisma"),
+    "persuasion": ("Убеждение", "charisma"),
+    "religion": ("Религия", "intelligence"),
+    "sleight_of_hand": ("Ловкость рук", "dexterity"),
+    "stealth": ("Скрытность", "dexterity"),
+    "survival": ("Выживание", "wisdom"),
 }
 
 
@@ -289,6 +311,62 @@ def roll_saving_throw(
     return {
         "ability": ability,
         "bonus": bonus,
+        "roll": roll,
+        "total": total,
+    }
+
+
+@router.post(
+    "/characters/{character_id}/roll-skill/{skill}",
+    response_model=SkillRollResponse,
+)
+def roll_skill(
+    character_id: int,
+    skill: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    skill_definition = SKILL_FIELDS.get(skill)
+    if not skill_definition:
+        raise HTTPException(status_code=400, detail="Неизвестный навык")
+
+    character = db.query(Character).filter(
+        Character.id == character_id,
+        Character.user_id == current_user.id,
+    ).first()
+    if not character:
+        raise HTTPException(status_code=404, detail="Персонаж не найден")
+
+    skill_label, ability = skill_definition
+    modifier = (getattr(character, ability) - 10) // 2
+    proficiency_bonus = 2 + (max(1, min(20, character.level)) - 1) // 4
+    if skill in (character.skill_expertise or []):
+        modifier += proficiency_bonus * 2
+    elif skill in (character.skill_proficiencies or []):
+        modifier += proficiency_bonus
+
+    roll = random.randint(1, 20)
+    total = roll + modifier
+    modifier_text = f"{'+' if modifier >= 0 else ''}{modifier}"
+
+    from app.api.chat import create_roll_chat_message
+    create_roll_chat_message(
+        db=db,
+        user=current_user,
+        formula=f"1d20{modifier_text}",
+        rolls=[roll],
+        total=total,
+        content=(
+            f"{current_user.username}: {character.name} — навык {skill_label}. "
+            f"Формула: 1d20{modifier_text}. Бросок: {roll}. Итог: {total}."
+        ),
+    )
+    db.commit()
+
+    return {
+        "skill": skill,
+        "ability": ability,
+        "modifier": modifier,
         "roll": roll,
         "total": total,
     }
