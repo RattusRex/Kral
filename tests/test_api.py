@@ -1,5 +1,6 @@
 import os
 from datetime import date
+from unittest.mock import patch
 
 import anyio
 
@@ -94,6 +95,42 @@ def test_admin_character_level_edit_stays_within_campaign_bounds():
             )
             assert edited.status_code == 200, edited.text
             assert edited.json()["level"] == expected_level
+
+
+def test_admin_can_change_character_appearance_date_and_recalculate_free_days():
+    with TestClient(app) as client:
+        headers = {"Authorization": f"Bearer {login(client, 'admin', 'admin123')}"}
+        created = client.post("/api/characters", headers=headers, json={
+            "name": "Calendar Correction", "class_name": "Wizard",
+            "level": 1, "route": "Arcane", "game_created_at": "2025-06-01",
+        })
+        character_id = created.json()["id"]
+        before = client.get(f"/api/admin/characters/{character_id}", headers=headers).json()
+        changed = client.patch(
+            f"/api/admin/characters/{character_id}", headers=headers,
+            json={"game_created_at": "2025-06-05"},
+        )
+        assert changed.status_code == 200, changed.text
+        assert changed.json()["game_created_at"] == "2025-06-05"
+        assert changed.json()["free_days"] == before["free_days"] - 4
+
+
+def test_player_cannot_change_character_appearance_date():
+    with TestClient(app) as client:
+        client.post("/api/users", json={
+            "username": "calendar-player", "email": "calendar-player@example.com",
+            "password": "secret123",
+        })
+        headers = {"Authorization": f"Bearer {login(client, 'calendar-player', 'secret123')}"}
+        created = client.post("/api/characters", headers=headers, json={
+            "name": "Immutable Date", "class_name": "Fighter", "level": 1,
+            "route": "Steel", "game_created_at": "2025-06-01",
+        })
+        changed = client.patch(
+            f"/api/characters/{created.json()['id']}", headers=headers,
+            json={"game_created_at": "2025-06-05"},
+        )
+        assert changed.status_code == 422
 
 
 def test_admin_seed_and_username_login():
@@ -1140,7 +1177,7 @@ def test_shop_buy_and_sell_confirmations_create_filterable_persistent_logs():
         assert sell_logs[0]["total_amount"] == sell_payload["item_price"] - sell_payload["hireling_cost"]
 
 
-def test_admin_delete_character_requires_confirmation_and_cascades_inventory():
+def test_owner_delete_character_requires_confirmation_and_cascades_inventory():
     with TestClient(app) as client:
         admin_token = login(client, "admin", "admin123")
         headers = {"Authorization": f"Bearer {admin_token}"}
@@ -1186,6 +1223,42 @@ def test_admin_delete_character_requires_confirmation_and_cascades_inventory():
             headers=headers
         )
         assert missing_inventory.status_code == 404
+
+
+def test_only_owner_and_head_admin_can_delete_characters():
+    with TestClient(app) as client:
+        owner_headers = {"Authorization": f"Bearer {login(client, 'admin', 'admin123')}"}
+        users = {}
+        for username, role in (("delete-head", "head_admin"), ("delete-admin", "admin")):
+            user = client.post("/api/users", json={
+                "username": username, "email": f"{username}@example.com",
+                "password": "secret123",
+            }).json()
+            client.post(
+                f"/api/admin/users/{user['id']}/role", headers=owner_headers,
+                json={"role": role},
+            )
+            users[role] = username
+        allowed_character = client.post("/api/characters", headers=owner_headers, json={
+            "name": "Head Admin Delete", "class_name": "Fighter", "level": 1,
+            "route": "Steel",
+        }).json()
+        protected_character = client.post("/api/characters", headers=owner_headers, json={
+            "name": "Protected", "class_name": "Fighter", "level": 1,
+            "route": "Steel",
+        }).json()
+        head_headers = {"Authorization": f"Bearer {login(client, users['head_admin'], 'secret123')}"}
+        allowed = client.delete(
+            f"/api/admin/characters/{allowed_character['id']}", headers=head_headers,
+            params={"confirmation": "УДАЛИТЬ"},
+        )
+        assert allowed.status_code == 200, allowed.text
+        admin_headers = {"Authorization": f"Bearer {login(client, users['admin'], 'secret123')}"}
+        denied = client.delete(
+            f"/api/admin/characters/{protected_character['id']}", headers=admin_headers,
+            params={"confirmation": "УДАЛИТЬ"},
+        )
+        assert denied.status_code == 403, denied.text
 
 
 def test_admin_can_delete_character_with_shop_transaction_history():
@@ -1841,6 +1914,31 @@ def test_saving_throw_roll_returns_d20_plus_modifier_and_logs():
             and message["total"] == payload["total"]
             for message in roll_messages.json()
         )
+
+
+def test_saving_throw_proficiency_is_persisted_and_added_to_roll():
+    with TestClient(app) as client:
+        headers = {"Authorization": f"Bearer {login(client, 'admin', 'admin123')}"}
+        created = client.post("/api/characters", headers=headers, json={
+            "name": "Resolute", "class_name": "Егерь", "level": 9,
+            "route": "Wilds", "wisdom": 14,
+            "saving_throw_proficiencies": ["wisdom", "strength"],
+        })
+        assert created.status_code == 200, created.text
+        assert created.json()["saving_throw_proficiencies"] == ["strength", "wisdom"]
+        with patch("app.api.characters.random.randint", return_value=10):
+            rolled = client.post(
+                f"/api/characters/{created.json()['id']}/roll-saving-throw/wisdom",
+                headers=headers,
+            )
+        assert rolled.status_code == 200, rolled.text
+        assert rolled.json()["bonus"] == 6
+        assert rolled.json()["total"] == 16
+        invalid = client.patch(
+            f"/api/characters/{created.json()['id']}", headers=headers,
+            json={"saving_throw_proficiencies": ["luck"]},
+        )
+        assert invalid.status_code == 422
 
 
 def test_chat_messages_pagination_with_limit_and_before_id():

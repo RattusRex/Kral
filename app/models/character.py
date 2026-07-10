@@ -70,6 +70,11 @@ class Character(Base):
         default=list
     )
 
+    saving_throw_proficiencies: Mapped[list[str]] = mapped_column(
+        JSON,
+        default=list
+    )
+
     personal_hireling_enabled: Mapped[bool] = mapped_column(
         Boolean,
         default=False

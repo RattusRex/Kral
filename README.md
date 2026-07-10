@@ -49,6 +49,7 @@ Notable protected API routes:
 - `GET /api/admin/calendar-logs` returns the audit trail of administrative calendar changes (who, which character, action type, timestamp), filterable by `character_id`, `user_id`, `action`, and date range.
 - `GET /api/admin/grant-logs` returns the administrator resource-grant audit trail (karma, XP, gold, and items), filterable by player, character, administrator, operation type, and date. Every grant request requires a non-empty `reason`.
 - `GET /api/admin/characters` includes each character's assembled date and free-day totals, plus separate free-day totals for a personal hireling and simulacrum when those units are enabled.
+- `PATCH /api/admin/characters/{id}` lets administrators correct a character's appearance date; calendar totals are recalculated from that date. Only owners and head administrators may delete characters.
 
 ## Calendar Permissions
 
@@ -105,6 +106,8 @@ Owner
 ```
 
 The seeded `admin` account is an **owner**. New accounts are created as **players**. Owners and head admins can change another user's role from the admin panel, subject to the restrictions above. These restrictions are enforced on the backend, so a direct API call cannot bypass them.
+
+Character sheets support proficiency for each of the six saving throws. A proficient saving throw adds the level-based proficiency bonus automatically. The available classes also include **Егерь** with a `d8` hit die.
 
 ## Authentication Abuse Controls
 

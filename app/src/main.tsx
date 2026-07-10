@@ -29,6 +29,7 @@ const characterClasses = [
   { name: "Воин", hitDie: "d10" },
   { name: "Волшебник", hitDie: "d6" },
   { name: "Друид", hitDie: "d8" },
+  { name: "Егерь", hitDie: "d8" },
   { name: "Жрец", hitDie: "d8" },
   { name: "Изобретатель", hitDie: "d8" },
   { name: "Колдун", hitDie: "d8" },
@@ -72,6 +73,7 @@ const adminUnitNumberFields = [
   { field: "simulacrum_investigation", label: "Расследование симулякра" }
 ] as const;
 const adminUnitDateFields = [
+  { field: "game_created_at", label: "Дата появления персонажа" },
   { field: "personal_hireling_acquired_at", label: "Дата появления личного наёмника" },
   { field: "simulacrum_created_at", label: "Дата появления симулякра" }
 ] as const;
@@ -102,7 +104,8 @@ const blankCharacter = {
   charisma: 10,
   investigation: 0,
   skill_proficiencies: [] as string[],
-  skill_expertise: [] as string[]
+  skill_expertise: [] as string[],
+  saving_throw_proficiencies: [] as string[]
 };
 const maxCharacters = 10;
 
@@ -145,6 +148,15 @@ const skills = [
   { key: "intimidation", label: "Запугивание", ability: "charisma" },
   { key: "performance", label: "Выступление", ability: "charisma" },
   { key: "persuasion", label: "Убеждение", ability: "charisma" }
+] as const;
+
+const abilityDefinitions = [
+  { label: "Сила", short: "STR", field: "strength" },
+  { label: "Ловкость", short: "DEX", field: "dexterity" },
+  { label: "Телосложение", short: "CON", field: "constitution" },
+  { label: "Интеллект", short: "INT", field: "intelligence" },
+  { label: "Мудрость", short: "WIS", field: "wisdom" },
+  { label: "Харизма", short: "CHA", field: "charisma" }
 ] as const;
 
 function signed(value: number) {
@@ -645,14 +657,10 @@ function CharacterPage() {
   }, [id]);
 
   if (!character) return <p>Загрузка...</p>;
-  const abilities = [
-    { label: "Сила", short: "STR", field: "strength", value: character.strength },
-    { label: "Ловкость", short: "DEX", field: "dexterity", value: character.dexterity },
-    { label: "Телосложение", short: "CON", field: "constitution", value: character.constitution },
-    { label: "Интеллект", short: "INT", field: "intelligence", value: character.intelligence },
-    { label: "Мудрость", short: "WIS", field: "wisdom", value: character.wisdom },
-    { label: "Харизма", short: "CHA", field: "charisma", value: character.charisma }
-  ];
+  const abilities = abilityDefinitions.map((ability) => ({
+    ...ability,
+    value: character[ability.field]
+  }));
 
   async function createAttack(event: FormEvent) {
     event.preventDefault();
@@ -802,7 +810,15 @@ function CharacterPage() {
             </div>
             <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
               {abilities.map((ability) => (
-                <SavingThrowCard key={ability.short} label={ability.label} short={ability.short} value={ability.value} onRoll={() => rollSavingThrow(ability.field)} />
+                <SavingThrowCard
+                  key={ability.short}
+                  label={ability.label}
+                  short={ability.short}
+                  value={ability.value}
+                  proficient={(character.saving_throw_proficiencies ?? []).includes(ability.field)}
+                  proficiencyBonus={proficiencyBonus(character.level)}
+                  onRoll={() => rollSavingThrow(ability.field)}
+                />
               ))}
             </div>
           </section>
@@ -877,8 +893,8 @@ function AbilityCard({ label, short, value, onRoll }: { label: string; short: st
   );
 }
 
-function SavingThrowCard({ label, short, value, onRoll }: { label: string; short: string; value: number; onRoll?: () => void }) {
-  const modifier = abilityModifier(value);
+function SavingThrowCard({ label, short, value, proficient, proficiencyBonus: bonus, onRoll }: { label: string; short: string; value: number; proficient: boolean; proficiencyBonus: number; onRoll?: () => void }) {
+  const modifier = abilityModifier(value) + (proficient ? bonus : 0);
   return (
     <button
       className="ability-card text-left w-full"
@@ -889,6 +905,7 @@ function SavingThrowCard({ label, short, value, onRoll }: { label: string; short
       <div>
         <p className="text-xs uppercase text-white/45">{short}</p>
         <h3 className="font-semibold text-ember">{label}</h3>
+        {proficient && <p className="text-xs text-emerald-200">Владение спасброском</p>}
       </div>
       <div className="text-right">
         <div className="text-lg font-semibold text-white/75">{signed(modifier)}</div>
@@ -970,8 +987,9 @@ function CharacterFormPage({ edit = false }: { edit?: boolean }) {
     setError("");
     try {
       if (edit) {
-        const payload: Record<string, string | number | undefined> = {
-          class_name: form.class_name
+        const payload: Record<string, string | number | string[] | undefined> = {
+          class_name: form.class_name,
+          saving_throw_proficiencies: form.saving_throw_proficiencies
         };
         textFields.forEach(({ field }) => {
           payload[field] = form[field];
@@ -1026,6 +1044,24 @@ function CharacterFormPage({ edit = false }: { edit?: boolean }) {
           <input className="field" type="number" value={form[field]} onChange={(event) => setForm({ ...form, [field]: Number(event.target.value) })} />
         </label>
       ))}
+      <div className="md:col-span-2 grid gap-2 rounded-md border border-white/10 p-3 sm:grid-cols-2 lg:grid-cols-3">
+        <span className="text-sm font-semibold text-ember sm:col-span-2 lg:col-span-3">Владение спасбросками</span>
+        {abilityDefinitions.map((ability) => (
+          <label className="flex items-center gap-2 text-sm" key={ability.field}>
+            <input
+              type="checkbox"
+              checked={form.saving_throw_proficiencies.includes(ability.field)}
+              onChange={(event) => setForm({
+                ...form,
+                saving_throw_proficiencies: event.target.checked
+                  ? [...form.saving_throw_proficiencies, ability.field]
+                  : form.saving_throw_proficiencies.filter((field) => field !== ability.field)
+              })}
+            />
+            Владение спасброском: {ability.label}
+          </label>
+        ))}
+      </div>
       {error && <p className="text-sm text-red-300 md:col-span-2">{error}</p>}
       <button className="btn md:col-span-2" type="submit">Сохранить</button>
     </form>
@@ -1898,6 +1934,8 @@ function AdminCharacterPage() {
   const [saved, setSaved] = useState(false);
   const [deleteConfirmation, setDeleteConfirmation] = useState("");
   const navigate = useNavigate();
+  const { user } = useAuth();
+  const canDeleteCharacter = Boolean(user?.is_owner || user?.is_head_admin);
 
   function load() {
     Promise.all([
@@ -1918,7 +1956,7 @@ function AdminCharacterPage() {
     setError("");
     setSaved(false);
 
-    const payload: Record<string, string | number | boolean | undefined> = {
+    const payload: Record<string, string | number | boolean | string[] | undefined> = {
       class_name: form.class_name
     };
     textFields.forEach(({ field }) => {
@@ -1932,6 +1970,7 @@ function AdminCharacterPage() {
     });
     payload.personal_hireling_enabled = form.personal_hireling_enabled ?? false;
     payload.simulacrum_enabled = form.simulacrum_enabled ?? false;
+    payload.saving_throw_proficiencies = form.saving_throw_proficiencies ?? [];
 
     try {
       const response = await api.patch<Character>(`/admin/characters/${id}`, payload);
@@ -2003,6 +2042,28 @@ function AdminCharacterPage() {
               />
             </label>
           ))}
+          <div className="md:col-span-2 grid gap-2 rounded-md border border-white/10 p-3 sm:grid-cols-2 lg:grid-cols-3">
+            <span className="text-sm font-semibold text-ember sm:col-span-2 lg:col-span-3">Владение спасбросками</span>
+            {abilityDefinitions.map((ability) => (
+              <label className="flex items-center gap-2 text-sm" key={ability.field}>
+                <input
+                  type="checkbox"
+                  checked={(form.saving_throw_proficiencies ?? []).includes(ability.field)}
+                  onChange={(event) => {
+                    const current = form.saving_throw_proficiencies ?? [];
+                    setSaved(false);
+                    setForm({
+                      ...form,
+                      saving_throw_proficiencies: event.target.checked
+                        ? [...current, ability.field]
+                        : current.filter((field) => field !== ability.field)
+                    });
+                  }}
+                />
+                Владение спасброском: {ability.label}
+              </label>
+            ))}
+          </div>
           <div className="md:col-span-2 grid gap-3 rounded-md border border-white/10 p-3 md:grid-cols-2">
             <label className="flex items-center gap-2 text-sm">
               <input
@@ -2078,13 +2139,13 @@ function AdminCharacterPage() {
             />
           </div>
         )}
-        <div className="mt-5 rounded-md border border-red-400/30 p-4">
+        {canDeleteCharacter && <div className="mt-5 rounded-md border border-red-400/30 p-4">
           <h2 className="font-semibold text-red-200">Удаление персонажа</h2>
           <div className="mt-3 flex flex-wrap gap-2">
             <input className="field flex-1" placeholder="УДАЛИТЬ" value={deleteConfirmation} onChange={(event) => setDeleteConfirmation(event.target.value)} />
             <button className="btn-secondary border-red-400/40 text-red-100" disabled={deleteConfirmation !== "УДАЛИТЬ"} onClick={deleteCharacter}><Trash2 size={16} />Удалить персонажа</button>
           </div>
-        </div>
+        </div>}
       </section>
       <ReadOnlyInventoryPanel inventory={inventory} />
     </div>

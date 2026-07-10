@@ -39,6 +39,7 @@ export interface Character {
   investigation: number;
   skill_proficiencies: string[];
   skill_expertise: string[];
+  saving_throw_proficiencies: string[];
   hp: number;
   temp_hp: number;
   armor_class: number;

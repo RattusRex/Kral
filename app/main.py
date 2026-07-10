@@ -99,6 +99,11 @@ def ensure_schema_columns() -> None:
     ensure_column("characters", "skill_expertise", "JSON NOT NULL DEFAULT '[]'")
     ensure_column(
         "characters",
+        "saving_throw_proficiencies",
+        "JSON NOT NULL DEFAULT '[]'"
+    )
+    ensure_column(
+        "characters",
         "game_created_at",
         f"DATE NOT NULL DEFAULT '{GAME_EPOCH.isoformat()}'"
     )
