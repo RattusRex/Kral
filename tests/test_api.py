@@ -573,6 +573,29 @@ def test_karma_resurrection_enforces_ownership_death_level_and_balance():
 
         client.patch(
             f"/api/admin/characters/{character_id}", headers=admin_headers,
+            json={"is_dead": True, "level": 6},
+        )
+        client.post(
+            f"/api/admin/users/{user['id']}/karma", headers=admin_headers,
+            json={"amount": -1, "reason": "Проверка недостаточного баланса"},
+        )
+        insufficient = client.post(
+            "/api/karma-shop/resurrect", headers=headers,
+            json={"character_id": character_id},
+        )
+        assert insufficient.status_code == 400
+        assert client.get("/api/me", headers=headers).json()["karma"] == 9
+        assert client.get(
+            f"/api/admin/characters/{character_id}", headers=admin_headers,
+        ).json()["is_dead"] is True
+
+        client.post(
+            f"/api/admin/users/{user['id']}/karma", headers=admin_headers,
+            json={"amount": 1, "reason": "Возврат тестового баланса"},
+        )
+
+        client.patch(
+            f"/api/admin/characters/{character_id}", headers=admin_headers,
             json={"is_dead": True, "level": 11},
         )
         unavailable = client.post(
