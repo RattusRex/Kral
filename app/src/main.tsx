@@ -1,8 +1,8 @@
 import { Component, FormEvent, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { Link, Navigate, Route, BrowserRouter as Router, Routes, useNavigate, useParams } from "react-router-dom";
-import { CalendarDays, Check, Dice5, LogOut, MessageSquare, Pencil, Plus, RefreshCw, Save, ScrollText, Search, Send, Shield, ShoppingBag, Swords, Trash2, Trophy, UserRound, UsersRound, X } from "lucide-react";
-import { AbilityRoll, AdminGrantLog, AdminUser, api, AttackRoll, CalendarSummary, Character, CharacterAttack, ChatMessage, DamageRoll, Inventory, InventoryItem, KarmaPurchase, KarmaPurchaseResult, LeaderboardEntry, MagicItem, PaginatedResponse, ROLE_LABELS, SavingThrowRoll, ShopResult, ShopTransactionLog, TOKEN_KEY, TransferLog, TransferTarget, User, UserRole } from "./api";
+import { CalendarDays, Check, Dice5, LogOut, MapPin, MessageSquare, Pencil, Plus, RefreshCw, Save, ScrollText, Search, Send, Shield, ShoppingBag, Swords, Trash2, Trophy, UserRound, UsersRound, X } from "lucide-react";
+import { AbilityRoll, AdminGrantLog, AdminUser, api, AttackRoll, CalendarSummary, Character, CharacterAttack, ChatMessage, DamageRoll, GameRecruitment, Inventory, InventoryItem, KarmaPurchase, KarmaPurchaseResult, LeaderboardEntry, MagicItem, PaginatedResponse, ROLE_LABELS, SavingThrowRoll, ShopResult, ShopTransactionLog, TOKEN_KEY, TransferLog, TransferTarget, User, UserRole } from "./api";
 import "./styles.css";
 
 const rarities = ["Обычный", "Необычный", "Редкий"];
@@ -211,6 +211,7 @@ function Shell({ children, user }: { children: React.ReactNode; user: User | nul
             <Link className="btn-secondary" to="/karma-shop"><ShoppingBag size={16} />Карма</Link>
             <Link className="btn-secondary" to="/leaderboard"><Trophy size={16} />Лидеры</Link>
             <Link className="btn-secondary" to="/chat"><MessageSquare size={16} />Чат</Link>
+            <Link className="btn-secondary" to="/game-recruitments"><CalendarDays size={16} />Набор на игры</Link>
             <Link className="btn-secondary" to="/profile"><UserRound size={16} />Профиль</Link>
             {user?.is_admin && <Link className="btn-secondary" to="/admin"><Shield size={16} />Админ</Link>}
             {user?.is_admin && <Link className="btn-secondary" to="/admin/shop-logs"><ScrollText size={16} />Логи</Link>}
@@ -239,6 +240,7 @@ function HomePage() {
           <Link className="btn" to="/characters/new"><Plus size={18} />Create Character</Link>
           <Link className="btn" to="/leaderboard"><Trophy size={18} />Таблица лидеров</Link>
           <Link className="btn" to="/chat"><MessageSquare size={18} />Чат</Link>
+          <Link className="btn" to="/game-recruitments"><CalendarDays size={18} />Набор на игры</Link>
         </div>
       </section>
       <aside className="panel p-5">
@@ -1598,6 +1600,181 @@ function LeaderboardPage() {
 
 const CHAT_PAGE_SIZE = 50;
 
+const blankRecruitment = {
+  real_date: "",
+  game_date: "",
+  start_time: "18:00",
+  duration: "4 часа",
+  location: "",
+  quest: "",
+  notes: ""
+};
+
+function GameRecruitmentsPage() {
+  const { user } = useAuth();
+  const [recruitments, setRecruitments] = useState<GameRecruitment[]>([]);
+  const [characters, setCharacters] = useState<Character[]>([]);
+  const [selectedCharacters, setSelectedCharacters] = useState<Record<number, string>>({});
+  const [selectedApplications, setSelectedApplications] = useState<Record<number, number[]>>({});
+  const [form, setForm] = useState(blankRecruitment);
+  const [showForm, setShowForm] = useState(false);
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  async function load() {
+    setError("");
+    try {
+      const [recruitmentsResponse, charactersResponse] = await Promise.all([
+        api.get<GameRecruitment[]>("/game-recruitments"),
+        api.get<Character[]>("/characters")
+      ]);
+      setRecruitments(recruitmentsResponse.data);
+      setCharacters(charactersResponse.data.filter((character) => !character.is_dead));
+      setSelectedApplications(Object.fromEntries(recruitmentsResponse.data.map((row) => [
+        row.id,
+        row.applications.filter((application) => application.status === "selected").map((application) => application.id)
+      ])));
+    } catch (loadError) {
+      setError(apiErrorDetail(loadError, "Не удалось загрузить наборы на игры"));
+    }
+  }
+
+  useEffect(() => { load(); }, []);
+
+  async function createRecruitment(event: FormEvent) {
+    event.preventDefault();
+    setBusy(true);
+    setError("");
+    try {
+      await api.post("/game-recruitments", form);
+      setForm(blankRecruitment);
+      setShowForm(false);
+      await load();
+    } catch (createError) {
+      setError(apiErrorDetail(createError, "Не удалось опубликовать игру"));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function apply(recruitmentId: number) {
+    const characterId = Number(selectedCharacters[recruitmentId]);
+    if (!characterId) return;
+    setBusy(true);
+    setError("");
+    try {
+      await api.post(`/game-recruitments/${recruitmentId}/applications`, { character_id: characterId });
+      await load();
+    } catch (applyError) {
+      setError(apiErrorDetail(applyError, "Не удалось записаться на игру"));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function toggleApplication(recruitmentId: number, applicationId: number) {
+    setSelectedApplications((current) => {
+      const selected = new Set(current[recruitmentId] ?? []);
+      selected.has(applicationId) ? selected.delete(applicationId) : selected.add(applicationId);
+      return { ...current, [recruitmentId]: [...selected] };
+    });
+  }
+
+  async function publishParticipants(recruitmentId: number) {
+    const applicationIds = selectedApplications[recruitmentId] ?? [];
+    if (!applicationIds.length) return;
+    setBusy(true);
+    setError("");
+    try {
+      await api.post(`/game-recruitments/${recruitmentId}/participants`, { application_ids: applicationIds });
+      await load();
+    } catch (selectionError) {
+      setError(apiErrorDetail(selectionError, "Не удалось выбрать участников"));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const statusLabels = {
+    not_applied: "Не записан",
+    applied: "Записан",
+    selected: "Выбран мастером"
+  };
+
+  return (
+    <div className="space-y-5">
+      <section className="panel p-5">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h1 className="text-2xl font-bold text-ember">Набор на игры</h1>
+            <p className="mt-1 text-sm text-white/60">Предстоящие приключения и запись персонажей</p>
+          </div>
+          {user?.is_admin && <button className="btn" onClick={() => setShowForm((value) => !value)}><Plus size={16} />Создать игру</button>}
+        </div>
+        {showForm && (
+          <form className="mt-5 grid gap-4 border-t border-white/10 pt-5 md:grid-cols-2" onSubmit={createRecruitment}>
+            <label className="field-label"><span>Реальная дата</span><input required className="field" type="date" value={form.real_date} onChange={(event) => setForm({ ...form, real_date: event.target.value })} /></label>
+            <label className="field-label"><span>Игровая дата</span><input required className="field" type="date" value={form.game_date} onChange={(event) => setForm({ ...form, game_date: event.target.value })} /></label>
+            <label className="field-label"><span>Начало игры</span><input required className="field" type="time" value={form.start_time} onChange={(event) => setForm({ ...form, start_time: event.target.value })} /></label>
+            <label className="field-label"><span>Примерная длительность</span><input required maxLength={100} className="field" value={form.duration} onChange={(event) => setForm({ ...form, duration: event.target.value })} /></label>
+            <label className="field-label md:col-span-2"><span>Место действия</span><input required maxLength={300} className="field" value={form.location} onChange={(event) => setForm({ ...form, location: event.target.value })} /></label>
+            <label className="field-label md:col-span-2"><span>Задание</span><textarea required maxLength={2000} className="field min-h-24" value={form.quest} onChange={(event) => setForm({ ...form, quest: event.target.value })} /></label>
+            <label className="field-label md:col-span-2"><span>Примечания</span><textarea maxLength={2000} className="field min-h-20" value={form.notes} onChange={(event) => setForm({ ...form, notes: event.target.value })} /></label>
+            <div className="flex gap-2 md:col-span-2"><button className="btn" disabled={busy}><Send size={16} />Опубликовать</button><button type="button" className="btn-secondary" onClick={() => setShowForm(false)}>Отмена</button></div>
+          </form>
+        )}
+        {error && <p className="mt-4 text-sm text-red-300">{error}</p>}
+      </section>
+
+      {recruitments.map((recruitment) => (
+        <article className="panel overflow-hidden" key={recruitment.id}>
+          <div className="border-b border-white/10 bg-black/20 p-5">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div><p className="text-xs uppercase tracking-widest text-white/45">Мастер #{recruitment.author_username}</p><h2 className="mt-1 text-xl font-bold text-ember">{recruitment.quest}</h2></div>
+              <span className={recruitment.application_status === "selected" ? "rounded-full bg-green-500/20 px-3 py-1 text-sm text-green-200" : "rounded-full bg-white/10 px-3 py-1 text-sm"}>{statusLabels[recruitment.application_status]}</span>
+            </div>
+            <div className="mt-4 grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-4">
+              <div><span className="text-white/45">Дата</span><p>{formatGameDate(recruitment.real_date)}</p></div>
+              <div><span className="text-white/45">Игровая дата</span><p>{formatGameDate(recruitment.game_date)}</p></div>
+              <div><span className="text-white/45">Время</span><p>{recruitment.start_time.slice(0, 5)} · {recruitment.duration}</p></div>
+              <div><span className="text-white/45">Место</span><p className="flex items-center gap-1"><MapPin size={14} />{recruitment.location}</p></div>
+            </div>
+            {recruitment.notes && <p className="mt-4 whitespace-pre-wrap rounded-md border border-white/10 p-3 text-sm text-white/70"><strong className="text-parchment">Примечания:</strong> {recruitment.notes}</p>}
+          </div>
+          <div className="grid gap-5 p-5 lg:grid-cols-2">
+            <section>
+              <h3 className="font-semibold text-ember">Желающие ({recruitment.applications.length})</h3>
+              <div className="mt-3 space-y-2">
+                {recruitment.applications.map((application) => (
+                  <label className="flex items-center gap-3 rounded-md border border-white/10 p-3" key={application.id}>
+                    {recruitment.can_manage && <input type="checkbox" checked={(selectedApplications[recruitment.id] ?? []).includes(application.id)} onChange={() => toggleApplication(recruitment.id, application.id)} />}
+                    <span className="min-w-0 flex-1"><strong>#{application.username}</strong> — «{application.character_name}»<span className="block text-sm text-white/55">{application.class_name}, уровень {application.level}</span></span>
+                    {application.status === "selected" && <Check size={18} className="text-green-300" />}
+                  </label>
+                ))}
+                {!recruitment.applications.length && <p className="text-sm text-white/50">Пока никто не записался.</p>}
+              </div>
+              {recruitment.can_manage ? (
+                <button className="btn mt-3" disabled={busy || !(selectedApplications[recruitment.id] ?? []).length} onClick={() => publishParticipants(recruitment.id)}><Check size={16} />Выдать выбранных игроков</button>
+              ) : recruitment.application_status === "not_applied" ? (
+                <div className="mt-3 flex flex-wrap gap-2"><select className="field max-w-sm" value={selectedCharacters[recruitment.id] ?? ""} onChange={(event) => setSelectedCharacters({ ...selectedCharacters, [recruitment.id]: event.target.value })}><option value="">Выберите персонажа</option>{characters.map((character) => <option key={character.id} value={character.id}>{character.name} · {character.class_name} · ур. {character.level}</option>)}</select><button className="btn" disabled={busy || !selectedCharacters[recruitment.id]} onClick={() => apply(recruitment.id)}>Записаться</button></div>
+              ) : null}
+            </section>
+            <section>
+              <h3 className="font-semibold text-ember">Чат публикации</h3>
+              <div className="mt-3 max-h-80 space-y-2 overflow-y-auto rounded-md border border-white/10 p-3">
+                {recruitment.messages.map((message) => <div className="rounded-md bg-black/25 p-3" key={message.id}><p className="whitespace-pre-wrap text-sm text-white/80">{message.content}</p><p className="mt-2 text-xs text-white/35">{new Date(message.created_at).toLocaleString("ru-RU")}</p></div>)}
+                {!recruitment.messages.length && <p className="text-sm text-white/50">Событий пока нет.</p>}
+              </div>
+            </section>
+          </div>
+        </article>
+      ))}
+      {!recruitments.length && <section className="panel p-8 text-center text-white/55">Опубликованных игр пока нет.</section>}
+    </div>
+  );
+}
+
 function ChatPage() {
   const [channel, setChannel] = useState<"general" | "rolls">("general");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -2617,6 +2794,7 @@ function App() {
         <Route path="/karma-shop" element={<Protected><KarmaShopPage /></Protected>} />
         <Route path="/leaderboard" element={<Protected><LeaderboardPage /></Protected>} />
         <Route path="/chat" element={<Protected><ChatPage /></Protected>} />
+        <Route path="/game-recruitments" element={<Protected><GameRecruitmentsPage /></Protected>} />
         <Route path="/profile" element={<Protected><ProfilePage /></Protected>} />
         <Route path="/admin/shop-logs" element={<Protected><ShopLogsPage /></Protected>} />
         <Route path="/admin/karma-shop-logs" element={<Protected><KarmaShopLogsPage /></Protected>} />

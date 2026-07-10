@@ -38,6 +38,7 @@ Notable protected API routes:
 
 - `GET /api/leaderboard` returns users ranked by karma.
 - `GET/POST /api/chat/messages` stores general chat messages and `/r` roll commands.
+- `GET/POST /api/game-recruitments` lists game announcements and lets administrators publish them. Players enroll an owned living character through `/applications`; only the announcement author can publish the selected roster through `/participants`. Enrollment and selection notices are persisted in the announcement chat.
 - `POST /api/dice/roll` rolls formulas such as `/r 2d6` or `/r 1d37` and stores the result in the rolls channel.
 - `PATCH /api/characters/{id}/inventory/notes` saves free-form inventory notes.
 - `GET/POST /api/characters/{id}/attacks` manages attack rows, and `POST /api/characters/{id}/attacks/{attack_id}/roll` records attack rolls.

@@ -182,6 +182,42 @@ export interface LeaderboardEntry {
   karma: number;
 }
 
+export interface GameApplication {
+  id: number;
+  user_id: number;
+  username: string;
+  character_id: number;
+  character_name: string;
+  class_name: string;
+  level: number;
+  created_at: string;
+  status: "applied" | "selected";
+}
+
+export interface RecruitmentMessage {
+  id: number;
+  created_at: string;
+  content: string;
+}
+
+export interface GameRecruitment {
+  id: number;
+  author_id: number;
+  author_username: string;
+  created_at: string;
+  real_date: string;
+  game_date: string;
+  start_time: string;
+  duration: string;
+  location: string;
+  quest: string;
+  notes: string;
+  can_manage: boolean;
+  application_status: "not_applied" | "applied" | "selected";
+  applications: GameApplication[];
+  messages: RecruitmentMessage[];
+}
+
 export interface ShopResult {
   quote_id: number | null;
   mode: "buy" | "sell";
