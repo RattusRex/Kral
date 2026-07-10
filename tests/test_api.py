@@ -15,6 +15,8 @@ from app.core.request_limits import RequestBodyLimitMiddleware
 from app.core.text_limits import MAX_CHAT_MESSAGE_LENGTH, MAX_INVENTORY_NOTES_LENGTH
 from app.db.database import Base, engine
 from app.main import app
+from app.api.admin import apply_xp_delta
+from app.models.character import Character
 
 
 def setup_function():
@@ -27,6 +29,62 @@ def login(client: TestClient, username: str, password: str) -> str:
     response = client.post("/api/login", data={"username": username, "password": password})
     assert response.status_code == 200, response.text
     return response.json()["access_token"]
+
+
+def test_character_creation_rejects_levels_outside_campaign_bounds():
+    with TestClient(app) as client:
+        token = login(client, "admin", "admin123")
+        headers = {"Authorization": f"Bearer {token}"}
+
+        for level in (0, -1, 21):
+            response = client.post("/api/characters", headers=headers, json={
+                "name": f"Invalid Level {level}",
+                "class_name": "Fighter",
+                "level": level,
+                "route": "Open Table",
+            })
+            assert response.status_code == 422, response.text
+
+        for level in (1, 20):
+            response = client.post("/api/characters", headers=headers, json={
+                "name": f"Valid Level {level}",
+                "class_name": "Fighter",
+                "level": level,
+                "route": "Open Table",
+            })
+            assert response.status_code == 200, response.text
+            assert response.json()["level"] == level
+
+
+def test_xp_grant_normalizes_legacy_invalid_level_before_progression():
+    character = Character(level=-1_000_000, xp=0)
+
+    apply_xp_delta(character, 2)
+
+    assert character.level == 2
+    assert character.xp == 0
+
+
+def test_admin_character_level_edit_stays_within_campaign_bounds():
+    with TestClient(app) as client:
+        token = login(client, "admin", "admin123")
+        headers = {"Authorization": f"Bearer {token}"}
+        created = client.post("/api/characters", headers=headers, json={
+            "name": "Bounded Admin Edit",
+            "class_name": "Wizard",
+            "level": 1,
+            "route": "Arcane",
+        })
+        assert created.status_code == 200, created.text
+
+        for requested_level, expected_level in ((0, 1), (21, 20)):
+            edited = client.patch(
+                f"/api/admin/characters/{created.json()['id']}",
+                headers=headers,
+                json={"level": requested_level},
+            )
+            assert edited.status_code == 200, edited.text
+            assert edited.json()["level"] == expected_level
 
 
 def test_admin_seed_and_username_login():

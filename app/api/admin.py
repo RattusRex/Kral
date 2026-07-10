@@ -8,7 +8,12 @@ from app.api.users import get_current_user, get_db
 from app.models.character import CalendarAuditLog, Character
 from app.models.inventory import AdminGrantLog, InventoryItem, ShopTransactionLog, TransferLog
 from app.models.user import User
-from app.schemas.character import CalendarAuditLogResponse, CharacterUpdate
+from app.schemas.character import (
+    MAX_CHARACTER_LEVEL,
+    MIN_CHARACTER_LEVEL,
+    CalendarAuditLogResponse,
+    CharacterUpdate,
+)
 from app.schemas.inventory import (
     AdminAddItemRequest,
     AdminCurrencyUpdateRequest,
@@ -172,6 +177,10 @@ def serialize_character(character: Character):
 
 
 def apply_xp_delta(character: Character, amount: int):
+    character.level = min(
+        MAX_CHARACTER_LEVEL,
+        max(MIN_CHARACTER_LEVEL, character.level),
+    )
     character.xp = max(0, character.xp + amount)
     if amount <= 0:
         return
@@ -234,7 +243,10 @@ def update_admin_character(
     update_data = character_data.model_dump(exclude_unset=True)
 
     if "level" in update_data and update_data["level"] is not None:
-        update_data["level"] = max(1, update_data["level"])
+        update_data["level"] = min(
+            MAX_CHARACTER_LEVEL,
+            max(MIN_CHARACTER_LEVEL, update_data["level"]),
+        )
     if "xp" in update_data and update_data["xp"] is not None:
         update_data["xp"] = max(0, update_data["xp"])
     validate_admin_character_update(update_data)
