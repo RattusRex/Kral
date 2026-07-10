@@ -29,6 +29,24 @@ from app.core.roles import Role, VALID_ROLES, normalize_role, can_manage_roles
 
 
 router = APIRouter(prefix="/admin")
+DEFAULT_PAGE_SIZE = 20
+MAX_PAGE_SIZE = 100
+
+
+def paginated_response(query, page: int, page_size: int, serializer) -> dict:
+    total = query.count()
+    items = (
+        query.offset((page - 1) * page_size)
+        .limit(page_size)
+        .all()
+    )
+    return {
+        "items": [serializer(item) for item in items],
+        "page": page,
+        "page_size": page_size,
+        "total": total,
+        "pages": (total + page_size - 1) // page_size,
+    }
 
 
 def require_admin(current_user: User = Depends(get_current_user)) -> User:
@@ -111,6 +129,26 @@ def agent_calendar_summary(
         downtime_for_agent(character, agent_type),
         created_at,
     )
+
+
+def serialize_user(user: User) -> dict:
+    return {
+        "id": user.id,
+        "username": user.username,
+        "email": user.email,
+        "karma": user.karma,
+        "role": user.role,
+        "is_admin": user.is_admin,
+        "is_owner": user.is_owner,
+        "is_head_admin": user.is_head_admin,
+    }
+
+
+def serialize_admin_user(user: User) -> dict:
+    return {
+        **serialize_user(user),
+        "character_count": len(user.characters),
+    }
 
 
 def serialize_character(character: Character):
@@ -217,13 +255,22 @@ def validate_admin_character_update(update_data: dict) -> None:
 
 @router.get("/characters")
 def list_characters(
+    page: int | None = Query(default=None, ge=1),
+    page_size: int | None = Query(default=None, ge=1, le=MAX_PAGE_SIZE),
     db: Session = Depends(get_db),
     _: User = Depends(require_admin)
 ):
-    return [
-        serialize_character(character)
-        for character in db.query(Character).all()
-    ]
+    query = db.query(Character).order_by(Character.id)
+    if page is None and page_size is None:
+        return [serialize_character(character) for character in query.all()]
+    resolved_page = page or 1
+    resolved_page_size = page_size or DEFAULT_PAGE_SIZE
+    return paginated_response(
+        query,
+        resolved_page,
+        resolved_page_size,
+        serialize_character,
+    )
 
 
 @router.get("/characters/{character_id}")
@@ -274,21 +321,22 @@ def get_admin_character_inventory(
 
 @router.get("/users")
 def list_users(
+    page: int | None = Query(default=None, ge=1),
+    page_size: int | None = Query(default=None, ge=1, le=MAX_PAGE_SIZE),
     db: Session = Depends(get_db),
     _: User = Depends(require_admin)
 ):
-    users = db.query(User).all()
-    return [{
-        "id": user.id,
-        "username": user.username,
-        "email": user.email,
-        "karma": user.karma,
-        "role": user.role,
-        "is_admin": user.is_admin,
-        "is_owner": user.is_owner,
-        "is_head_admin": user.is_head_admin,
-        "character_count": len(user.characters)
-    } for user in users]
+    query = db.query(User).order_by(User.id)
+    if page is None and page_size is None:
+        return [serialize_admin_user(user) for user in query.all()]
+    resolved_page = page or 1
+    resolved_page_size = page_size or DEFAULT_PAGE_SIZE
+    return paginated_response(
+        query,
+        resolved_page,
+        resolved_page_size,
+        serialize_admin_user,
+    )
 
 
 @router.post("/characters/{character_id}/xp")
@@ -622,19 +670,6 @@ def update_user_karma(
     db.commit()
     db.refresh(user)
     return serialize_user(user)
-
-
-def serialize_user(user: User) -> dict:
-    return {
-        "id": user.id,
-        "username": user.username,
-        "email": user.email,
-        "karma": user.karma,
-        "role": user.role,
-        "is_admin": user.is_admin,
-        "is_owner": user.is_owner,
-        "is_head_admin": user.is_head_admin
-    }
 
 
 @router.post("/users/{user_id}/role")
