@@ -371,6 +371,10 @@ function CalendarPanel({ characterId, agentType = "character", title = "Кале
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editForm, setEditForm] = useState({ start_date: GAME_EPOCH, days: 1, reason: "" });
   const canManage = summary?.can_manage ?? false;
+  const isUnitCalendar = agentType !== "character";
+  const createdAtLabel = agentType === "personal_hireling"
+    ? "Дата получения"
+    : "Дата создания";
   const calendarPath = agentType === "character"
     ? `/characters/${characterId}/calendar`
     : `/characters/${characterId}/calendar/agents/${agentType}`;
@@ -452,46 +456,48 @@ function CalendarPanel({ characterId, agentType = "character", title = "Кале
       ) : summary ? (
         <>
           <dl className="grid grid-cols-2 gap-3 md:grid-cols-3">
-            <Stat label="Дата создания" value={formatGameDate(summary.created_at)} />
+            <Stat label={createdAtLabel} value={formatGameDate(summary.created_at)} />
             <Stat label="Текущая игровая дата" value={formatGameDate(summary.current_date)} />
             <Stat label="Всего дней" value={summary.total_days} />
             <Stat label="Занятые дни" value={summary.busy_days} />
             <Stat label="Свободные дни" value={summary.free_days} />
           </dl>
 
-          <form className="mt-5 grid gap-3 md:grid-cols-[150px_110px_1fr_auto]" onSubmit={addEntry}>
-            <label className="field-label">
-              <span>Дата начала</span>
-              <input
-                className="field"
-                type="date"
-                min={summary.created_at}
-                max={summary.current_date}
-                value={form.start_date}
-                onChange={(event) => setForm({ ...form, start_date: event.target.value })}
-              />
-            </label>
-            <label className="field-label">
-              <span>Дней</span>
-              <input
-                className="field"
-                type="number"
-                min={1}
-                value={form.days}
-                onChange={(event) => setForm({ ...form, days: Number(event.target.value) })}
-              />
-            </label>
-            <label className="field-label">
-              <span>Причина</span>
-              <input
-                className="field"
-                placeholder="Крафт, исследование, обучение..."
-                value={form.reason}
-                onChange={(event) => setForm({ ...form, reason: event.target.value })}
-              />
-            </label>
-            <button className="btn self-end" type="submit"><Plus size={16} />Занять дни</button>
-          </form>
+          {!isUnitCalendar && (
+            <form className="mt-5 grid gap-3 md:grid-cols-[150px_110px_1fr_auto]" onSubmit={addEntry}>
+              <label className="field-label">
+                <span>Дата начала</span>
+                <input
+                  className="field"
+                  type="date"
+                  min={summary.created_at}
+                  max={summary.current_date}
+                  value={form.start_date}
+                  onChange={(event) => setForm({ ...form, start_date: event.target.value })}
+                />
+              </label>
+              <label className="field-label">
+                <span>Дней</span>
+                <input
+                  className="field"
+                  type="number"
+                  min={1}
+                  value={form.days}
+                  onChange={(event) => setForm({ ...form, days: Number(event.target.value) })}
+                />
+              </label>
+              <label className="field-label">
+                <span>Причина</span>
+                <input
+                  className="field"
+                  placeholder="Крафт, исследование, обучение..."
+                  value={form.reason}
+                  onChange={(event) => setForm({ ...form, reason: event.target.value })}
+                />
+              </label>
+              <button className="btn self-end" type="submit"><Plus size={16} />Занять дни</button>
+            </form>
+          )}
           {error && <p className="mt-3 text-sm text-red-300">{error}</p>}
 
           <div className="mt-4 space-y-2">
@@ -705,6 +711,22 @@ function CharacterPage() {
           </section>
 
           <CalendarPanel characterId={id} />
+
+          {character.personal_hireling_enabled && (
+            <CalendarPanel
+              characterId={id}
+              agentType="personal_hireling"
+              title="Календарь личного наёмника"
+            />
+          )}
+
+          {character.simulacrum_enabled && (
+            <CalendarPanel
+              characterId={id}
+              agentType="simulacrum"
+              title="Календарь симулякра"
+            />
+          )}
 
           <section className="panel p-5">
             <div className="flex flex-wrap items-center justify-between gap-3">
