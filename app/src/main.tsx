@@ -773,6 +773,7 @@ function CharacterPage() {
           <Link className="btn-secondary" to={`/characters/${id}/edit`}>Редактировать</Link>
         </div>
         <dl className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+          <Stat label="Статус" value={character.is_dead ? "Мёртв" : "Жив"} />
           <Stat label="Раса" value={character.race || "-"} />
           <Stat label="Предыстория" value={character.background || "-"} />
           <Stat label="Путь" value={character.route || "-"} />
@@ -1553,6 +1554,18 @@ function KarmaShopPage() {
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
 
+  const resurrectionCharacters = characters.filter(
+    (character) => character.is_dead && character.level <= 10
+  );
+  const resurrectionCharacter = resurrectionCharacters.find(
+    (character) => String(character.id) === characterId
+  );
+  const resurrectionCost = resurrectionCharacter
+    ? (resurrectionCharacter.level <= 5 ? 5 : 10)
+    : null;
+  const canAffordResurrection = resurrectionCost !== null
+    && (user?.karma ?? 0) >= resurrectionCost;
+
   useEffect(() => {
     api.get<Character[]>("/characters").then((response) => {
       setCharacters(response.data);
@@ -1573,7 +1586,7 @@ function KarmaShopPage() {
     }
   }
 
-  return <div className="space-y-4"><section className="panel p-5"><h1 className="text-2xl font-bold text-ember">Магазин Кармы</h1><p className="mt-2 text-white/70">Баланс: {user?.karma ?? 0} кармы</p>{message && <p className="mt-3 text-emerald-200">{message}</p>}{error && <p className="mt-3 text-red-300">{error}</p>}</section><div className="grid gap-4 lg:grid-cols-3"><section className="panel p-5"><h2 className="text-lg font-semibold text-ember">Покупка опыта</h2><p className="text-sm text-white/55">1 опыт = 5 кармы</p><select className="field mt-4" value={characterId} onChange={(event) => setCharacterId(event.target.value)}><option value="">Выберите персонажа</option>{characters.map((character) => <option key={character.id} value={character.id}>{character.name} · ур. {character.level}</option>)}</select><input className="field mt-3" min={1} type="number" value={xpAmount} onChange={(event) => setXpAmount(Number(event.target.value))} /><button className="btn mt-3" disabled={!characterId || xpAmount < 1} onClick={() => execute("/karma-shop/xp", { character_id: Number(characterId), amount: xpAmount }, `Куплено ${xpAmount} опыта`)}>Купить за {xpAmount * 5} кармы</button></section><section className="panel p-5"><h2 className="text-lg font-semibold text-ember">Специальная покупка</h2><select className="field mt-4" value={purchaseType} onChange={(event) => setPurchaseType(event.target.value as "item" | "opener")}><option value="opener">Открывашка</option><option value="item">Другой товар</option></select><input className="field mt-3" placeholder="Название" value={name} onChange={(event) => setName(event.target.value)} /><input className="field mt-3" min={1} type="number" value={cost} onChange={(event) => setCost(Number(event.target.value))} /><button className="btn mt-3" disabled={!name.trim() || cost < 1} onClick={() => execute("/karma-shop/purchases", { purchase_type: purchaseType, name, cost }, "Покупка сохранена")}>Купить за {cost} кармы</button></section><section className="panel p-5"><h2 className="text-lg font-semibold text-ember">Воскресить персонажа</h2><p className="text-sm text-white/55">1–5 уровень: 5 кармы · 6–10: 10 кармы · 11+: недоступно</p><select className="field mt-4" value={characterId} onChange={(event) => setCharacterId(event.target.value)}><option value="">Выберите персонажа</option>{characters.map((character) => <option key={character.id} value={character.id}>{character.name} · ур. {character.level}{character.is_dead ? " · погиб" : " · жив"}</option>)}</select><button className="btn mt-3" disabled={!characterId} onClick={() => execute("/karma-shop/resurrect", { character_id: Number(characterId) }, "Персонаж воскрешён")}>Воскресить персонажа</button></section></div></div>;
+  return <div className="space-y-4"><section className="panel p-5"><h1 className="text-2xl font-bold text-ember">Магазин Кармы</h1><p className="mt-2 text-white/70">Баланс: {user?.karma ?? 0} кармы</p>{message && <p className="mt-3 text-emerald-200">{message}</p>}{error && <p className="mt-3 text-red-300">{error}</p>}</section><div className="grid gap-4 lg:grid-cols-3"><section className="panel p-5"><h2 className="text-lg font-semibold text-ember">Покупка опыта</h2><p className="text-sm text-white/55">1 опыт = 5 кармы</p><select className="field mt-4" value={characterId} onChange={(event) => setCharacterId(event.target.value)}><option value="">Выберите персонажа</option>{characters.map((character) => <option key={character.id} value={character.id}>{character.name} · ур. {character.level}</option>)}</select><input className="field mt-3" min={1} type="number" value={xpAmount} onChange={(event) => setXpAmount(Number(event.target.value))} /><button className="btn mt-3" disabled={!characterId || xpAmount < 1} onClick={() => execute("/karma-shop/xp", { character_id: Number(characterId), amount: xpAmount }, `Куплено ${xpAmount} опыта`)}>Купить за {xpAmount * 5} кармы</button></section><section className="panel p-5"><h2 className="text-lg font-semibold text-ember">Специальная покупка</h2><select className="field mt-4" value={purchaseType} onChange={(event) => setPurchaseType(event.target.value as "item" | "opener")}><option value="opener">Открывашка</option><option value="item">Другой товар</option></select><input className="field mt-3" placeholder="Название" value={name} onChange={(event) => setName(event.target.value)} /><input className="field mt-3" min={1} type="number" value={cost} onChange={(event) => setCost(Number(event.target.value))} /><button className="btn mt-3" disabled={!name.trim() || cost < 1} onClick={() => execute("/karma-shop/purchases", { purchase_type: purchaseType, name, cost }, "Покупка сохранена")}>Купить за {cost} кармы</button></section><section className="panel p-5"><h2 className="text-lg font-semibold text-ember">Воскресить персонажа</h2><p className="text-sm text-white/55">1–5 уровень: 5 кармы · 6–10: 10 кармы · 11+: недоступно</p><select className="field mt-4" value={resurrectionCharacter ? characterId : ""} onChange={(event) => setCharacterId(event.target.value)}><option value="">Выберите погибшего персонажа</option>{resurrectionCharacters.map((character) => <option key={character.id} value={character.id}>{character.name} · ур. {character.level}</option>)}</select>{resurrectionCharacters.length === 0 && <p className="mt-3 text-sm text-white/55">Нет погибших персонажей доступного уровня.</p>}{resurrectionCost !== null && !canAffordResurrection && <p className="mt-3 text-sm text-red-300">Недостаточно кармы для воскрешения.</p>}<button className="btn mt-3" disabled={!resurrectionCharacter || !canAffordResurrection} onClick={() => execute("/karma-shop/resurrect", { character_id: Number(characterId) }, "Персонаж воскрешён")}>Воскресить за {resurrectionCost ?? "—"} кармы</button></section></div></div>;
 }
 
 function LeaderboardPage() {
