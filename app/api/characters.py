@@ -85,6 +85,9 @@ def create_character(
         investigation=character_data.investigation,
         skill_proficiencies=character_data.skill_proficiencies or [],
         skill_expertise=character_data.skill_expertise or [],
+        saving_throw_proficiencies=(
+            character_data.saving_throw_proficiencies or []
+        ),
         hp=character_data.hp,
         temp_hp=character_data.temp_hp,
         armor_class=character_data.armor_class,
@@ -120,6 +123,7 @@ def create_character(
         "investigation": character.investigation,
         "skill_proficiencies": character.skill_proficiencies,
         "skill_expertise": character.skill_expertise,
+        "saving_throw_proficiencies": character.saving_throw_proficiencies,
         "personal_hireling_enabled": character.personal_hireling_enabled,
         "personal_hireling_acquired_at": character.personal_hireling_acquired_at,
         "personal_hireling_investigation": (
@@ -261,6 +265,8 @@ def roll_saving_throw(
 
     score = getattr(character, ability)
     bonus = (score - 10) // 2
+    if ability in (character.saving_throw_proficiencies or []):
+        bonus += 2 + (max(1, min(20, character.level)) - 1) // 4
     roll = random.randint(1, 20)
     total = roll + bonus
     bonus_text = f"{'+' if bonus >= 0 else ''}{bonus}"

@@ -11,11 +11,16 @@ SKILL_KEYS = {
     "nature", "perception", "performance", "persuasion", "religion",
     "sleight_of_hand", "stealth", "survival",
 }
+ABILITY_KEYS = {
+    "strength", "dexterity", "constitution",
+    "intelligence", "wisdom", "charisma",
+}
 
 
 class SkillSettings(BaseModel):
     skill_proficiencies: Optional[list[str]] = None
     skill_expertise: Optional[list[str]] = None
+    saving_throw_proficiencies: Optional[list[str]] = None
 
     @model_validator(mode="after")
     def validate_skill_settings(self):
@@ -30,6 +35,14 @@ class SkillSettings(BaseModel):
             self.skill_proficiencies = sorted(proficiencies)
         if self.skill_expertise is not None:
             self.skill_expertise = sorted(expertise)
+        saving_throws = set(self.saving_throw_proficiencies or [])
+        unknown_saving_throws = saving_throws - ABILITY_KEYS
+        if unknown_saving_throws:
+            raise ValueError(
+                f"Неизвестные спасброски: {', '.join(sorted(unknown_saving_throws))}"
+            )
+        if self.saving_throw_proficiencies is not None:
+            self.saving_throw_proficiencies = sorted(saving_throws)
         return self
 
 
@@ -81,6 +94,7 @@ class PlayerCharacterUpdate(CharacterEditableFields):
 
 
 class CharacterUpdate(CharacterEditableFields):
+    game_created_at: Optional[date] = None
     personal_hireling_enabled: Optional[bool] = None
     personal_hireling_acquired_at: Optional[date] = None
     personal_hireling_investigation: Optional[int] = Field(default=None, title="Расследование личного наёмника")

@@ -77,6 +77,15 @@ def require_role_manager(current_user: User = Depends(get_current_user)) -> User
     return current_user
 
 
+def require_character_deleter(current_user: User = Depends(get_current_user)) -> User:
+    if normalize_role(current_user.role) not in (Role.OWNER, Role.HEAD_ADMIN):
+        raise HTTPException(
+            status_code=403,
+            detail="Only the owner or head administrator may delete characters"
+        )
+    return current_user
+
+
 def get_character_or_404(character_id: int, db: Session) -> Character:
     character = db.query(Character).filter(Character.id == character_id).first()
     if not character:
@@ -193,6 +202,7 @@ def serialize_character(character: Character):
         "investigation": character.investigation,
         "skill_proficiencies": character.skill_proficiencies,
         "skill_expertise": character.skill_expertise,
+        "saving_throw_proficiencies": character.saving_throw_proficiencies,
         "game_created_at": character.game_created_at,
         "total_days": character_calendar["total_days"],
         "busy_days": character_calendar["busy_days"],
@@ -235,6 +245,7 @@ def apply_xp_delta(character: Character, amount: int):
 
 def validate_admin_character_update(update_data: dict) -> None:
     date_fields = {
+        "game_created_at": "Дата появления персонажа",
         "personal_hireling_acquired_at": "Дата появления личного наёмника",
         "simulacrum_created_at": "Дата появления симулякра",
     }
@@ -612,7 +623,7 @@ def delete_admin_character(
     character_id: int,
     confirmation: str = Query(...),
     db: Session = Depends(get_db),
-    _: User = Depends(require_admin)
+    _: User = Depends(require_character_deleter)
 ):
     if confirmation != "УДАЛИТЬ":
         raise HTTPException(
