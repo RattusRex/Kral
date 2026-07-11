@@ -366,6 +366,13 @@ type ContentPageSlug = "server-rules" | "approved-homebrew";
 function ContentPage({ pageSlug, title }: { pageSlug: ContentPageSlug; title: string }) {
   const { user, loading: userLoading } = useAuth();
   const [blocks, setBlocks] = useState<ContentBlock[]>([]);
+  const [collapsedContentBlocks, setCollapsedContentBlocks] = useState<number[]>(() => {
+    try {
+      return JSON.parse(sessionStorage.getItem(`content-blocks-collapsed-${pageSlug}`) ?? "[]");
+    } catch {
+      return [];
+    }
+  });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [editingId, setEditingId] = useState<number | "new" | null>(null);
@@ -381,6 +388,25 @@ function ContentPage({ pageSlug, title }: { pageSlug: ContentPageSlug; title: st
   }
 
   useEffect(load, [pageSlug]);
+
+  useEffect(() => {
+    try {
+      const stored = JSON.parse(sessionStorage.getItem(`content-blocks-collapsed-${pageSlug}`) ?? "[]");
+      setCollapsedContentBlocks(Array.isArray(stored) ? stored.filter(Number.isInteger) : []);
+    } catch {
+      setCollapsedContentBlocks([]);
+    }
+  }, [pageSlug]);
+
+  function toggleContentBlock(blockId: number) {
+    setCollapsedContentBlocks((current) => {
+      const next = current.includes(blockId)
+        ? current.filter((id) => id !== blockId)
+        : [...current, blockId];
+      sessionStorage.setItem(`content-blocks-collapsed-${pageSlug}`, JSON.stringify(next));
+      return next;
+    });
+  }
 
   function startCreate() {
     setEditingId("new");
@@ -454,12 +480,25 @@ function ContentPage({ pageSlug, title }: { pageSlug: ContentPageSlug; title: st
       {!blocks.length && editingId !== "new" && (
         <section className="panel p-8 text-center text-white/60">Разделы пока не добавлены.</section>
       )}
-      {blocks.map((block, index) => editingId === block.id ? (
-        <ContentBlockForm key={block.id} form={form} setForm={setForm} onSubmit={save} onCancel={() => setEditingId(null)} />
-      ) : (
+      {blocks.map((block, index) => {
+        if (editingId === block.id) {
+          return <ContentBlockForm key={block.id} form={form} setForm={setForm} onSubmit={save} onCancel={() => setEditingId(null)} />;
+        }
+        const isCollapsed = collapsedContentBlocks.includes(block.id);
+        return (
         <section className="panel p-5" key={block.id}>
           <div className="flex items-start justify-between gap-4">
-            <h2 className="text-xl font-semibold text-ember">{block.title}</h2>
+            <button
+              aria-controls={`content-block-${block.id}`}
+              aria-expanded={!isCollapsed}
+              aria-label={`${isCollapsed ? "Развернуть" : "Свернуть"} публикацию «${block.title}»`}
+              className="flex min-w-0 flex-1 items-center gap-2 rounded-sm text-left text-xl font-semibold text-ember transition hover:text-[#e0b35f] focus-visible:outline focus-visible:outline-2 focus-visible:outline-ember"
+              onClick={() => toggleContentBlock(block.id)}
+              type="button"
+            >
+              {isCollapsed ? <ChevronDown aria-hidden="true" className="shrink-0" size={20} /> : <ChevronUp aria-hidden="true" className="shrink-0" size={20} />}
+              <span>{block.title}</span>
+            </button>
             {user?.is_admin && (
               <div className="flex flex-wrap justify-end gap-2">
                 <button className="btn-secondary p-2" aria-label="Переместить вверх" title="Переместить вверх" disabled={index === 0} onClick={() => move(index, -1)}><ArrowUp size={16} /></button>
@@ -469,9 +508,10 @@ function ContentPage({ pageSlug, title }: { pageSlug: ContentPageSlug; title: st
               </div>
             )}
           </div>
-          <p className="mt-4 whitespace-pre-wrap text-white/80">{block.content}</p>
+          {!isCollapsed && <p className="mt-4 whitespace-pre-wrap text-white/80" id={`content-block-${block.id}`}>{block.content}</p>}
         </section>
-      ))}
+        );
+      })}
     </div>
   );
 }
