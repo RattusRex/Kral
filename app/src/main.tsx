@@ -2375,11 +2375,11 @@ function ChatPage() {
   );
 }
 
-const ROLE_OPTIONS: UserRole[] = ["owner", "head_admin", "admin", "player"];
+const ROLE_OPTIONS: UserRole[] = ["owner", "project_owner", "head_admin", "admin", "technician", "player"];
 
 // Roles that a head administrator is allowed to assign. Owners may assign any
-// role, while head admins can only manage admins and players.
-const HEAD_ADMIN_ASSIGNABLE_ROLES: UserRole[] = ["admin", "player"];
+// lower role, while head admins cannot grant owner-level or head-admin roles.
+const HEAD_ADMIN_ASSIGNABLE_ROLES: UserRole[] = ["admin", "technician", "player"];
 const ADMIN_PAGE_SIZE_OPTIONS = [10, 20, 50, 100];
 
 interface PaginationControlsProps {
@@ -2595,7 +2595,7 @@ function AdminPage() {
             <p className="text-sm text-white/55">
               {user?.is_owner
                 ? "Назначайте роли. Доступно только владельцу и главному администратору."
-                : "Главный администратор управляет ролями администраторов и игроков. Роль владельца недоступна."}
+                : "Главный администратор управляет ролями мастеров, техников и игроков. Роли владельцев недоступны."}
             </p>
             <div className="flex flex-col gap-2">
               {users.map((row) => (

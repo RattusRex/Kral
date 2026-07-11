@@ -147,6 +147,45 @@ def test_role_hierarchy_and_project_owner_peer_protection_are_enforced_server_si
         ).status_code == 200
 
 
+def test_project_owner_and_head_admin_can_assign_technician():
+    with TestClient(app) as client:
+        owner = login(client, "admin", "admin123")
+        project_owner_id = register(client, "technician-project-owner")
+        head_admin_id = register(client, "technician-head-admin")
+        first_target_id = register(client, "first-technician-target")
+        second_target_id = register(client, "second-technician-target")
+        project = client.post(
+            "/api/projects", headers=owner, json={"name": "Technicians", "slug": "technicians"}
+        ).json()
+        for user_id, role in (
+            (project_owner_id, "project_owner"),
+            (head_admin_id, "head_admin"),
+        ):
+            assert client.put(
+                f"/api/projects/{project['id']}/members/{user_id}",
+                headers=owner,
+                json={"role": role},
+            ).status_code == 200
+
+        project_owner = project_headers(
+            login(client, "technician-project-owner", PASSWORD), project["id"]
+        )
+        head_admin = project_headers(
+            login(client, "technician-head-admin", PASSWORD), project["id"]
+        )
+        for actor, target_id in (
+            (project_owner, first_target_id),
+            (head_admin, second_target_id),
+        ):
+            assigned = client.put(
+                f"/api/projects/{project['id']}/members/{target_id}",
+                headers=actor,
+                json={"role": "technician"},
+            )
+            assert assigned.status_code == 200, assigned.text
+            assert assigned.json()["role"] == "technician"
+
+
 def test_technician_can_grant_resources_but_cannot_delete_or_manage_roles_or_settings():
     with TestClient(app) as client:
         owner = login(client, "admin", "admin123")

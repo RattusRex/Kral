@@ -17,3 +17,8 @@ test("project selector, settings page, and feature-aware navigation are rendered
   assert.match(source, /project\?\.features\.shop !== false/);
   assert.match(source, /PROJECT_FEATURE_LABELS/);
 });
+
+test("technician is offered to every role manager", () => {
+  assert.match(source, /ROLE_OPTIONS[^;]+technician/);
+  assert.match(source, /HEAD_ADMIN_ASSIGNABLE_ROLES[^;]+technician/);
+});

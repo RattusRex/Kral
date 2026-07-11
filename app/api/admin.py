@@ -829,9 +829,9 @@ def change_user_role(
                 detail="Owners cannot demote themselves"
             )
     else:
-        # Head administrators may manage admins and players, but they can never
-        # touch the owner or the head-admin role. These checks must live on the
-        # backend so a direct API call cannot bypass the UI restrictions.
+        # Head administrators may manage admins, technicians and players, but
+        # they can never touch the owner or the head-admin role. These checks
+        # must live on the backend so a direct API call cannot bypass the UI.
         if user.is_owner:
             raise HTTPException(
                 status_code=403,
@@ -864,9 +864,12 @@ def change_user_role(
             project_id=default_project_id, user_id=user.id
         ).first()
         if membership:
-            membership.role = "admin" if requested_role in (
-                Role.OWNER, Role.HEAD_ADMIN, Role.ADMIN
-            ) else "player"
+            membership.role = requested_role if requested_role in (
+                Role.PROJECT_OWNER,
+                Role.HEAD_ADMIN,
+                Role.ADMIN,
+                Role.TECHNICIAN,
+            ) else Role.PLAYER
     db.commit()
     db.refresh(user)
     return serialize_user(user)
