@@ -245,7 +245,7 @@ function Shell({ children, user }: { children: React.ReactNode; user: User | nul
             {projects.length > 0 && <select aria-label="Проект" className="field max-w-52" value={project?.id ?? ""} onChange={(event) => selectProject(Number(event.target.value))}>{projects.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select>}
             <Link className="btn-secondary" to="/"><UsersRound size={16} />Меню</Link>
             <Link className="btn-secondary" to="/characters"><UsersRound size={16} />Персонажи</Link>
-            {project?.features.shop !== false && <Link className="btn-secondary" to="/shop"><ShoppingBag size={16} />Магазин</Link>}
+            {project?.features.shop !== false && <Link className="btn-secondary" to="/shop"><ShoppingBag size={16} />Магический магазин</Link>}
             {project?.features.market !== false && <Link className="btn-secondary" to="/market"><Coins size={16} />Рынок</Link>}
             {project?.features.karma !== false && project?.features.karma_shop !== false && <Link className="btn-secondary" to="/karma-shop"><ShoppingBag size={16} />Карма</Link>}
             {project?.features.leaderboard !== false && <Link className="btn-secondary" to="/leaderboard"><Trophy size={16} />Лидеры</Link>}
@@ -278,7 +278,7 @@ function HomePage() {
       <section className="panel p-5">
         <h1 className="text-2xl font-bold text-ember">Главное меню</h1>
         <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {project?.features.shop !== false && <Link className="btn" to="/shop"><ShoppingBag size={18} />Магазин</Link>}
+          {project?.features.shop !== false && <Link className="btn" to="/shop"><ShoppingBag size={18} />Магический магазин</Link>}
           {project?.features.market !== false && <Link className="btn" to="/market"><Coins size={18} />Рынок</Link>}
           {project?.features.karma !== false && project?.features.karma_shop !== false && <Link className="btn" to="/karma-shop"><ShoppingBag size={18} />Магазин Кармы</Link>}
           <Link className="btn" to="/characters"><UsersRound size={18} />Мои персонажи</Link>
@@ -300,7 +300,7 @@ function HomePage() {
 }
 
 const PROJECT_FEATURE_LABELS: Record<string, string> = {
-  shop: "Магазин",
+  shop: "Магический магазин",
   market: "Рынок",
   karma_shop: "Магазин Кармы",
   recruitments: "Набор на игры",
@@ -745,7 +745,7 @@ function CharactersPage() {
           <div className="mt-4 flex gap-2">
             <Link className="btn" to={`/characters/${character.id}`}>Открыть персонажа</Link>
             <Link className="btn-secondary" to={`/characters/${character.id}/edit`}>Редактировать</Link>
-            <Link className="btn-secondary" to={`/shop?character=${character.id}`}>Магазин</Link>
+            <Link className="btn-secondary" to={`/shop?character=${character.id}`}>Магический магазин</Link>
           </div>
         </article>
         ))}
@@ -1789,7 +1789,7 @@ function ShopPage() {
   return (
     <div className="grid gap-4 lg:grid-cols-[420px_1fr]">
       <form className="panel flex flex-col gap-4 p-5" onSubmit={searchShop}>
-        <h1 className="text-xl font-bold text-ember">Магазин</h1>
+        <h1 className="text-xl font-bold text-ember">Магический магазин</h1>
         <div className="grid grid-cols-2 gap-2">
           <button type="button" className={mode === "buy" ? "mode-tab-active" : "mode-tab"} onClick={() => switchMode("buy")}>Купить</button>
           <button type="button" className={mode === "sell" ? "mode-tab-active" : "mode-tab"} onClick={() => switchMode("sell")}>Продать</button>
