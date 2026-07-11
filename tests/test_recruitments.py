@@ -4,6 +4,8 @@ os.environ["DATABASE_URL"] = "sqlite://"
 os.environ.setdefault("SECRET_KEY", "test-secret-key-for-pytest-only")
 os.environ.setdefault("ADMIN_PASSWORD", "admin123")
 
+TEST_USER_PASSWORD = "Strong-Test-Pass-47!"
+
 from fastapi.testclient import TestClient
 
 from app.core.auth_abuse import reset_auth_abuse_state
@@ -19,7 +21,7 @@ def setup_function():
     reset_auth_abuse_state()
 
 
-def login(client, username, password="password123"):
+def login(client, username, password=TEST_USER_PASSWORD):
     response = client.post("/api/login", data={"username": username, "password": password})
     assert response.status_code == 200, response.text
     return {"Authorization": f"Bearer {response.json()['access_token']}"}
@@ -27,7 +29,7 @@ def login(client, username, password="password123"):
 
 def register(client, username):
     response = client.post("/api/users", json={
-        "username": username, "email": f"{username}@example.com", "password": "password123"
+        "username": username, "email": f"{username}@example.com", "password": TEST_USER_PASSWORD
     })
     assert response.status_code == 200, response.text
     return login(client, username)
