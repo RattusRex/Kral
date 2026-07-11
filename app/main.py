@@ -27,6 +27,8 @@ from app.api.content import router as content_router
 from app.models.chat import ChatMessage
 from app.models.recruitment import GameApplication, GameRecruitment, RecruitmentMessage
 from app.models.content import ContentBlock
+from app.models.project import DEFAULT_PROJECT_NAME, Project, ProjectMembership
+from app.api.projects import router as projects_router
 from app.core.calendar import GAME_EPOCH
 from app.core.security import hash_password
 from app.core.roles import Role
@@ -61,6 +63,24 @@ def seed_admin(db: Session) -> None:
         email_verified=True,
         email_verified_at=datetime.now().astimezone(),
     ))
+    db.commit()
+
+
+def seed_default_project(db: Session) -> None:
+    owner = db.query(User).filter(User.role == Role.OWNER).order_by(User.id).first()
+    if not owner:
+        return
+    project = db.query(Project).filter(Project.name == DEFAULT_PROJECT_NAME).first()
+    if not project:
+        project = Project(name=DEFAULT_PROJECT_NAME, owner_id=owner.id, settings={})
+        db.add(project)
+        db.flush()
+    for user in db.query(User).all():
+        if not db.query(ProjectMembership).filter_by(project_id=project.id, user_id=user.id).first():
+            db.add(ProjectMembership(
+                project_id=project.id, user_id=user.id,
+                role="admin" if user.is_admin else "player",
+            ))
     db.commit()
 
 
@@ -120,6 +140,22 @@ def migrate_email_verification() -> None:
 
 
 def ensure_schema_columns() -> None:
+    # Existing installations predate projects; all legacy characters belong to
+    # the campaign's original ecosystem.
+    with SessionLocal() as db:
+        seed_default_project(db)
+        default_project_id = db.query(Project.id).filter(
+            Project.name == DEFAULT_PROJECT_NAME
+        ).scalar()
+    ensure_column(
+        "characters", "project_id",
+        f"INTEGER REFERENCES projects(id) DEFAULT {default_project_id}"
+    )
+    for table_name in ("chat_messages", "content_blocks", "game_recruitments"):
+        ensure_column(
+            table_name, "project_id",
+            f"INTEGER REFERENCES projects(id) DEFAULT {default_project_id}"
+        )
     ensure_column("characters", "temp_hp", "INTEGER NOT NULL DEFAULT 0")
     ensure_column("characters", "speed", "INTEGER NOT NULL DEFAULT 30")
     ensure_column("characters", "skill_proficiencies", "JSON NOT NULL DEFAULT '[]'")
@@ -188,6 +224,14 @@ def ensure_schema_columns() -> None:
     migrate_user_roles()
     migrate_email_verification()
     with engine.begin() as connection:
+        connection.execute(
+            text("UPDATE characters SET project_id = :project_id WHERE project_id IS NULL"),
+            {"project_id": default_project_id},
+        )
+        for table_name in ("chat_messages", "content_blocks", "game_recruitments"):
+            connection.execute(text(
+                f"UPDATE {table_name} SET project_id = :project_id WHERE project_id IS NULL"
+            ), {"project_id": default_project_id})
         rows = connection.execute(text(
             "SELECT id, class_name, level, class_levels FROM characters"
         )).mappings()
@@ -213,6 +257,7 @@ async def lifespan(app: FastAPI):
     db = SessionLocal()
     try:
         seed_admin(db)
+        seed_default_project(db)
     finally:
         db.close()
     yield
@@ -242,6 +287,7 @@ app.include_router(karma_shop_router, prefix="/api")
 app.include_router(recruitments_router, prefix="/api")
 app.include_router(content_router, prefix="/api")
 app.include_router(users_router, prefix="/api")
+app.include_router(projects_router, prefix="/api")
 
 @app.get("/")
 def root():

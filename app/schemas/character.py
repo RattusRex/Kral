@@ -103,6 +103,7 @@ class CharacterCreate(SkillSettings):
     temp_hp: int = 0
     armor_class: int = 9
     speed: int = 30
+    project_id: Optional[int] = None
 
     @model_validator(mode="after")
     def validate_multiclass(self):

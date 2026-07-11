@@ -25,6 +25,15 @@ export interface User {
   email_verified_at?: string | null;
 }
 
+export interface Project {
+  id: number;
+  name: string;
+  created_at: string;
+  owner_id: number;
+  settings: Record<string, unknown>;
+  role: "owner" | "admin" | "player" | null;
+}
+
 export interface ContentBlock {
   id: number;
   page_slug: "server-rules" | "approved-homebrew";
@@ -37,6 +46,7 @@ export interface ContentBlock {
 
 export interface Character {
   id: number;
+  project_id: number;
   name: string;
   class_name: string;
   class_levels: CharacterClassLevel[];

@@ -25,6 +25,7 @@ from app.api.inventory import consume_quote_for_inventory
 from app.models.character import Character
 from app.models.inventory import ShopQuote
 from app.models.user import User
+from app.models.project import Project, ProjectMembership
 
 
 def setup_function():
@@ -45,6 +46,94 @@ def verify_registered_users() -> None:
     with SessionLocal() as db:
         db.query(User).update({User.email_verified: True})
         db.commit()
+
+
+def create_project_fixture(name: str, owner_id: int, members: list[tuple[int, str]]) -> int:
+    with SessionLocal() as db:
+        project = Project(name=name, owner_id=owner_id, settings={})
+        db.add(project)
+        db.flush()
+        db.add_all([
+            ProjectMembership(project_id=project.id, user_id=user_id, role=role)
+            for user_id, role in members
+        ])
+        db.commit()
+        return project.id
+
+
+def register_verified_user(client: TestClient, username: str, role: str = "player") -> int:
+    password = "Cobalt!River7Lantern"
+    response = client.post("/api/users", json={
+        "username": username,
+        "email": f"{username}@example.com",
+        "password": password,
+    })
+    assert response.status_code == 200, response.text
+    with SessionLocal() as db:
+        user = db.query(User).filter(User.username == username).one()
+        user.email_verified = True
+        user.role = role
+        db.commit()
+        return user.id
+
+
+def test_project_admin_cannot_list_or_modify_another_projects_character():
+    with TestClient(app) as client:
+        with SessionLocal() as db:
+            owner_id = db.query(User).filter(User.username == "admin").one().id
+        project_admin_id = register_verified_user(client, "project-admin", "admin")
+        player_id = register_verified_user(client, "other-player")
+        project_a = create_project_fixture("Project A", owner_id, [(project_admin_id, "admin")])
+        project_b = create_project_fixture("Project B", owner_id, [(player_id, "player")])
+
+        with SessionLocal() as db:
+            foreign_character = Character(
+                name="Hidden Hero", class_name="Wizard",
+                class_levels=[{"class_name": "Wizard", "level": 1}],
+                level=1, route="Arcane", user_id=player_id, project_id=project_b,
+            )
+            own_project_character = Character(
+                name="Visible Hero", class_name="Fighter",
+                class_levels=[{"class_name": "Fighter", "level": 1}],
+                level=1, route="Steel", user_id=project_admin_id, project_id=project_a,
+            )
+            db.add_all([foreign_character, own_project_character])
+            db.commit()
+            foreign_id = foreign_character.id
+
+        headers = {"Authorization": f"Bearer {login(client, 'project-admin', 'Cobalt!River7Lantern')}"}
+        listed = client.get("/api/admin/characters", headers=headers)
+        assert listed.status_code == 200, listed.text
+        assert [row["name"] for row in listed.json()] == ["Visible Hero"]
+
+        hidden = client.get(f"/api/admin/characters/{foreign_id}", headers=headers)
+        assert hidden.status_code == 404
+        grant = client.post(
+            f"/api/admin/characters/{foreign_id}/xp",
+            headers=headers,
+            json={"amount": 1, "reason": "Cross-project attempt"},
+        )
+        assert grant.status_code == 404
+
+
+def test_character_creation_requires_membership_in_selected_project():
+    with TestClient(app) as client:
+        with SessionLocal() as db:
+            owner_id = db.query(User).filter(User.username == "admin").one().id
+        player_id = register_verified_user(client, "project-player")
+        allowed_id = create_project_fixture("Allowed", owner_id, [(player_id, "player")])
+        denied_id = create_project_fixture("Denied", owner_id, [])
+        headers = {"Authorization": f"Bearer {login(client, 'project-player', 'Cobalt!River7Lantern')}"}
+        payload = {
+            "name": "Scoped Hero", "class_name": "Fighter", "level": 1,
+            "route": "Steel", "project_id": denied_id,
+        }
+        denied = client.post("/api/characters", headers=headers, json=payload)
+        assert denied.status_code == 403
+        payload["project_id"] = allowed_id
+        allowed = client.post("/api/characters", headers=headers, json=payload)
+        assert allowed.status_code == 200, allowed.text
+        assert allowed.json()["project_id"] == allowed_id
 
 
 def test_character_creation_rejects_levels_outside_campaign_bounds():
