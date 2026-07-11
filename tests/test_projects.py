@@ -5,10 +5,13 @@ os.environ.setdefault("SECRET_KEY", "test-secret-key-for-project-tests")
 os.environ.setdefault("ADMIN_PASSWORD", "admin123")
 
 from fastapi.testclient import TestClient
+from sqlalchemy import Boolean, Column, Integer, MetaData, String, Table
 
 from app.core.auth_abuse import reset_auth_abuse_state
 from app.db.database import Base, SessionLocal, engine
-from app.main import app
+from app.core.security import hash_password
+from app.main import app, ensure_schema_columns
+from app.models.project import DEFAULT_PROJECT_NAME, Project
 from app.models.user import User
 
 
@@ -42,6 +45,52 @@ def register(client, username):
 
 def project_headers(headers, project_id):
     return {**headers, "X-Project-ID": str(project_id)}
+
+
+def test_legacy_admin_is_promoted_before_project_schema_migration():
+    Base.metadata.drop_all(bind=engine)
+    legacy_metadata = MetaData()
+    legacy_users = Table(
+        "users",
+        legacy_metadata,
+        Column("id", Integer, primary_key=True),
+        Column("username", String(50), unique=True, nullable=False),
+        Column("email", String(255), unique=True, nullable=False),
+        Column("hashed_password", String, nullable=False),
+        Column("karma", Integer, nullable=False, default=0),
+        Column("is_admin", Boolean, nullable=False, default=False),
+    )
+    legacy_metadata.create_all(bind=engine)
+    with engine.begin() as connection:
+        connection.execute(legacy_users.insert().values(
+            username="admin",
+            email="admin@example.com",
+            hashed_password=hash_password("admin123"),
+            karma=0,
+            is_admin=True,
+        ))
+
+    Base.metadata.create_all(bind=engine)
+    ensure_schema_columns()
+    with SessionLocal() as db:
+        owner = db.query(User).filter(User.username == "admin").one()
+        default_project = db.query(Project).filter(
+            Project.name == DEFAULT_PROJECT_NAME
+        ).one()
+
+        assert owner.is_owner is True
+        assert default_project.owner_id == owner.id
+
+    with TestClient(app) as client:
+        owner_headers = login(client, "admin", "admin123")
+        me = client.get("/api/me", headers=owner_headers)
+        projects = client.get("/api/projects", headers=owner_headers)
+
+        assert me.status_code == 200
+        assert me.json()["is_owner"] is True
+        assert projects.status_code == 200
+        assert [project["name"] for project in projects.json()] == [DEFAULT_PROJECT_NAME]
+        assert client.get("/api/admin/users", headers=owner_headers).status_code == 200
 
 
 def test_project_roles_are_isolated_and_cannot_be_escalated_by_switching_project_id():

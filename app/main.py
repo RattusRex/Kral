@@ -147,6 +147,15 @@ def migrate_email_verification() -> None:
 
 
 def ensure_schema_columns() -> None:
+    # Project migration depends on a global owner. Legacy databases do not
+    # have the role or email-verification columns yet, so migrate the user
+    # table and promote the seeded administrator before querying project
+    # ownership or creating the default project.
+    migrate_user_roles()
+    migrate_email_verification()
+    with SessionLocal() as db:
+        seed_admin(db)
+
     # Projects created before feature flags were introduced only have the
     # upstream ecosystem columns. Add the optional metadata in place.
     ensure_column("projects", "slug", "VARCHAR(100)")
@@ -233,8 +242,6 @@ def ensure_schema_columns() -> None:
         "status",
         "VARCHAR(20) NOT NULL DEFAULT 'upcoming'",
     )
-    migrate_user_roles()
-    migrate_email_verification()
     with engine.begin() as connection:
         connection.execute(
             text(
