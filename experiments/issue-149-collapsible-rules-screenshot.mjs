@@ -53,15 +53,17 @@ await page.route("**/api/**", async (route) => {
 await page.goto("http://127.0.0.1:4173");
 await page.evaluate(() => localStorage.setItem("access_token", "screenshot-fixture"));
 await page.goto("http://127.0.0.1:4173/server-rules");
-await page.getByRole("button", { name: "Свернуть публикацию «Правила поведения»" }).click();
-await page.getByRole("button", { name: "Свернуть публикацию «Межсессионная деятельность»" }).click();
-await page.getByRole("button", { name: "Свернуть публикацию «Торговля и передача предметов»" }).click();
 
 assert.equal(await page.getByRole("button", { name: "Развернуть публикацию «Правила поведения»" }).getAttribute("aria-expanded"), "false");
 assert.equal(await page.getByText("Уважайте других игроков и ведущих.", { exact: false }).count(), 0);
 
-await page.reload();
-assert.equal(await page.getByRole("button", { name: "Развернуть публикацию «Правила поведения»" }).getAttribute("aria-expanded"), "false");
+await page.getByRole("button", { name: "Развернуть публикацию «Правила поведения»" }).click();
+assert.equal(await page.getByRole("button", { name: "Свернуть публикацию «Правила поведения»" }).getAttribute("aria-expanded"), "true");
+assert.equal(await page.getByText("Уважайте других игроков и ведущих.", { exact: false }).count(), 1);
 
-await page.screenshot({ path: "docs/screenshots/issue-149-collapsible-rules.png", fullPage: true });
+await page.reload();
+assert.equal(await page.getByRole("button", { name: "Свернуть публикацию «Правила поведения»" }).getAttribute("aria-expanded"), "true");
+
+await page.getByRole("button", { name: "Свернуть публикацию «Правила поведения»" }).click();
+await page.screenshot({ path: "docs/screenshots/issue-161-collapsed-rules-default.png", fullPage: true });
 await browser.close();
