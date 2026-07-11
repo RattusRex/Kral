@@ -126,7 +126,10 @@ def reject_oversized_password(password: str) -> None:
 
     raise HTTPException(
         status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-        detail=f"Password must be at most {MAX_PASSWORD_BYTES} bytes",
+        detail=(
+            f"Пароль должен содержать не более {MAX_PASSWORD_BYTES} байт "
+            "в кодировке UTF-8"
+        ),
     )
 
 

@@ -15,11 +15,12 @@ COMMON_COMPROMISED_PASSWORDS = frozenset({
 })
 
 PASSWORD_POLICY_DETAIL = (
-    "Password must be at least 12 characters and include uppercase, lowercase, "
-    "number, and special characters"
+    "Пароль должен содержать не менее 12 символов, включая заглавную и строчную "
+    "буквы, цифру и специальный символ"
 )
 COMPROMISED_PASSWORD_DETAIL = (
-    "Choose a less common password that has not appeared in known breaches"
+    "Выберите менее распространённый пароль, который не встречался в известных "
+    "утечках данных"
 )
 
 
@@ -29,7 +30,10 @@ def password_exceeds_bcrypt_limit(password: str) -> bool:
 
 def ensure_password_within_bcrypt_limit(password: str) -> None:
     if password_exceeds_bcrypt_limit(password):
-        raise ValueError(f"Password must be at most {MAX_PASSWORD_BYTES} bytes")
+        raise ValueError(
+            f"Пароль должен содержать не более {MAX_PASSWORD_BYTES} байт "
+            "в кодировке UTF-8"
+        )
 
 
 def new_password_policy_error(password: str) -> str | None:

@@ -3,6 +3,10 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 
 const source = readFileSync(new URL("../app/src/main.tsx", import.meta.url), "utf8");
+const loginSource = source.slice(
+  source.indexOf("function Login()"),
+  source.indexOf("function Register()"),
+);
 const registerSource = source.slice(
   source.indexOf("function Register()"),
   source.indexOf("function AuthPanel("),
@@ -23,4 +27,15 @@ test("registration form exposes the server password policy to users", () => {
   assert.match(registerSource, /autoComplete="new-password"/);
   assert.match(registerSource, /Пароль должен содержать/);
   assert.match(registerSource, /requestError\.response\?\.data\?\.detail/);
+});
+
+test("registration password guidance is fully localized in Russian", () => {
+  assert.match(registerSource, /placeholder="Пароль"/);
+  assert.match(registerSource, /Пароль должен содержать/);
+  assert.doesNotMatch(registerSource, /placeholder="password"/i);
+});
+
+test("login password field is localized in Russian", () => {
+  assert.match(loginSource, /placeholder="Пароль"/);
+  assert.doesNotMatch(loginSource, /placeholder="password"/i);
 });
