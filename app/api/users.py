@@ -14,6 +14,7 @@ from app.core.auth_abuse import (
 )
 from app.db.database import SessionLocal
 from app.models.user import User
+from app.models.project import Project, ProjectMembership
 from app.core.passwords import new_password_policy_error
 from app.schemas.user import EmailResendRequest, EmailVerificationRequest, UserCreate
 from app.core.email_verification import (
@@ -114,6 +115,11 @@ def create_user(
             detail="Username or email already exists"
         )
     db.refresh(user)
+
+    default_project = db.query(Project).filter(Project.is_default.is_(True)).first()
+    if default_project:
+        db.add(ProjectMembership(project_id=default_project.id, user_id=user.id, role="player"))
+        db.commit()
 
     try:
         send_verification_email(user.email, user.username, token)

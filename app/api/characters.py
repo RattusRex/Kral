@@ -17,6 +17,8 @@ from app.schemas.character import (
     SkillRollResponse,
 )
 from app.api.users import get_db
+from app.api.projects import get_current_project_access
+from app.models.project import Project
 
 ABILITY_FIELDS = {
     "strength": "Сила",
@@ -77,10 +79,12 @@ def validate_not_before_epoch(value, label: str):
 def create_character(
     character_data: CharacterCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
+    access: tuple[Project, str] = Depends(get_current_project_access),
 ):
     character_count = db.query(Character).filter(
-        Character.user_id == current_user.id
+        Character.user_id == current_user.id,
+        Character.project_id == access[0].id,
     ).count()
     if character_count >= MAX_CHARACTERS_PER_USER:
         raise HTTPException(
@@ -121,7 +125,8 @@ def create_character(
         speed=character_data.speed,
         level=character_data.level,
         route=character_data.route,
-        user_id=current_user.id
+        user_id=current_user.id,
+        project_id=access[0].id,
     )
 
     db.add(character)
@@ -169,10 +174,12 @@ def create_character(
 @router.get("/characters")
 def get_characters(
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
+    access: tuple[Project, str] = Depends(get_current_project_access),
 ):
     characters = db.query(Character).filter(
-        Character.user_id == current_user.id
+        Character.user_id == current_user.id,
+        Character.project_id == access[0].id,
     ).all()
 
     return characters
@@ -181,7 +188,8 @@ def get_characters(
 @router.get("/characters/transfer-targets")
 def get_transfer_targets(
     db: Session = Depends(get_db),
-    _: User = Depends(get_current_user)
+    _: User = Depends(get_current_user),
+    access: tuple[Project, str] = Depends(get_current_project_access),
 ):
     return [{
         "id": character.id,
@@ -189,7 +197,7 @@ def get_transfer_targets(
         "class_name": character.class_name,
         "level": character.level,
         "owner_username": character.owner.username
-    } for character in db.query(Character).all()]
+    } for character in db.query(Character).filter(Character.project_id == access[0].id).all()]
 
 
 @router.patch("/characters/{character_id}")

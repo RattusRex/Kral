@@ -78,6 +78,12 @@ class User(Base):
         back_populates="owner"
     )
 
+    project_memberships = relationship(
+        "ProjectMembership",
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )
+
     shop_transaction_logs = relationship(
         "ShopTransactionLog",
         back_populates="user"

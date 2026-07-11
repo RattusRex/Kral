@@ -8,6 +8,7 @@ import uvicorn
 from app.api.users import router as users_router
 from app.db.database import Base, engine, SessionLocal
 from app.models.user import User
+from app.models.project import DEFAULT_FEATURES, Project, ProjectMembership
 from app.models.character import (
     CalendarAuditLog,
     Character,
@@ -24,6 +25,7 @@ from app.api.chat import router as chat_router
 from app.api.karma_shop import router as karma_shop_router
 from app.api.recruitments import router as recruitments_router
 from app.api.content import router as content_router
+from app.api.projects import router as projects_router
 from app.models.chat import ChatMessage
 from app.models.recruitment import GameApplication, GameRecruitment, RecruitmentMessage
 from app.models.content import ContentBlock
@@ -61,6 +63,26 @@ def seed_admin(db: Session) -> None:
         email_verified=True,
         email_verified_at=datetime.now().astimezone(),
     ))
+    db.commit()
+
+
+def seed_default_project(db: Session) -> None:
+    project = db.query(Project).filter(Project.is_default.is_(True)).first()
+    if not project:
+        project = Project(
+            name="Эпоха Катастроф",
+            slug="epoch-of-catastrophe",
+            is_default=True,
+            features=dict(DEFAULT_FEATURES),
+        )
+        db.add(project)
+        db.flush()
+    for user in db.query(User).all():
+        if not db.query(ProjectMembership).filter_by(project_id=project.id, user_id=user.id).first():
+            role = Role.PROJECT_OWNER if user.is_owner else (
+                user.role if user.role in (Role.HEAD_ADMIN, Role.ADMIN) else Role.PLAYER
+            )
+            db.add(ProjectMembership(project_id=project.id, user_id=user.id, role=role))
     db.commit()
 
 
@@ -120,6 +142,7 @@ def migrate_email_verification() -> None:
 
 
 def ensure_schema_columns() -> None:
+    ensure_column("characters", "project_id", "INTEGER")
     ensure_column("characters", "temp_hp", "INTEGER NOT NULL DEFAULT 0")
     ensure_column("characters", "speed", "INTEGER NOT NULL DEFAULT 30")
     ensure_column("characters", "skill_proficiencies", "JSON NOT NULL DEFAULT '[]'")
@@ -213,6 +236,14 @@ async def lifespan(app: FastAPI):
     db = SessionLocal()
     try:
         seed_admin(db)
+        seed_default_project(db)
+        default_project = db.query(Project).filter(Project.is_default.is_(True)).first()
+        if default_project:
+            db.query(Character).filter(Character.project_id.is_(None)).update(
+                {Character.project_id: default_project.id},
+                synchronize_session=False,
+            )
+            db.commit()
     finally:
         db.close()
     yield
@@ -242,6 +273,7 @@ app.include_router(karma_shop_router, prefix="/api")
 app.include_router(recruitments_router, prefix="/api")
 app.include_router(content_router, prefix="/api")
 app.include_router(users_router, prefix="/api")
+app.include_router(projects_router, prefix="/api")
 
 @app.get("/")
 def root():

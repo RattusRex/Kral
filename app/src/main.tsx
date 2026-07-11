@@ -3,7 +3,7 @@ import { createRoot } from "react-dom/client";
 import axios from "axios";
 import { Link, Navigate, Route, BrowserRouter as Router, Routes, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { ArrowDown, ArrowUp, BookOpen, CalendarDays, Check, ChevronDown, ChevronUp, Coins, Dice5, LogOut, MapPin, MessageSquare, Pencil, Plus, RefreshCw, Save, ScrollText, Search, Send, Shield, ShoppingBag, Swords, Trash2, Trophy, UserRound, UsersRound, X } from "lucide-react";
-import { AbilityRoll, AdminGrantLog, AdminUser, api, AttackRoll, CalendarSummary, Character, CharacterAttack, ChatMessage, ContentBlock, DamageRoll, GameRecruitment, Inventory, InventoryItem, KarmaPurchase, KarmaPurchaseResult, LeaderboardEntry, MagicItem, MarketSaleLog, MarketSaleResult, PaginatedResponse, ROLE_LABELS, SavingThrowRoll, ShopResult, ShopTransactionLog, SkillRoll, TOKEN_KEY, TransferLog, TransferTarget, User, UserRole } from "./api";
+import { AbilityRoll, AdminGrantLog, AdminUser, api, AttackRoll, CalendarSummary, Character, CharacterAttack, ChatMessage, ContentBlock, DamageRoll, GameRecruitment, Inventory, InventoryItem, KarmaPurchase, KarmaPurchaseResult, LeaderboardEntry, MagicItem, MarketSaleLog, MarketSaleResult, PaginatedResponse, PROJECT_KEY, ProjectContext, ROLE_LABELS, SavingThrowRoll, ShopResult, ShopTransactionLog, SkillRoll, TOKEN_KEY, TransferLog, TransferTarget, User, UserRole } from "./api";
 import "./styles.css";
 
 const rarities = ["Обычный", "Необычный", "Редкий"];
@@ -195,9 +195,29 @@ function useAuth() {
 
 function Shell({ children, user }: { children: React.ReactNode; user: User | null }) {
   const navigate = useNavigate();
+  const [projects, setProjects] = useState<ProjectContext[]>([]);
+  const [project, setProject] = useState<ProjectContext | null>(null);
+
+  useEffect(() => {
+    api.get<ProjectContext[]>("/projects").then((response) => {
+      setProjects(response.data);
+      const stored = Number(localStorage.getItem(PROJECT_KEY));
+      const selected = response.data.find((item) => item.id === stored) ?? response.data[0];
+      if (selected) {
+        localStorage.setItem(PROJECT_KEY, String(selected.id));
+        setProject(selected);
+      }
+    });
+  }, []);
+
+  function selectProject(id: number) {
+    localStorage.setItem(PROJECT_KEY, String(id));
+    window.location.assign("/");
+  }
 
   function logout() {
     localStorage.removeItem(TOKEN_KEY);
+    localStorage.removeItem(PROJECT_KEY);
     navigate("/login");
   }
 
@@ -207,16 +227,18 @@ function Shell({ children, user }: { children: React.ReactNode; user: User | nul
         <nav className="mx-auto flex max-w-7xl items-center justify-between px-4 py-3">
           <Link to="/characters" className="text-lg font-bold text-ember">Эпоха Катастроф</Link>
           <div className="flex flex-wrap items-center gap-2">
+            {projects.length > 0 && <select aria-label="Проект" className="field max-w-52" value={project?.id ?? ""} onChange={(event) => selectProject(Number(event.target.value))}>{projects.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select>}
             <Link className="btn-secondary" to="/"><UsersRound size={16} />Меню</Link>
             <Link className="btn-secondary" to="/characters"><UsersRound size={16} />Персонажи</Link>
-            <Link className="btn-secondary" to="/shop"><ShoppingBag size={16} />Магазин</Link>
-            <Link className="btn-secondary" to="/market"><Coins size={16} />Рынок</Link>
-            <Link className="btn-secondary" to="/karma-shop"><ShoppingBag size={16} />Карма</Link>
+            {project?.features.shop !== false && <Link className="btn-secondary" to="/shop"><ShoppingBag size={16} />Магазин</Link>}
+            {project?.features.market !== false && <Link className="btn-secondary" to="/market"><Coins size={16} />Рынок</Link>}
+            {project?.features.karma_shop !== false && <Link className="btn-secondary" to="/karma-shop"><ShoppingBag size={16} />Карма</Link>}
             <Link className="btn-secondary" to="/leaderboard"><Trophy size={16} />Лидеры</Link>
             <Link className="btn-secondary" to="/chat"><MessageSquare size={16} />Чат</Link>
-            <Link className="btn-secondary" to="/game-recruitments"><CalendarDays size={16} />Набор на игры</Link>
+            {project?.features.recruitments !== false && <Link className="btn-secondary" to="/game-recruitments"><CalendarDays size={16} />Набор на игры</Link>}
             <Link className="btn-secondary" to="/profile"><UserRound size={16} />Профиль</Link>
-            {user?.is_admin && <Link className="btn-secondary" to="/admin"><Shield size={16} />Админ</Link>}
+            {(user?.is_owner || project?.is_admin) && <Link className="btn-secondary" to="/admin"><Shield size={16} />Админ</Link>}
+            {project?.can_manage_settings && <Link className="btn-secondary" to="/project-settings"><Shield size={16} />Настройки проекта</Link>}
             {user?.is_admin && <Link className="btn-secondary" to="/admin/shop-logs"><ScrollText size={16} />Логи</Link>}
             {user?.is_admin && <Link className="btn-secondary" to="/admin/market-sales"><ScrollText size={16} />Рынок-логи</Link>}
             {user?.is_admin && <Link className="btn-secondary" to="/admin/transfer-logs"><ScrollText size={16} />Передачи</Link>}
@@ -258,6 +280,31 @@ function HomePage() {
       </aside>
     </div>
   );
+}
+
+const PROJECT_FEATURE_LABELS: Record<string, string> = {
+  shop: "Магазин",
+  market: "Рынок",
+  karma_shop: "Магазин Кармы",
+  recruitments: "Набор на игры",
+  personal_hirelings: "Личные наёмники",
+  simulacrums: "Симулякры"
+};
+
+function ProjectSettingsPage() {
+  const [project, setProject] = useState<ProjectContext | null>(null);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    api.get<ProjectContext>("/projects/current").then((response) => setProject(response.data)).catch((requestError) => setError(apiErrorDetail(requestError, "Нет доступа к настройкам проекта")));
+  }, []);
+  async function toggle(feature: string, enabled: boolean) {
+    if (!project) return;
+    const response = await api.patch<ProjectContext>(`/projects/${project.id}/settings`, { features: { [feature]: enabled } });
+    setProject(response.data);
+  }
+  if (error) return <section className="panel p-5 text-red-300">{error}</section>;
+  if (!project) return <p>Загрузка...</p>;
+  return <section className="panel p-5"><h1 className="text-2xl font-bold text-ember">Настройки проекта</h1><p className="mt-2 text-white/60">{project.name} · {ROLE_LABELS[project.role]}</p><div className="mt-5 grid gap-3 sm:grid-cols-2">{Object.entries(PROJECT_FEATURE_LABELS).map(([feature, label]) => <label className="flex items-center justify-between rounded-md border border-white/10 p-3" key={feature}><span>{label}</span><input aria-label={label} type="checkbox" checked={project.features[feature as keyof typeof project.features]} onChange={(event) => toggle(feature, event.target.checked)} /></label>)}</div></section>;
 }
 
 type ContentPageSlug = "server-rules" | "approved-homebrew";
@@ -3286,6 +3333,7 @@ function App() {
         <Route path="/server-rules" element={<Protected><ContentPage pageSlug="server-rules" title="Правила сервера" /></Protected>} />
         <Route path="/approved-homebrew" element={<Protected><ContentPage pageSlug="approved-homebrew" title="Одобренное ХБ" /></Protected>} />
         <Route path="/profile" element={<Protected><ProfilePage /></Protected>} />
+        <Route path="/project-settings" element={<Protected><ProjectSettingsPage /></Protected>} />
         <Route path="/admin/shop-logs" element={<Protected><ShopLogsPage /></Protected>} />
         <Route path="/admin/market-sales" element={<Protected><MarketSalesPage /></Protected>} />
         <Route path="/admin/karma-shop-logs" element={<Protected><KarmaShopLogsPage /></Protected>} />

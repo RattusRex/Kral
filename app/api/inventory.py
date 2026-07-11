@@ -11,6 +11,8 @@ from app.models.inventory import Inventory, InventoryItem, MarketSaleLog, ShopQu
 from app.models.user import User
 from app.api.calendar import charge_character_downtime
 from app.api.users import get_current_user
+from app.api.projects import require_feature
+from app.models.project import Project
 from app.schemas.inventory import (
     AddItemRequest,
     CurrencyTransferRequest,
@@ -176,7 +178,7 @@ def validate_rarity(rarity: str):
         )
 
 def require_inventory_grant_admin(current_user: User):
-    if not current_user.is_admin:
+    if not current_user.is_admin and not hasattr(current_user, "active_project_role"):
         raise HTTPException(
             status_code=403,
             detail="Admin permissions required"
@@ -787,7 +789,8 @@ def list_magic_items(
     rarity: str | None = None,
     item_type: str | None = None,
     limit: int = Query(default=100, ge=1, le=200),
-    _: User = Depends(get_current_user)
+    _: User = Depends(get_current_user),
+    __: Project = Depends(require_feature("shop")),
 ):
     rarity_key = catalog_rarity_filter_key(rarity)
     search_text = normalize_catalog_text(search or "")

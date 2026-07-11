@@ -95,22 +95,40 @@ character page. Players cannot self-grant or remove these units. Paid hirelings
 are external services: they charge gold for the rolled search duration, but
 they never consume character, personal-hireling, or simulacrum free days.
 
+## Projects and Roles
+
+The application supports independent projects. Every character belongs to one
+project and every non-owner permission is stored in a project membership. The
+frontend sends the selected project as `X-Project-ID`; backend authorization
+resolves membership for that exact project, so changing an ID cannot reuse
+permissions from another project. Existing installations are migrated into the
+default **Epoch of Catastrophe** project.
+
+Project owners and head administrators can open **Project Settings** to enable
+or disable the shop, market, Karma Shop, game recruitment, personal hirelings,
+and simulacrums. Disabled features disappear from project navigation and their
+backend entry points reject access.
+
 ## User Roles
 
 Access is controlled by four roles, from most to least privileged:
 
 - **👑 Owner** — full, unrestricted control, including managing every user, assigning and revoking the head-admin role, plus everything a head admin and admin can do.
-- **🛡 Head Admin** (Главный Администратор) — a trusted deputy of the owner. Has every administrative power of the owner **except** managing the owner (cannot change, block, delete, or appoint owners) and cannot grant the `owner` or `head_admin` roles. Can grant and revoke the `admin` role and manage players.
-- **🛠 Admin** — game-master tools: add/remove karma, grant items and currency, view logs, and manage game data. Cannot manage roles.
+- **🏰 Project Owner** — highest project-scoped role; manages project settings and lower roles, but cannot affect other project owners or other projects.
+- **🛡 Head Admin** (Главный Администратор) — manages lower roles and project settings within the assigned project.
+- **🎲 Game Master** (`admin`) — game-master tools and resources within the assigned project, without role management or character deletion.
+- **🔧 Technician** — grants karma, XP, currency and items, views logs, and edits characters; cannot delete characters, manage roles, or change project settings.
 - **🎮 Player** — default role for new accounts: manage own characters, chat, roll dice, and use the inventory.
 
 The hierarchy is:
 
 ```text
 Owner
-└── Head Admin
-    └── Admin
-        └── Player
+└── Project Owner
+    └── Head Admin
+        └── Game Master
+            └── Technician
+                └── Player
 ```
 
 The seeded `admin` account is an **owner**. New accounts are created as **players**. Owners and head admins can change another user's role from the admin panel, subject to the restrictions above. These restrictions are enforced on the backend, so a direct API call cannot bypass them.

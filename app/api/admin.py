@@ -28,6 +28,8 @@ from app.schemas.karma_shop import KarmaPurchaseResponse
 from app.core import calendar as game_calendar
 from app.core.calendar import GAME_EPOCH
 from app.core.roles import Role, VALID_ROLES, normalize_role, can_manage_roles
+from app.api.projects import require_project_admin, require_project_game_master
+from app.models.project import Project
 
 
 router = APIRouter(prefix="/admin")
@@ -51,12 +53,12 @@ def paginated_response(query, page: int, page_size: int, serializer) -> dict:
     }
 
 
-def require_admin(current_user: User = Depends(get_current_user)) -> User:
-    if not current_user.is_admin:
-        raise HTTPException(
-            status_code=403,
-            detail="Admin permissions required"
-        )
+def require_admin(
+    current_user: User = Depends(get_current_user),
+    access: tuple[Project, str] = Depends(require_project_admin),
+) -> User:
+    current_user.active_project_id = access[0].id
+    current_user.active_project_role = access[1]
     return current_user
 
 
@@ -90,12 +92,19 @@ def require_role_manager(current_user: User = Depends(get_current_user)) -> User
 
 
 def require_character_deleter(current_user: User = Depends(get_current_user)) -> User:
-    if normalize_role(current_user.role) not in (Role.OWNER, Role.HEAD_ADMIN):
+    role = getattr(current_user, "active_project_role", current_user.role)
+    if normalize_role(role) not in (Role.OWNER, Role.PROJECT_OWNER, Role.HEAD_ADMIN):
         raise HTTPException(
             status_code=403,
             detail="Only the owner or head administrator may delete characters"
         )
     return current_user
+
+
+def ensure_character_project(character: Character, current_user: User) -> None:
+    project_id = getattr(current_user, "active_project_id", None)
+    if project_id is not None and character.project_id != project_id:
+        raise HTTPException(status_code=404, detail="Character not found")
 
 
 def get_character_or_404(character_id: int, db: Session) -> Character:
@@ -297,7 +306,9 @@ def list_characters(
     db: Session = Depends(get_db),
     _: User = Depends(require_admin)
 ):
-    query = db.query(Character).order_by(Character.id)
+    query = db.query(Character).filter(
+        Character.project_id == _.active_project_id
+    ).order_by(Character.id)
     if page is None and page_size is None:
         return [serialize_character(character) for character in query.all()]
     resolved_page = page or 1
@@ -316,7 +327,11 @@ def get_admin_character(
     db: Session = Depends(get_db),
     _: User = Depends(require_admin)
 ):
-    return serialize_character(get_character_or_404(character_id, db))
+    character = get_character_or_404(character_id, db)
+    ensure_character_project(character, _)
+    if character.project_id != _.active_project_id:
+        raise HTTPException(status_code=404, detail="Character not found")
+    return serialize_character(character)
 
 
 @router.patch("/characters/{character_id}")
@@ -390,7 +405,10 @@ def list_users(
     db: Session = Depends(get_db),
     _: User = Depends(require_admin)
 ):
-    query = db.query(User).order_by(User.id)
+    from app.models.project import ProjectMembership
+    query = db.query(User).join(ProjectMembership).filter(
+        ProjectMembership.project_id == _.active_project_id
+    ).order_by(User.id)
     if page is None and page_size is None:
         return [serialize_admin_user(user) for user in query.all()]
     resolved_page = page or 1
@@ -448,6 +466,7 @@ def add_character_gold(
     current_user: User = Depends(require_admin)
 ):
     character = get_character_or_404(character_id, db)
+    ensure_character_project(character, current_user)
     inventory = get_character_inventory(character.id, character.owner, db)
     inventory.gold = max(0, inventory.gold + gold_data.amount)
     add_grant_log(
@@ -467,6 +486,7 @@ def add_character_currency(
     current_user: User = Depends(require_admin)
 ):
     character = get_character_or_404(character_id, db)
+    ensure_character_project(character, current_user)
     inventory = get_character_inventory(character.id, character.owner, db)
     add_currency(
         inventory,
@@ -715,6 +735,7 @@ def revive_character(
     _: User = Depends(require_admin)
 ):
     character = get_character_or_404(character_id, db)
+    ensure_character_project(character, _)
     character.hp = max(character.hp, 1)
     character.is_dead = False
     db.commit()
@@ -727,8 +748,11 @@ def delete_admin_character(
     character_id: int,
     confirmation: str = Query(...),
     db: Session = Depends(get_db),
-    _: User = Depends(require_character_deleter)
+    _: User = Depends(require_admin)
 ):
+    role = getattr(_, "active_project_role", _.role)
+    if role not in (Role.OWNER, Role.PROJECT_OWNER, Role.HEAD_ADMIN):
+        raise HTTPException(status_code=403, detail="Character deletion permissions required")
     if confirmation != "УДАЛИТЬ":
         raise HTTPException(
             status_code=400,
@@ -736,6 +760,7 @@ def delete_admin_character(
         )
 
     character = get_character_or_404(character_id, db)
+    ensure_character_project(character, _)
     inventory_id = character.inventory.id if character.inventory else None
     if inventory_id is not None:
         # Completed shop logs hold non-null foreign keys to both records.
@@ -758,6 +783,7 @@ def grant_character_item(
 ):
     validate_rarity(item_data.rarity)
     character = get_character_or_404(character_id, db)
+    ensure_character_project(character, current_user)
     inventory = get_character_inventory(character.id, character.owner, db)
     db.add(InventoryItem(
         name=item_data.name,
@@ -852,6 +878,16 @@ def change_user_role(
             )
 
     user.role = requested_role
+    from app.models.project import Project, ProjectMembership
+    default_project = db.query(Project).filter(Project.is_default.is_(True)).first()
+    if default_project:
+        membership = db.query(ProjectMembership).filter_by(
+            project_id=default_project.id, user_id=user.id
+        ).first()
+        if not membership:
+            membership = ProjectMembership(project_id=default_project.id, user_id=user.id)
+            db.add(membership)
+        membership.role = requested_role if requested_role != Role.OWNER else Role.PROJECT_OWNER
     db.commit()
     db.refresh(user)
     return serialize_user(user)

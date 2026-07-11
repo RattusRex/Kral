@@ -1,0 +1,154 @@
+import os
+
+os.environ["DATABASE_URL"] = "sqlite://"
+os.environ.setdefault("SECRET_KEY", "test-secret-key-for-project-tests")
+os.environ.setdefault("ADMIN_PASSWORD", "admin123")
+
+from fastapi.testclient import TestClient
+
+from app.core.auth_abuse import reset_auth_abuse_state
+from app.db.database import Base, SessionLocal, engine
+from app.main import app
+from app.models.user import User
+
+
+PASSWORD = "Strong-Project-Pass-47!"
+
+
+def setup_function():
+    Base.metadata.drop_all(bind=engine)
+    Base.metadata.create_all(bind=engine)
+    reset_auth_abuse_state()
+
+
+def login(client, username, password):
+    with SessionLocal() as db:
+        db.query(User).update({User.email_verified: True})
+        db.commit()
+    response = client.post("/api/login", data={"username": username, "password": password})
+    assert response.status_code == 200, response.text
+    return {"Authorization": f"Bearer {response.json()['access_token']}"}
+
+
+def register(client, username):
+    response = client.post("/api/users", json={
+        "username": username,
+        "email": f"{username}@example.com",
+        "password": PASSWORD,
+    })
+    assert response.status_code == 200, response.text
+    return response.json()["id"]
+
+
+def project_headers(headers, project_id):
+    return {**headers, "X-Project-ID": str(project_id)}
+
+
+def test_project_roles_are_isolated_and_cannot_be_escalated_by_switching_project_id():
+    with TestClient(app) as client:
+        owner = login(client, "admin", "admin123")
+        user_id = register(client, "project-manager")
+        user = login(client, "project-manager", PASSWORD)
+
+        first = client.post("/api/projects", headers=owner, json={"name": "First", "slug": "first"}).json()
+        second = client.post("/api/projects", headers=owner, json={"name": "Second", "slug": "second"}).json()
+        promoted = client.put(
+            f"/api/projects/{first['id']}/members/{user_id}",
+            headers=owner,
+            json={"role": "head_admin"},
+        )
+        assert promoted.status_code == 200, promoted.text
+
+        assert client.get("/api/admin/users", headers=project_headers(user, first["id"])).status_code == 200
+        assert client.get("/api/admin/users", headers=project_headers(user, second["id"])).status_code == 403
+        assert client.get(f"/api/projects/{second['id']}/settings", headers=user).status_code == 403
+
+
+def test_role_hierarchy_and_project_owner_peer_protection_are_enforced_server_side():
+    with TestClient(app) as client:
+        owner = login(client, "admin", "admin123")
+        first_owner_id = register(client, "first-project-owner")
+        second_owner_id = register(client, "second-project-owner")
+        target_id = register(client, "target-player")
+        project = client.post("/api/projects", headers=owner, json={"name": "Protected", "slug": "protected"}).json()
+
+        for user_id, role in ((first_owner_id, "project_owner"), (second_owner_id, "project_owner")):
+            assert client.put(
+                f"/api/projects/{project['id']}/members/{user_id}", headers=owner, json={"role": role}
+            ).status_code == 200
+
+        first_owner = login(client, "first-project-owner", PASSWORD)
+        forbidden_peer_change = client.put(
+            f"/api/projects/{project['id']}/members/{second_owner_id}",
+            headers=first_owner,
+            json={"role": "player"},
+        )
+        assert forbidden_peer_change.status_code == 403
+
+        forbidden_equal_grant = client.put(
+            f"/api/projects/{project['id']}/members/{target_id}",
+            headers=first_owner,
+            json={"role": "project_owner"},
+        )
+        assert forbidden_equal_grant.status_code == 403
+        assert client.put(
+            f"/api/projects/{project['id']}/members/{target_id}",
+            headers=first_owner,
+            json={"role": "head_admin"},
+        ).status_code == 200
+
+
+def test_technician_can_grant_resources_but_cannot_delete_or_manage_roles_or_settings():
+    with TestClient(app) as client:
+        owner = login(client, "admin", "admin123")
+        technician_id = register(client, "technician")
+        player_id = register(client, "tech-target")
+        project = client.post("/api/projects", headers=owner, json={"name": "Tech", "slug": "tech"}).json()
+        for user_id, role in ((technician_id, "technician"), (player_id, "player")):
+            assert client.put(
+                f"/api/projects/{project['id']}/members/{user_id}", headers=owner, json={"role": role}
+            ).status_code == 200
+        technician = project_headers(login(client, "technician", PASSWORD), project["id"])
+        player = project_headers(login(client, "tech-target", PASSWORD), project["id"])
+        character = client.post("/api/characters", headers=player, json={
+            "name": "Technician Target", "class_name": "Fighter", "level": 1, "route": "Open Table"
+        }).json()
+
+        assert client.post(
+            f"/api/admin/characters/{character['id']}/gold",
+            headers=technician,
+            json={"amount": 3, "reason": "test grant"},
+        ).status_code == 200
+        assert client.delete(
+            f"/api/admin/characters/{character['id']}",
+            headers=technician,
+            params={"confirmation": "УДАЛИТЬ"},
+        ).status_code == 403
+        assert client.put(
+            f"/api/projects/{project['id']}/members/{player_id}",
+            headers=technician,
+            json={"role": "admin"},
+        ).status_code == 403
+        assert client.patch(
+            f"/api/projects/{project['id']}/settings",
+            headers=technician,
+            json={"features": {"shop": False}},
+        ).status_code == 403
+
+
+def test_disabled_project_feature_is_hidden_in_context_and_rejected_by_backend():
+    with TestClient(app) as client:
+        owner = login(client, "admin", "admin123")
+        player_id = register(client, "feature-player")
+        project = client.post("/api/projects", headers=owner, json={"name": "Features", "slug": "features"}).json()
+        client.put(f"/api/projects/{project['id']}/members/{player_id}", headers=owner, json={"role": "player"})
+        client.patch(
+            f"/api/projects/{project['id']}/settings",
+            headers=owner,
+            json={"features": {"shop": False}},
+        )
+        player = project_headers(login(client, "feature-player", PASSWORD), project["id"])
+        context = client.get("/api/projects/current", headers=player)
+        assert context.status_code == 200
+        assert context.json()["features"]["shop"] is False
+        assert client.get("/api/shop/magic-items", headers=player).status_code == 403
