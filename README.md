@@ -124,6 +124,10 @@ Character sheets also support multiclass characters. Each class stores its own l
 The public login and registration endpoints include backend throttles to reduce
 brute-force and account-spam abuse:
 
+- new passwords must contain at least 12 characters, including uppercase and
+  lowercase letters, a number, and a special character;
+- a local deny-list rejects obvious passwords known to be commonly compromised;
+  the application does not send passwords to an external breach-checking API;
 - passwords longer than 72 UTF-8 bytes are rejected before bcrypt hashing or
   verification;
 - repeated failed login attempts are tracked by submitted username/email and by
@@ -145,6 +149,14 @@ AUTH_REGISTRATION_WINDOW_SECONDS=3600
 
 Docker deployments also apply nginx `limit_req` throttling to `/api/login` and
 `/api/users` before requests reach FastAPI.
+
+Browser warnings such as “this password appeared in a data leak” are generated
+by the browser or password manager when the password entered by a user matches
+its breached-password data. Registration sends the password only over HTTPS to
+`POST /api/users`; it is bcrypt-hashed before persistence, omitted from API
+responses and logs, and never written to local storage, session storage, or
+cookies. Only the JWT access token is stored in browser local storage after a
+successful login.
 
 ## Email Verification
 

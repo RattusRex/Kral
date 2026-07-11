@@ -14,6 +14,7 @@ from app.core.auth_abuse import (
 )
 from app.db.database import SessionLocal
 from app.models.user import User
+from app.core.passwords import new_password_policy_error
 from app.schemas.user import EmailResendRequest, EmailVerificationRequest, UserCreate
 from app.core.email_verification import (
     generate_verification_token,
@@ -60,6 +61,12 @@ def create_user(
     db: Session = Depends(get_db)
 ):
     reject_oversized_password(user_data.password)
+    password_policy_error = new_password_policy_error(user_data.password)
+    if password_policy_error:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=password_policy_error,
+        )
     assert_registration_allowed(request)
 
     normalized_email = user_data.email.lower()

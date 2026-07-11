@@ -6,6 +6,8 @@ os.environ.setdefault("SECRET_KEY", "test-secret-key-for-pytest-only")
 os.environ.setdefault("ADMIN_PASSWORD", "admin123")
 os.environ.setdefault("EMAIL_BACKEND", "console")
 
+TEST_USER_PASSWORD = "Strong-Test-Pass-47!"
+
 from fastapi.testclient import TestClient
 
 from app.core.auth_abuse import reset_auth_abuse_state
@@ -24,7 +26,7 @@ def register(client: TestClient, email: str = "new@example.com"):
     return client.post("/api/users", json={
         "username": "new-player",
         "email": email,
-        "password": "secret123",
+        "password": TEST_USER_PASSWORD,
     })
 
 
@@ -53,7 +55,7 @@ def test_registration_creates_inactive_user_and_sends_confirmation(monkeypatch):
 
         login = client.post(
             "/api/login",
-            data={"username": "new-player", "password": "secret123"},
+            data={"username": "new-player", "password": TEST_USER_PASSWORD},
         )
         assert login.status_code == 403
         assert login.json()["detail"]["code"] == "email_not_verified"
@@ -78,7 +80,7 @@ def test_confirmation_token_is_single_use(monkeypatch):
 
         login = client.post(
             "/api/login",
-            data={"username": "new-player", "password": "secret123"},
+            data={"username": "new-player", "password": TEST_USER_PASSWORD},
         )
         assert login.status_code == 200, login.text
 

@@ -9,6 +9,8 @@ os.environ["DATABASE_URL"] = "sqlite://"
 os.environ.setdefault("SECRET_KEY", "test-secret-key-for-pytest-only")
 os.environ.setdefault("ADMIN_PASSWORD", "admin123")
 
+TEST_USER_PASSWORD = "Strong-Test-Pass-47!"
+
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from starlette.types import Message, Scope
@@ -132,9 +134,9 @@ def test_player_cannot_change_character_appearance_date():
     with TestClient(app) as client:
         client.post("/api/users", json={
             "username": "calendar-player", "email": "calendar-player@example.com",
-            "password": "secret123",
+            "password": TEST_USER_PASSWORD,
         })
-        headers = {"Authorization": f"Bearer {login(client, 'calendar-player', 'secret123')}"}
+        headers = {"Authorization": f"Bearer {login(client, 'calendar-player', TEST_USER_PASSWORD)}"}
         created = client.post("/api/characters", headers=headers, json={
             "name": "Immutable Date", "class_name": "Fighter", "level": 1,
             "route": "Steel", "game_created_at": "2025-06-01",
@@ -159,12 +161,12 @@ def test_create_user_then_login_with_username_and_email():
         created = client.post("/api/users", json={
             "username": "player-one",
             "email": "player-one@example.com",
-            "password": "secret123"
+            "password": TEST_USER_PASSWORD
         })
         assert created.status_code == 200, created.text
         assert created.json()["username"] == "player-one"
 
-        username_token = login(client, "player-one", "secret123")
+        username_token = login(client, "player-one", TEST_USER_PASSWORD)
         username_response = client.get(
             "/api/me",
             headers={"Authorization": f"Bearer {username_token}"}
@@ -172,7 +174,7 @@ def test_create_user_then_login_with_username_and_email():
         assert username_response.status_code == 200
         assert username_response.json()["email"] == "player-one@example.com"
 
-        email_token = login(client, "player-one@example.com", "secret123")
+        email_token = login(client, "player-one@example.com", TEST_USER_PASSWORD)
         email_response = client.get(
             "/api/me",
             headers={"Authorization": f"Bearer {email_token}"}
@@ -181,18 +183,99 @@ def test_create_user_then_login_with_username_and_email():
         assert email_response.json()["username"] == "player-one"
 
 
+def test_registration_never_exposes_or_persists_plaintext_password(caplog):
+    password = "Safe-Campaign-Passphrase-47!"
+
+    with caplog.at_level("DEBUG"), TestClient(app) as client:
+        response = client.post("/api/users", json={
+            "username": "secure-player",
+            "email": "secure-player@example.com",
+            "password": password,
+        })
+
+        assert response.status_code == 200, response.text
+        assert "password" not in response.json()
+        assert password not in response.text
+        assert password not in caplog.text
+
+        with SessionLocal() as db:
+            user = db.query(User).filter(User.username == "secure-player").one()
+            assert user.hashed_password != password
+            assert user.hashed_password.startswith("$2b$")
+            assert not hasattr(user, "password")
+
+
+@pytest.mark.parametrize(
+    "password",
+    [
+        "password",
+        "password123",
+        "secret123",
+        "qwerty123",
+        "admin123",
+    ],
+)
+def test_registration_rejects_obvious_compromised_passwords(password):
+    with TestClient(app) as client:
+        response = client.post("/api/users", json={
+            "username": f"weak-{password}",
+            "email": f"weak-{password}@example.com",
+            "password": password,
+        })
+
+        assert response.status_code == 422
+        assert response.json()["detail"] == (
+            "Choose a less common password that has not appeared in known breaches"
+        )
+
+
+@pytest.mark.parametrize(
+    "password",
+    [
+        "short7!",
+        "alllowercase123!",
+        "ALLUPPERCASE123!",
+        "NoNumbersHere!",
+        "NoSymbolsHere123",
+    ],
+)
+def test_registration_enforces_password_length_and_complexity(password):
+    with TestClient(app) as client:
+        response = client.post("/api/users", json={
+            "username": "policy-user",
+            "email": "policy-user@example.com",
+            "password": password,
+        })
+
+        assert response.status_code == 422
+
+
+def test_registration_accepts_strong_password_at_bcrypt_byte_limit():
+    password = "A1!" + "я" * 34 + "b"
+    assert len(password.encode("utf-8")) == 72
+
+    with TestClient(app) as client:
+        response = client.post("/api/users", json={
+            "username": "unicode-password",
+            "email": "unicode-password@example.com",
+            "password": password,
+        })
+
+        assert response.status_code == 200, response.text
+
+
 def test_duplicate_username_returns_conflict():
     with TestClient(app) as client:
         assert client.post("/api/users", json={
             "username": "player-two",
             "email": "player-two@example.com",
-            "password": "secret123"
+            "password": TEST_USER_PASSWORD
         }).status_code == 200
 
         duplicate = client.post("/api/users", json={
             "username": "player-two",
             "email": "different@example.com",
-            "password": "secret123"
+            "password": TEST_USER_PASSWORD
         })
         assert duplicate.status_code == 409
         assert duplicate.json()["detail"] == "Username already taken"
@@ -203,13 +286,13 @@ def test_duplicate_email_returns_conflict():
         assert client.post("/api/users", json={
             "username": "player-three",
             "email": "player-three@example.com",
-            "password": "secret123"
+            "password": TEST_USER_PASSWORD
         }).status_code == 200
 
         duplicate = client.post("/api/users", json={
             "username": "differentuser",
             "email": "player-three@example.com",
-            "password": "secret123"
+            "password": TEST_USER_PASSWORD
         })
         assert duplicate.status_code == 409
         assert duplicate.json()["detail"] == "Email already registered"
@@ -220,13 +303,13 @@ def test_duplicate_email_case_insensitive_returns_conflict():
         assert client.post("/api/users", json={
             "username": "player-four",
             "email": "player-four@example.com",
-            "password": "secret123"
+            "password": TEST_USER_PASSWORD
         }).status_code == 200
 
         duplicate = client.post("/api/users", json={
             "username": "player-four-v2",
             "email": "PLAYER-FOUR@EXAMPLE.COM",
-            "password": "secret123"
+            "password": TEST_USER_PASSWORD
         })
         assert duplicate.status_code == 409
         assert duplicate.json()["detail"] == "Email already registered"
@@ -237,7 +320,7 @@ def test_unique_user_registers_successfully():
         response = client.post("/api/users", json={
             "username": "brandnewuser",
             "email": "brandnewuser@example.com",
-            "password": "secret123"
+            "password": TEST_USER_PASSWORD
         })
         assert response.status_code == 200, response.text
         data = response.json()
@@ -303,14 +386,14 @@ def test_registration_attempts_are_rate_limited_before_password_hashing(monkeypa
             response = client.post("/api/users", json={
                 "username": f"limited-user-{index}",
                 "email": f"limited-user-{index}@example.com",
-                "password": "secret123",
+                "password": TEST_USER_PASSWORD,
             })
             assert response.status_code == 200, response.text
 
         blocked = client.post("/api/users", json={
             "username": "limited-user-10",
             "email": "limited-user-10@example.com",
-            "password": "secret123",
+            "password": TEST_USER_PASSWORD,
         })
 
         assert blocked.status_code == 429
@@ -380,7 +463,7 @@ def test_password_hashing_uses_bcrypt_directly_without_passlib():
         response = client.post("/api/users", json={
             "username": "bcrypt-compat-user",
             "email": "bcrypt-compat@example.com",
-            "password": "secret123"
+            "password": TEST_USER_PASSWORD
         })
         assert response.status_code == 200, response.text
         assert response.json()["username"] == "bcrypt-compat-user"
@@ -416,10 +499,10 @@ def test_player_character_patch_rejects_progression_and_death_state_changes():
         created_user = client.post("/api/users", json={
             "username": "patch-player",
             "email": "patch-player@example.com",
-            "password": "secret123"
+            "password": TEST_USER_PASSWORD
         })
         assert created_user.status_code == 200, created_user.text
-        player_token = login(client, "patch-player", "secret123")
+        player_token = login(client, "patch-player", TEST_USER_PASSWORD)
         player_headers = {"Authorization": f"Bearer {player_token}"}
         created_character = client.post("/api/characters", headers=player_headers, json={
             "name": "Grounded",
@@ -484,11 +567,11 @@ def test_karma_shop_purchases_are_atomic_persistent_and_audited():
         created_user = client.post("/api/users", json={
             "username": "karma-shopper",
             "email": "karma-shopper@example.com",
-            "password": "secret123",
+            "password": TEST_USER_PASSWORD,
         })
         assert created_user.status_code == 200, created_user.text
         player_headers = {
-            "Authorization": f"Bearer {login(client, 'karma-shopper', 'secret123')}"
+            "Authorization": f"Bearer {login(client, 'karma-shopper', TEST_USER_PASSWORD)}"
         }
         character = client.post("/api/characters", headers=player_headers, json={
             "name": "Phoenix", "class_name": "Wizard", "level": 3,
@@ -554,9 +637,9 @@ def test_karma_resurrection_enforces_ownership_death_level_and_balance():
             user = client.post("/api/users", json={
                 "username": username,
                 "email": f"{username}@example.com",
-                "password": "secret123",
+                "password": TEST_USER_PASSWORD,
             }).json()
-            headers = {"Authorization": f"Bearer {login(client, username, 'secret123')}"}
+            headers = {"Authorization": f"Bearer {login(client, username, TEST_USER_PASSWORD)}"}
             return user, headers
 
         user, headers = create_player("resurrection-owner")
@@ -638,10 +721,10 @@ def test_players_cannot_directly_grant_inventory_currency_or_items():
         created_user = client.post("/api/users", json={
             "username": "mint-blocked",
             "email": "mint-blocked@example.com",
-            "password": "secret123"
+            "password": TEST_USER_PASSWORD
         })
         assert created_user.status_code == 200, created_user.text
-        player_token = login(client, "mint-blocked", "secret123")
+        player_token = login(client, "mint-blocked", TEST_USER_PASSWORD)
         player_headers = {"Authorization": f"Bearer {player_token}"}
 
         created_character = client.post("/api/characters", headers=player_headers, json={
@@ -984,11 +1067,11 @@ def test_admin_can_change_karma_and_view_all_characters_with_owner():
         created_user = client.post("/api/users", json={
             "username": "player-three",
             "email": "player-three@example.com",
-            "password": "secret123"
+            "password": TEST_USER_PASSWORD
         })
         assert created_user.status_code == 200, created_user.text
         user_id = created_user.json()["id"]
-        player_token = login(client, "player-three", "secret123")
+        player_token = login(client, "player-three", TEST_USER_PASSWORD)
         player_headers = {"Authorization": f"Bearer {player_token}"}
         created_character = client.post("/api/characters", headers=player_headers, json={
             "name": "Nessa",
@@ -1037,11 +1120,11 @@ def test_admin_resource_grants_require_reasons_and_create_filterable_logs():
         created_user = client.post("/api/users", json={
             "username": "grant-target",
             "email": "grant-target@example.com",
-            "password": "secret123"
+            "password": TEST_USER_PASSWORD
         })
         assert created_user.status_code == 200, created_user.text
         user_id = created_user.json()["id"]
-        player_token = login(client, "grant-target", "secret123")
+        player_token = login(client, "grant-target", TEST_USER_PASSWORD)
         player_headers = {"Authorization": f"Bearer {player_token}"}
         created_character = client.post("/api/characters", headers=player_headers, json={
             "name": "Logan",
@@ -1129,11 +1212,11 @@ def test_players_cannot_change_own_karma_through_me_endpoints():
         created_user = client.post("/api/users", json={
             "username": "karma-self-service",
             "email": "karma-self-service@example.com",
-            "password": "secret123"
+            "password": TEST_USER_PASSWORD
         })
         assert created_user.status_code == 200, created_user.text
         user_id = created_user.json()["id"]
-        player_token = login(client, "karma-self-service", "secret123")
+        player_token = login(client, "karma-self-service", TEST_USER_PASSWORD)
         player_headers = {"Authorization": f"Bearer {player_token}"}
 
         for path in ("/api/me/karma/add", "/api/me/karma/subtract"):
@@ -1211,7 +1294,7 @@ def test_admin_signed_adjustments_clamp_resources_to_zero():
         created_user = client.post("/api/users", json={
             "username": "karma-target",
             "email": "karma-target@example.com",
-            "password": "secret123"
+            "password": TEST_USER_PASSWORD
         })
         assert created_user.status_code == 200, created_user.text
         user_id = created_user.json()["id"]
@@ -1244,10 +1327,10 @@ def test_admin_can_edit_any_character_directly():
         created_user = client.post("/api/users", json={
             "username": "editable-player",
             "email": "editable-player@example.com",
-            "password": "secret123"
+            "password": TEST_USER_PASSWORD
         })
         assert created_user.status_code == 200, created_user.text
-        player_token = login(client, "editable-player", "secret123")
+        player_token = login(client, "editable-player", TEST_USER_PASSWORD)
         player_headers = {"Authorization": f"Bearer {player_token}"}
         created_character = client.post("/api/characters", headers=player_headers, json={
             "name": "Old Name",
@@ -1304,10 +1387,10 @@ def test_user_cannot_create_more_than_ten_characters():
         created_user = client.post("/api/users", json={
             "username": "collector",
             "email": "collector@example.com",
-            "password": "secret123"
+            "password": TEST_USER_PASSWORD
         })
         assert created_user.status_code == 200, created_user.text
-        token = login(client, "collector", "secret123")
+        token = login(client, "collector", TEST_USER_PASSWORD)
         headers = {"Authorization": f"Bearer {token}"}
 
         for index in range(10):
@@ -1463,10 +1546,10 @@ def test_market_sale_validates_input_and_character_ownership():
         }).json()
         client.post("/api/users", json={
             "username": "market-player", "email": "market-player@example.com",
-            "password": "secret123",
+            "password": TEST_USER_PASSWORD,
         })
         player_headers = {
-            "Authorization": f"Bearer {login(client, 'market-player', 'secret123')}"
+            "Authorization": f"Bearer {login(client, 'market-player', TEST_USER_PASSWORD)}"
         }
 
         forbidden = client.post(
@@ -1507,10 +1590,10 @@ def test_market_sales_log_is_admin_only_and_filterable():
         )
         client.post("/api/users", json={
             "username": "market-auditee", "email": "market-auditee@example.com",
-            "password": "secret123",
+            "password": TEST_USER_PASSWORD,
         })
         player_headers = {
-            "Authorization": f"Bearer {login(client, 'market-auditee', 'secret123')}"
+            "Authorization": f"Bearer {login(client, 'market-auditee', TEST_USER_PASSWORD)}"
         }
 
         assert client.get("/api/admin/market-sales", headers=player_headers).status_code == 403
@@ -1577,7 +1660,7 @@ def test_only_owner_and_head_admin_can_delete_characters():
         for username, role in (("delete-head", "head_admin"), ("delete-admin", "admin")):
             user = client.post("/api/users", json={
                 "username": username, "email": f"{username}@example.com",
-                "password": "secret123",
+                "password": TEST_USER_PASSWORD,
             }).json()
             client.post(
                 f"/api/admin/users/{user['id']}/role", headers=owner_headers,
@@ -1592,13 +1675,13 @@ def test_only_owner_and_head_admin_can_delete_characters():
             "name": "Protected", "class_name": "Fighter", "level": 1,
             "route": "Steel",
         }).json()
-        head_headers = {"Authorization": f"Bearer {login(client, users['head_admin'], 'secret123')}"}
+        head_headers = {"Authorization": f"Bearer {login(client, users['head_admin'], TEST_USER_PASSWORD)}"}
         allowed = client.delete(
             f"/api/admin/characters/{allowed_character['id']}", headers=head_headers,
             params={"confirmation": "УДАЛИТЬ"},
         )
         assert allowed.status_code == 200, allowed.text
-        admin_headers = {"Authorization": f"Bearer {login(client, users['admin'], 'secret123')}"}
+        admin_headers = {"Authorization": f"Bearer {login(client, users['admin'], TEST_USER_PASSWORD)}"}
         denied = client.delete(
             f"/api/admin/characters/{protected_character['id']}", headers=admin_headers,
             params={"confirmation": "УДАЛИТЬ"},
@@ -1674,10 +1757,10 @@ def test_cross_player_currency_and_item_transfers_create_persistent_logs():
         created_user = client.post("/api/users", json={
             "username": "receiver",
             "email": "receiver@example.com",
-            "password": "secret123"
+            "password": TEST_USER_PASSWORD
         })
         assert created_user.status_code == 200, created_user.text
-        receiver_token = login(client, "receiver", "secret123")
+        receiver_token = login(client, "receiver", TEST_USER_PASSWORD)
         receiver_headers = {"Authorization": f"Bearer {receiver_token}"}
 
         sender = client.post("/api/characters", headers=admin_headers, json={
@@ -1885,7 +1968,7 @@ def test_leaderboard_orders_users_by_karma_with_rank():
             created = client.post("/api/users", json={
                 "username": username,
                 "email": f"{username}@example.com",
-                "password": "secret123"
+                "password": TEST_USER_PASSWORD
             })
             assert created.status_code == 200, created.text
             users.append((created.json()["id"], username, karma))
@@ -1976,7 +2059,7 @@ def test_administrative_roles_can_delete_any_chat_message(role):
         client.post("/api/users", json={
             "username": f"moderator-{role}",
             "email": f"moderator-{role}@example.com",
-            "password": "secret123",
+            "password": TEST_USER_PASSWORD,
         })
         user_id = next(
             user["id"] for user in client.get(
@@ -1993,12 +2076,12 @@ def test_administrative_roles_can_delete_any_chat_message(role):
         player = client.post("/api/users", json={
             "username": f"author-{role}",
             "email": f"author-{role}@example.com",
-            "password": "secret123",
+            "password": TEST_USER_PASSWORD,
         })
         assert player.status_code == 200, player.text
         player_headers = {
             "Authorization": (
-                f"Bearer {login(client, f'author-{role}', 'secret123')}"
+                f"Bearer {login(client, f'author-{role}', TEST_USER_PASSWORD)}"
             )
         }
         message = client.post(
@@ -2008,7 +2091,7 @@ def test_administrative_roles_can_delete_any_chat_message(role):
         )
         moderator_headers = {
             "Authorization": (
-                f"Bearer {login(client, f'moderator-{role}', 'secret123')}"
+                f"Bearer {login(client, f'moderator-{role}', TEST_USER_PASSWORD)}"
             )
         }
 
@@ -2030,10 +2113,10 @@ def test_player_cannot_delete_chat_messages_and_missing_message_returns_404():
         client.post("/api/users", json={
             "username": "chat-player",
             "email": "chat-player@example.com",
-            "password": "secret123",
+            "password": TEST_USER_PASSWORD,
         })
         player_headers = {
-            "Authorization": f"Bearer {login(client, 'chat-player', 'secret123')}"
+            "Authorization": f"Bearer {login(client, 'chat-player', TEST_USER_PASSWORD)}"
         }
         message = client.post(
             "/api/chat/messages",
@@ -2154,11 +2237,11 @@ def test_owner_and_admin_can_edit_multiclass_but_other_player_cannot():
         client.post("/api/users", json={
             "username": "multiclass-owner",
             "email": "multiclass-owner@example.com",
-            "password": "secret123",
+            "password": TEST_USER_PASSWORD,
         })
         owner_headers = {
             "Authorization": (
-                f"Bearer {login(client, 'multiclass-owner', 'secret123')}"
+                f"Bearer {login(client, 'multiclass-owner', TEST_USER_PASSWORD)}"
             )
         }
         created = client.post("/api/characters", headers=owner_headers, json={
@@ -2197,11 +2280,11 @@ def test_owner_and_admin_can_edit_multiclass_but_other_player_cannot():
         client.post("/api/users", json={
             "username": "multiclass-stranger",
             "email": "multiclass-stranger@example.com",
-            "password": "secret123",
+            "password": TEST_USER_PASSWORD,
         })
         stranger_headers = {
             "Authorization": (
-                f"Bearer {login(client, 'multiclass-stranger', 'secret123')}"
+                f"Bearer {login(client, 'multiclass-stranger', TEST_USER_PASSWORD)}"
             )
         }
         forbidden = client.patch(
@@ -2630,10 +2713,10 @@ def test_skill_roll_rejects_unknown_skill_and_other_users_character():
         user = client.post("/api/users", json={
             "username": "other-skill-user",
             "email": "other-skill-user@example.com",
-            "password": "secret123",
+            "password": TEST_USER_PASSWORD,
         })
         assert user.status_code == 200, user.text
-        other_headers = {"Authorization": f"Bearer {login(client, 'other-skill-user', 'secret123')}"}
+        other_headers = {"Authorization": f"Bearer {login(client, 'other-skill-user', TEST_USER_PASSWORD)}"}
         forbidden = client.post(
             f"/api/characters/{character_id}/roll-skill/athletics",
             headers=other_headers,
@@ -2700,7 +2783,7 @@ def _register(client: TestClient, username: str) -> int:
     created = client.post("/api/users", json={
         "username": username,
         "email": f"{username}@example.com",
-        "password": "secret123"
+        "password": TEST_USER_PASSWORD
     })
     assert created.status_code == 200, created.text
     return created.json()["id"]
@@ -2793,7 +2876,7 @@ def test_seeded_admin_account_has_owner_role():
 def test_new_users_default_to_player_role():
     with TestClient(app) as client:
         _register(client, "fresh-player")
-        token = login(client, "fresh-player", "secret123")
+        token = login(client, "fresh-player", TEST_USER_PASSWORD)
         me = client.get("/api/me", headers={"Authorization": f"Bearer {token}"})
         assert me.status_code == 200, me.text
         body = me.json()
@@ -2809,7 +2892,7 @@ def test_owner_can_assign_roles_and_promotion_grants_admin_tools():
 
         user_id = _register(client, "promote-me")
         player_headers = {
-            "Authorization": f"Bearer {login(client, 'promote-me', 'secret123')}"
+            "Authorization": f"Bearer {login(client, 'promote-me', TEST_USER_PASSWORD)}"
         }
 
         # Player cannot reach admin-only endpoints before promotion.
@@ -2848,7 +2931,7 @@ def test_admin_role_cannot_manage_roles_only_owner_can():
             json={"role": "admin"}
         )
         admin_headers = {
-            "Authorization": f"Bearer {login(client, 'an-admin', 'secret123')}"
+            "Authorization": f"Bearer {login(client, 'an-admin', TEST_USER_PASSWORD)}"
         }
 
         # Admins keep their game-master powers (karma) ...
@@ -2923,7 +3006,7 @@ def test_owner_can_appoint_head_admin_with_full_admin_tools():
         assert body["is_owner"] is False
 
         head_headers = {
-            "Authorization": f"Bearer {login(client, 'deputy', 'secret123')}"
+            "Authorization": f"Bearer {login(client, 'deputy', TEST_USER_PASSWORD)}"
         }
         me = client.get("/api/me", headers=head_headers).json()
         assert me["role"] == "head_admin"
@@ -2947,7 +3030,7 @@ def test_head_admin_can_manage_admins_and_players():
         _promote(client, owner_headers, head_id, "head_admin")
 
         head_headers = {
-            "Authorization": f"Bearer {login(client, 'deputy', 'secret123')}"
+            "Authorization": f"Bearer {login(client, 'deputy', TEST_USER_PASSWORD)}"
         }
 
         promoted = client.post(
@@ -2981,7 +3064,7 @@ def test_head_admin_cannot_touch_owner_or_grant_privileged_roles():
         _promote(client, owner_headers, other_head_id, "head_admin")
 
         head_headers = {
-            "Authorization": f"Bearer {login(client, 'deputy', 'secret123')}"
+            "Authorization": f"Bearer {login(client, 'deputy', TEST_USER_PASSWORD)}"
         }
 
         # Cannot change the owner's role in any way.
@@ -3725,11 +3808,11 @@ def test_player_cannot_self_grant_hireling_or_simulacrum():
         created_user = client.post("/api/users", json={
             "username": "unit-granter",
             "email": "unit-granter@example.com",
-            "password": "secret123",
+            "password": TEST_USER_PASSWORD,
         })
         assert created_user.status_code == 200, created_user.text
         player_headers = {
-            "Authorization": f"Bearer {login(client, 'unit-granter', 'secret123')}"
+            "Authorization": f"Bearer {login(client, 'unit-granter', TEST_USER_PASSWORD)}"
         }
 
         rejected_create = client.post("/api/characters", headers=player_headers, json={
@@ -3968,10 +4051,10 @@ def _make_player_with_character(client, username, character_name="Calendar Hero"
     created = client.post("/api/users", json={
         "username": username,
         "email": f"{username}@example.com",
-        "password": "secret123",
+        "password": TEST_USER_PASSWORD,
     })
     assert created.status_code == 200, created.text
-    token = login(client, username, "secret123")
+    token = login(client, username, TEST_USER_PASSWORD)
     headers = {"Authorization": f"Bearer {token}"}
     character = client.post("/api/characters", headers=headers, json={
         "name": character_name,
