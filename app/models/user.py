@@ -1,4 +1,6 @@
-from sqlalchemy import String, Integer
+from datetime import datetime
+
+from sqlalchemy import Boolean, DateTime, String, Integer
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.orm import relationship
 from app.db.database import Base
@@ -37,6 +39,25 @@ class User(Base):
         String(20),
         default=Role.PLAYER,
         server_default=Role.PLAYER
+    )
+
+    email_verified: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
+        server_default="false",
+    )
+    email_verified_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+    email_verification_token_hash: Mapped[str | None] = mapped_column(
+        String(64),
+        nullable=True,
+        unique=True,
+    )
+    email_verification_expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
     )
 
     @property

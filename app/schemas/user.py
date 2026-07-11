@@ -12,6 +12,14 @@ class UserLogin(BaseModel):
     email: EmailStr
     password: str = Field(min_length=1, max_length=MAX_PASSWORD_BYTES)
 
+
+class EmailVerificationRequest(BaseModel):
+    token: str = Field(min_length=32, max_length=512)
+
+
+class EmailResendRequest(BaseModel):
+    email: EmailStr
+
 class KarmaUpdate(BaseModel):
     amount: int
 
