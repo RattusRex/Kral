@@ -1,5 +1,6 @@
 import os
 from datetime import datetime, timedelta, timezone
+from unittest.mock import patch
 
 os.environ["DATABASE_URL"] = "sqlite://"
 os.environ.setdefault("SECRET_KEY", "test-secret-key-for-pytest-only")
@@ -13,6 +14,7 @@ from fastapi.testclient import TestClient
 from app.core.auth_abuse import reset_auth_abuse_state
 from app.db.database import Base, SessionLocal, engine
 from app.main import app
+from app.models.project import ProjectMembership
 from app.models.user import User
 
 
@@ -61,6 +63,62 @@ def test_registration_creates_inactive_user_and_sends_confirmation(monkeypatch):
         assert login.json()["detail"]["code"] == "email_not_verified"
 
 
+def test_smtp_delivery_is_attempted_with_configured_sender(monkeypatch):
+    sent_messages = []
+
+    class FakeSmtp:
+        def __init__(self, host, port):
+            assert (host, port) == ("smtp.example.com", 2525)
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def starttls(self):
+            pass
+
+        def login(self, username, password):
+            assert (username, password) == ("smtp-user", "smtp-password")
+
+        def send_message(self, message):
+            sent_messages.append(message)
+
+    monkeypatch.setenv("EMAIL_BACKEND", "smtp")
+    monkeypatch.setenv("SMTP_HOST", "smtp.example.com")
+    monkeypatch.setenv("SMTP_PORT", "2525")
+    monkeypatch.setenv("SMTP_USE_TLS", "true")
+    monkeypatch.setenv("SMTP_USERNAME", "smtp-user")
+    monkeypatch.setenv("SMTP_PASSWORD", "smtp-password")
+    monkeypatch.setenv("SMTP_FROM_EMAIL", "Kral <no-reply@example.com>")
+    monkeypatch.setenv("FRONTEND_URL", "https://kral.example.com")
+    monkeypatch.setattr("app.core.email_verification.smtplib.SMTP", FakeSmtp)
+
+    with TestClient(app) as client:
+        response = register(client)
+
+    assert response.status_code == 200, response.text
+    assert len(sent_messages) == 1
+    message = sent_messages[0]
+    assert message["From"] == "Kral <no-reply@example.com>"
+    assert message["To"] == "new@example.com"
+    assert "https://kral.example.com/verify-email?token=" in message.get_content()
+
+
+def test_smtp_configuration_is_validated_before_registration():
+    from app.core.email_verification import validate_email_configuration
+
+    with patch.dict(os.environ, {"EMAIL_BACKEND": "smtp"}, clear=True):
+        try:
+            validate_email_configuration()
+        except RuntimeError as error:
+            assert "SMTP_HOST" in str(error)
+            assert "SMTP_FROM_EMAIL" in str(error)
+        else:
+            raise AssertionError("Incomplete SMTP settings must fail validation")
+
+
 def test_confirmation_token_is_single_use(monkeypatch):
     tokens = []
     monkeypatch.setattr(
@@ -83,6 +141,19 @@ def test_confirmation_token_is_single_use(monkeypatch):
             data={"username": "new-player", "password": TEST_USER_PASSWORD},
         )
         assert login.status_code == 200, login.text
+        headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
+        me = client.get("/api/me", headers=headers)
+        projects = client.get("/api/projects", headers=headers)
+        current_project = client.get("/api/projects/current", headers=headers)
+        assert me.status_code == 200, me.text
+        assert me.json()["email_verified"] is True
+        assert projects.status_code == 200, projects.text
+        assert len(projects.json()) == 1
+        assert current_project.status_code == 200, current_project.text
+
+        with SessionLocal() as db:
+            user = db.query(User).filter(User.email == "new@example.com").one()
+            assert db.query(ProjectMembership).filter_by(user_id=user.id).count() == 1
 
 
 def test_resend_rotates_token_and_expired_token_is_rejected(monkeypatch):

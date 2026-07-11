@@ -11,6 +11,25 @@ from urllib.parse import quote
 logger = logging.getLogger(__name__)
 
 
+def validate_email_configuration() -> str:
+    backend = os.getenv("EMAIL_BACKEND", "console").strip().lower()
+    if backend not in {"console", "smtp"}:
+        raise RuntimeError("EMAIL_BACKEND must be 'console' or 'smtp'")
+    if backend == "smtp":
+        missing = [name for name in ("SMTP_HOST", "SMTP_FROM_EMAIL") if not os.getenv(name)]
+        if missing:
+            raise RuntimeError(
+                "SMTP email delivery requires: " + ", ".join(missing)
+            )
+        try:
+            port = int(os.getenv("SMTP_PORT", "587"))
+        except ValueError as error:
+            raise RuntimeError("SMTP_PORT must be an integer") from error
+        if not 1 <= port <= 65535:
+            raise RuntimeError("SMTP_PORT must be between 1 and 65535")
+    return backend
+
+
 def generate_verification_token() -> str:
     return secrets.token_urlsafe(32)
 
@@ -30,13 +49,10 @@ def send_verification_email(email: str, username: str, token: str) -> None:
         "Ссылка действует 24 часа."
     )
 
-    backend = os.getenv("EMAIL_BACKEND", "console").lower()
+    backend = validate_email_configuration()
     if backend == "console":
         logger.info("Email verification link for %s: %s", email, verification_url)
         return
-    if backend != "smtp":
-        raise RuntimeError("EMAIL_BACKEND must be 'console' or 'smtp'")
-
     message = EmailMessage()
     message["Subject"] = subject
     message["From"] = os.environ["SMTP_FROM_EMAIL"]

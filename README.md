@@ -28,7 +28,7 @@ Prototype web application for D&D 2014 open-table bookkeeping: characters, inven
    - `ADMIN_PASSWORD` — password for the default `admin` owner account.
    - `ALLOWED_ORIGINS` — comma-separated list of allowed CORS origins (e.g. `https://yourdomain.com`).
    - `FRONTEND_URL` — public frontend origin placed in confirmation links.
-   - `EMAIL_BACKEND` — use `console` locally or `smtp` with the SMTP variables from `.env.example` in production.
+   - `EMAIL_BACKEND` — use `console` locally or `smtp` with the SMTP variables from `.env.example` in production. `console` only logs confirmation links and does not deliver mail; the backend validates SMTP settings at startup.
 5. Run FastAPI (development):
    ```bash
    uvicorn app.main:app --reload
