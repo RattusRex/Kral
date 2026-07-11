@@ -162,6 +162,8 @@ def serialize_user(user: User) -> dict:
         "is_admin": user.is_admin,
         "is_owner": user.is_owner,
         "is_head_admin": user.is_head_admin,
+        "email_verified": user.email_verified,
+        "email_verified_at": user.email_verified_at,
     }
 
 
@@ -399,6 +401,25 @@ def list_users(
         resolved_page_size,
         serialize_admin_user,
     )
+
+
+@router.post("/users/{user_id}/verify-email")
+def manually_verify_user_email(
+    user_id: int,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_admin),
+):
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    if not user.email_verified:
+        user.email_verified = True
+        user.email_verified_at = datetime.now().astimezone()
+    user.email_verification_token_hash = None
+    user.email_verification_expires_at = None
+    db.commit()
+    db.refresh(user)
+    return serialize_admin_user(user)
 
 
 @router.post("/characters/{character_id}/xp")

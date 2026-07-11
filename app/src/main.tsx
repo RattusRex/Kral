@@ -1,6 +1,7 @@
 import { Component, FormEvent, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { Link, Navigate, Route, BrowserRouter as Router, Routes, useNavigate, useParams } from "react-router-dom";
+import axios from "axios";
+import { Link, Navigate, Route, BrowserRouter as Router, Routes, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { ArrowDown, ArrowUp, BookOpen, CalendarDays, Check, ChevronDown, ChevronUp, Coins, Dice5, LogOut, MapPin, MessageSquare, Pencil, Plus, RefreshCw, Save, ScrollText, Search, Send, Shield, ShoppingBag, Swords, Trash2, Trophy, UserRound, UsersRound, X } from "lucide-react";
 import { AbilityRoll, AdminGrantLog, AdminUser, api, AttackRoll, CalendarSummary, Character, CharacterAttack, ChatMessage, ContentBlock, DamageRoll, GameRecruitment, Inventory, InventoryItem, KarmaPurchase, KarmaPurchaseResult, LeaderboardEntry, MagicItem, MarketSaleLog, MarketSaleResult, PaginatedResponse, ROLE_LABELS, SavingThrowRoll, ShopResult, ShopTransactionLog, SkillRoll, TOKEN_KEY, TransferLog, TransferTarget, User, UserRole } from "./api";
 import "./styles.css";
@@ -409,17 +410,37 @@ function Login() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
+  const [unverifiedEmail, setUnverifiedEmail] = useState("");
+  const [notice, setNotice] = useState("");
 
   async function submit(event: FormEvent) {
     event.preventDefault();
     setError("");
+    setNotice("");
+    setUnverifiedEmail("");
     const body = new URLSearchParams({ username: email, password });
     try {
       const response = await api.post("/login", body);
       localStorage.setItem(TOKEN_KEY, response.data.access_token);
       navigate("/characters");
+    } catch (error) {
+      const detail = axios.isAxiosError(error) ? error.response?.data?.detail : undefined;
+      if (detail?.code === "email_not_verified") {
+        setError(detail.message);
+        setUnverifiedEmail(detail.email ?? email);
+      } else {
+        setError("Не удалось войти");
+      }
+    }
+  }
+
+  async function resend() {
+    setError("");
+    try {
+      await api.post("/email/resend", { email: unverifiedEmail });
+      setNotice("Новое письмо отправлено. Проверьте почту.");
     } catch {
-      setError("Не удалось войти");
+      setError("Не удалось повторно отправить письмо");
     }
   }
 
@@ -427,25 +448,32 @@ function Login() {
     <input className="field" placeholder="email" value={email} onChange={(event) => setEmail(event.target.value)} />
     <input className="field" placeholder="password" type="password" value={password} onChange={(event) => setPassword(event.target.value)} />
     <button className="btn" type="submit">Войти</button>
+    {unverifiedEmail && <button className="btn-secondary" type="button" onClick={resend}>Отправить письмо повторно</button>}
+    {notice && <p className="text-sm text-green-300">{notice}</p>}
     <Link className="btn-secondary" to="/register">Перейти к регистрации</Link>
   </AuthPanel>;
 }
 
 function Register() {
-  const navigate = useNavigate();
   const [form, setForm] = useState({ username: "", email: "", password: "" });
   const [error, setError] = useState("");
+  const [registeredEmail, setRegisteredEmail] = useState("");
 
   async function submit(event: FormEvent) {
     event.preventDefault();
     setError("");
     try {
       await api.post("/users", form);
-      navigate("/login");
+      setRegisteredEmail(form.email);
     } catch {
       setError("Не удалось создать аккаунт");
     }
   }
+
+  if (registeredEmail) return <AuthPanel title="Проверьте почту" error="" onSubmit={(event) => event.preventDefault()}>
+    <p className="text-sm text-white/75">Мы отправили ссылку подтверждения на {registeredEmail}. Она действует 24 часа.</p>
+    <Link className="btn" to="/login">Перейти ко входу</Link>
+  </AuthPanel>;
 
   return <AuthPanel title="Регистрация" error={error} onSubmit={submit}>
     <input className="field" placeholder="username" value={form.username} onChange={(event) => setForm({ ...form, username: event.target.value })} />
@@ -453,6 +481,28 @@ function Register() {
     <input className="field" placeholder="password" type="password" value={form.password} onChange={(event) => setForm({ ...form, password: event.target.value })} />
     <button className="btn" type="submit">Создать аккаунт</button>
     <Link className="btn-secondary" to="/login">Войти</Link>
+  </AuthPanel>;
+}
+
+function VerifyEmail() {
+  const [params] = useSearchParams();
+  const [state, setState] = useState<"loading" | "success" | "error">("loading");
+
+  useEffect(() => {
+    const token = params.get("token");
+    if (!token) {
+      setState("error");
+      return;
+    }
+    api.post("/email/verify", { token })
+      .then(() => setState("success"))
+      .catch(() => setState("error"));
+  }, [params]);
+
+  return <AuthPanel title="Подтверждение почты" error="" onSubmit={(event) => event.preventDefault()}>
+    {state === "loading" && <p>Проверяем ссылку...</p>}
+    {state === "success" && <><p className="text-green-300">Почта подтверждена. Теперь можно войти.</p><Link className="btn" to="/login">Войти</Link></>}
+    {state === "error" && <><p className="text-red-300">Ссылка недействительна или истекла.</p><Link className="btn-secondary" to="/login">Вернуться ко входу</Link></>}
   </AuthPanel>;
 }
 
@@ -2388,6 +2438,11 @@ function AdminPage() {
     }
   }
 
+  async function verifyEmail(userId: number) {
+    await api.post(`/admin/users/${userId}/verify-email`);
+    load();
+  }
+
   const canManageRoles = Boolean(user?.is_owner || user?.is_head_admin);
 
   function togglePanel(panel: "master" | "character" | "karma" | "interface") {
@@ -2493,7 +2548,12 @@ function AdminPage() {
             <div className="flex flex-col gap-2">
               {users.map((row) => (
                 <div className="flex items-center justify-between gap-2 rounded-md bg-black/25 px-3 py-2" key={row.id}>
-                  <span className="text-sm font-semibold text-ember">{row.username}</span>
+                  <div className="min-w-0">
+                    <div className="text-sm font-semibold text-ember">{row.username}</div>
+                    <div className="truncate text-xs text-white/55">{row.email}</div>
+                    <div className={`text-xs ${row.email_verified ? "text-green-300" : "text-red-300"}`}>{row.email_verified ? "✅ Подтверждён" : "❌ Не подтверждён"}</div>
+                  </div>
+                  {!row.email_verified && <button className="btn-secondary" type="button" onClick={() => verifyEmail(row.id)}>Подтвердить</button>}
                   <select
                     className="field max-w-[220px]"
                     value={row.role}
@@ -3207,6 +3267,7 @@ function App() {
       <Routes>
         <Route path="/login" element={<Login />} />
         <Route path="/register" element={<Register />} />
+        <Route path="/verify-email" element={<VerifyEmail />} />
         <Route path="/" element={<Protected><HomePage /></Protected>} />
         <Route path="/characters" element={<Protected><CharactersPage /></Protected>} />
         <Route path="/characters/new" element={<Protected><CharacterFormPage /></Protected>} />
