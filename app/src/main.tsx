@@ -912,6 +912,8 @@ function CharacterPage() {
         </div>
         <dl className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
           <Stat label="Статус" value={character.is_dead ? "Мёртв" : "Жив"} />
+          <Stat label="Класс" value={character.class_name} />
+          <Stat label="Кость хитов" value={hitDieForClass(character.class_name)} />
           <Stat label="Раса" value={character.race || "-"} />
           <Stat label="Предыстория" value={character.background || "-"} />
           <Stat label="Путь" value={character.route || "-"} />
