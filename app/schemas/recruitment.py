@@ -25,3 +25,7 @@ class ParticipantSelection(BaseModel):
 
 class RecruitmentStatusUpdate(BaseModel):
     status: Literal["upcoming", "completed"]
+
+
+class RecruitmentMessageCreate(BaseModel):
+    content: str = Field(min_length=1, max_length=2000)

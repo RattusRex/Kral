@@ -42,6 +42,7 @@ Notable protected API routes:
 - `GET/POST /api/chat/messages` stores general chat messages and `/r` roll commands.
 - `DELETE /api/chat/messages/{id}` lets an administrator, head administrator, or owner remove any chat message; players are rejected by the backend.
 - `GET/POST /api/game-recruitments` lists game announcements and lets administrators publish them. Players enroll an owned living character through `/applications`; only the announcement author can publish the selected roster through `/participants`. Enrollment and selection notices are persisted in the announcement chat.
+- `GET/POST /api/game-recruitments/{id}/messages` provides cursor-based announcement chat history. Scrolling upward loads older messages; users may delete their own messages and project administrators may delete any message.
 - `POST /api/dice/roll` rolls formulas such as `/r 2d6` or `/r 1d37` and stores the result in the rolls channel.
 - `PATCH /api/characters/{id}/inventory/notes` saves free-form inventory notes.
 - `GET/POST /api/characters/{id}/attacks` manages attack rows, and `POST /api/characters/{id}/attacks/{attack_id}/roll` records attack rolls.
@@ -109,6 +110,17 @@ Project owners and head administrators can open **Project Settings** to enable
 or disable the shop, market, Karma Shop, game recruitment, personal hirelings,
 and simulacrums. Disabled features disappear from project navigation and their
 backend entry points reject access.
+
+Global owners can open **Project Management** to list and create projects or
+delete a non-default project. Deletion is owner-only at the API boundary,
+removes the selected project's characters, inventories, calendars, chat,
+content and recruitment data without affecting other projects, and writes an
+immutable audit record naming the owner who performed it.
+
+Administrative grant logs already distinguish the acting administrator from
+the recipient. Shop, market, work and Karma Shop logs now also store and show
+the acting account explicitly, so every operation can be attributed even when
+an administrator acts for another player.
 
 ## User Roles
 

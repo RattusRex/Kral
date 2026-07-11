@@ -1,6 +1,6 @@
 from datetime import UTC, date, datetime, time
 
-from sqlalchemy import Date, DateTime, ForeignKey, String, Text, Time, UniqueConstraint
+from sqlalchemy import Boolean, Date, DateTime, ForeignKey, String, Text, Time, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.database import Base
@@ -69,6 +69,9 @@ class RecruitmentMessage(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     recruitment_id: Mapped[int] = mapped_column(ForeignKey("game_recruitments.id"))
+    user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    username: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    is_system: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
     content: Mapped[str] = mapped_column(Text)
 

@@ -279,3 +279,52 @@ def test_paginated_list_sorts_upcoming_before_completed_and_reports_totals():
         assert client.get(
             "/api/game-recruitments", headers=owner, params={"page_size": 101}
         ).status_code == 422
+
+
+def test_recruitment_chat_supports_cursor_history_and_message_permissions():
+    with TestClient(app) as client:
+        owner = login(client, "admin", "admin123")
+        recruitment_id = client.post(
+            "/api/game-recruitments", headers=owner, json=recruitment_payload()
+        ).json()["id"]
+        alice = register(client, "chat-alice")
+        bob = register(client, "chat-bob")
+
+        created_ids = []
+        for index in range(4):
+            response = client.post(
+                f"/api/game-recruitments/{recruitment_id}/messages",
+                headers=alice,
+                json={"content": f"Сообщение {index}"},
+            )
+            assert response.status_code == 201, response.text
+            assert response.json()["username"] == "chat-alice"
+            assert response.json()["is_system"] is False
+            created_ids.append(response.json()["id"])
+
+        latest = client.get(
+            f"/api/game-recruitments/{recruitment_id}/messages",
+            headers=bob,
+            params={"limit": 2},
+        )
+        assert latest.status_code == 200, latest.text
+        assert [row["id"] for row in latest.json()] == created_ids[-2:]
+        older = client.get(
+            f"/api/game-recruitments/{recruitment_id}/messages",
+            headers=bob,
+            params={"before_id": created_ids[-2], "limit": 2},
+        )
+        assert [row["id"] for row in older.json()] == created_ids[:2]
+
+        assert client.delete(
+            f"/api/game-recruitments/{recruitment_id}/messages/{created_ids[0]}",
+            headers=bob,
+        ).status_code == 403
+        assert client.delete(
+            f"/api/game-recruitments/{recruitment_id}/messages/{created_ids[0]}",
+            headers=alice,
+        ).status_code == 204
+        assert client.delete(
+            f"/api/game-recruitments/{recruitment_id}/messages/{created_ids[1]}",
+            headers=owner,
+        ).status_code == 204

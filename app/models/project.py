@@ -1,6 +1,6 @@
 from datetime import UTC, datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, JSON, String, UniqueConstraint
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, JSON, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.roles import Role
@@ -53,3 +53,15 @@ class ProjectMembership(Base):
 
     project = relationship("Project", back_populates="memberships")
     user = relationship("User", back_populates="project_memberships")
+
+
+class ProjectAuditLog(Base):
+    __tablename__ = "project_audit_logs"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+    admin_id: Mapped[int] = mapped_column(Integer)
+    admin_username: Mapped[str] = mapped_column(String(50))
+    project_id: Mapped[int] = mapped_column(Integer)
+    project_name: Mapped[str] = mapped_column(String(100))
+    action: Mapped[str] = mapped_column(String(20))
