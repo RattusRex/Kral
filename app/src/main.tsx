@@ -363,16 +363,19 @@ function ProjectManagementPage() {
 
 type ContentPageSlug = "server-rules" | "approved-homebrew";
 
+function readExpandedContentBlocks(pageSlug: ContentPageSlug) {
+  try {
+    const stored = JSON.parse(sessionStorage.getItem(`content-blocks-expanded-${pageSlug}`) ?? "[]");
+    return Array.isArray(stored) ? stored.filter(Number.isInteger) : [];
+  } catch {
+    return [];
+  }
+}
+
 function ContentPage({ pageSlug, title }: { pageSlug: ContentPageSlug; title: string }) {
   const { user, loading: userLoading } = useAuth();
   const [blocks, setBlocks] = useState<ContentBlock[]>([]);
-  const [collapsedContentBlocks, setCollapsedContentBlocks] = useState<number[]>(() => {
-    try {
-      return JSON.parse(sessionStorage.getItem(`content-blocks-collapsed-${pageSlug}`) ?? "[]");
-    } catch {
-      return [];
-    }
-  });
+  const [expandedContentBlocks, setExpandedContentBlocks] = useState<number[]>(() => readExpandedContentBlocks(pageSlug));
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [editingId, setEditingId] = useState<number | "new" | null>(null);
@@ -390,20 +393,15 @@ function ContentPage({ pageSlug, title }: { pageSlug: ContentPageSlug; title: st
   useEffect(load, [pageSlug]);
 
   useEffect(() => {
-    try {
-      const stored = JSON.parse(sessionStorage.getItem(`content-blocks-collapsed-${pageSlug}`) ?? "[]");
-      setCollapsedContentBlocks(Array.isArray(stored) ? stored.filter(Number.isInteger) : []);
-    } catch {
-      setCollapsedContentBlocks([]);
-    }
+    setExpandedContentBlocks(readExpandedContentBlocks(pageSlug));
   }, [pageSlug]);
 
   function toggleContentBlock(blockId: number) {
-    setCollapsedContentBlocks((current) => {
+    setExpandedContentBlocks((current) => {
       const next = current.includes(blockId)
         ? current.filter((id) => id !== blockId)
         : [...current, blockId];
-      sessionStorage.setItem(`content-blocks-collapsed-${pageSlug}`, JSON.stringify(next));
+      sessionStorage.setItem(`content-blocks-expanded-${pageSlug}`, JSON.stringify(next));
       return next;
     });
   }
@@ -484,19 +482,19 @@ function ContentPage({ pageSlug, title }: { pageSlug: ContentPageSlug; title: st
         if (editingId === block.id) {
           return <ContentBlockForm key={block.id} form={form} setForm={setForm} onSubmit={save} onCancel={() => setEditingId(null)} />;
         }
-        const isCollapsed = collapsedContentBlocks.includes(block.id);
+        const isExpanded = expandedContentBlocks.includes(block.id);
         return (
         <section className="panel p-5" key={block.id}>
           <div className="flex items-start justify-between gap-4">
             <button
               aria-controls={`content-block-${block.id}`}
-              aria-expanded={!isCollapsed}
-              aria-label={`${isCollapsed ? "Развернуть" : "Свернуть"} публикацию «${block.title}»`}
+              aria-expanded={isExpanded}
+              aria-label={`${isExpanded ? "Свернуть" : "Развернуть"} публикацию «${block.title}»`}
               className="flex min-w-0 flex-1 items-center gap-2 rounded-sm text-left text-xl font-semibold text-ember transition hover:text-[#e0b35f] focus-visible:outline focus-visible:outline-2 focus-visible:outline-ember"
               onClick={() => toggleContentBlock(block.id)}
               type="button"
             >
-              {isCollapsed ? <ChevronDown aria-hidden="true" className="shrink-0" size={20} /> : <ChevronUp aria-hidden="true" className="shrink-0" size={20} />}
+              {isExpanded ? <ChevronUp aria-hidden="true" className="shrink-0" size={20} /> : <ChevronDown aria-hidden="true" className="shrink-0" size={20} />}
               <span>{block.title}</span>
             </button>
             {user?.is_admin && (
@@ -508,7 +506,7 @@ function ContentPage({ pageSlug, title }: { pageSlug: ContentPageSlug; title: st
               </div>
             )}
           </div>
-          {!isCollapsed && <p className="mt-4 whitespace-pre-wrap text-white/80" id={`content-block-${block.id}`}>{block.content}</p>}
+          {isExpanded && <p className="mt-4 whitespace-pre-wrap text-white/80" id={`content-block-${block.id}`}>{block.content}</p>}
         </section>
         );
       })}
