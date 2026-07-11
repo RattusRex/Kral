@@ -1,4 +1,5 @@
 import os
+from datetime import date, time
 
 os.environ["DATABASE_URL"] = "sqlite://"
 os.environ.setdefault("SECRET_KEY", "test-secret-key-for-project-tests")
@@ -244,6 +245,107 @@ def test_disabled_project_feature_is_hidden_in_context_and_rejected_by_backend()
         assert client.get("/api/shop/magic-items", headers=player).status_code == 403
 
 
+def test_additional_project_features_are_independent_and_backend_enforced():
+    with TestClient(app) as client:
+        owner = login(client, "admin", "admin123")
+        player_id = register(client, "optional-feature-player")
+        first = client.post(
+            "/api/projects", headers=owner,
+            json={"name": "Optional Features", "slug": "optional-features"},
+        ).json()
+        second = client.post(
+            "/api/projects", headers=owner,
+            json={"name": "Enabled Features", "slug": "enabled-features"},
+        ).json()
+        for project in (first, second):
+            assert client.put(
+                f"/api/projects/{project['id']}/members/{player_id}",
+                headers=owner,
+                json={"role": "player"},
+            ).status_code == 200
+
+        disabled = {
+            "leaderboard": False,
+            "karma": False,
+            "karma_logs": False,
+            "character_transfers": False,
+            "market_logs": False,
+            "logs": False,
+        }
+        updated = client.patch(
+            f"/api/projects/{first['id']}/settings",
+            headers=owner,
+            json={"features": disabled},
+        )
+        assert updated.status_code == 200, updated.text
+        assert all(updated.json()["features"][feature] is False for feature in disabled)
+
+        player = login(client, "optional-feature-player", PASSWORD)
+        first_headers = project_headers(player, first["id"])
+        second_headers = project_headers(player, second["id"])
+        assert client.get("/api/leaderboard", headers=first_headers).status_code == 403
+        assert client.get("/api/leaderboard", headers=second_headers).status_code == 200
+        assert client.get("/api/characters/transfer-targets", headers=first_headers).status_code == 403
+        assert client.get("/api/characters/transfer-targets", headers=second_headers).status_code == 200
+        assert client.get("/api/karma-shop/purchases", headers=first_headers).status_code == 403
+
+        assert client.put(
+            f"/api/projects/{first['id']}/members/{player_id}",
+            headers=owner,
+            json={"role": "technician"},
+        ).status_code == 200
+        admin_headers = project_headers(player, first["id"])
+        assert client.get("/api/admin/shop-logs", headers=admin_headers).status_code == 403
+        assert client.get("/api/admin/market-sales", headers=admin_headers).status_code == 403
+        assert client.get("/api/admin/karma-shop-logs", headers=admin_headers).status_code == 403
+        karma_change = client.post(
+            f"/api/admin/users/{player_id}/karma",
+            headers=admin_headers,
+            json={"amount": 1, "reason": "must remain disabled"},
+        )
+        assert karma_change.status_code == 403
+
+        first_context = client.get("/api/projects/current", headers=first_headers).json()
+        second_context = client.get("/api/projects/current", headers=second_headers).json()
+        assert all(first_context["features"][feature] is False for feature in disabled)
+        assert all(second_context["features"][feature] is True for feature in disabled)
+
+
+def test_only_owner_project_owner_and_head_admin_can_change_feature_settings():
+    with TestClient(app) as client:
+        owner = login(client, "admin", "admin123")
+        project = client.post(
+            "/api/projects", headers=owner,
+            json={"name": "Feature Roles", "slug": "feature-roles"},
+        ).json()
+        roles = ("project_owner", "head_admin", "admin", "technician", "player")
+        headers_by_role = {}
+        for role in roles:
+            username = f"feature-{role.replace('_', '-')}"
+            user_id = register(client, username)
+            assert client.put(
+                f"/api/projects/{project['id']}/members/{user_id}",
+                headers=owner,
+                json={"role": role},
+            ).status_code == 200
+            headers_by_role[role] = project_headers(login(client, username, PASSWORD), project["id"])
+
+        for role in ("project_owner", "head_admin"):
+            response = client.patch(
+                f"/api/projects/{project['id']}/settings",
+                headers=headers_by_role[role],
+                json={"features": {"leaderboard": False}},
+            )
+            assert response.status_code == 200, (role, response.text)
+        for role in ("admin", "technician", "player"):
+            response = client.patch(
+                f"/api/projects/{project['id']}/settings",
+                headers=headers_by_role[role],
+                json={"features": {"leaderboard": True}},
+            )
+            assert response.status_code == 403, (role, response.text)
+
+
 def test_only_global_owner_can_delete_project_and_other_projects_are_untouched():
     with TestClient(app) as client:
         owner = login(client, "admin", "admin123")
@@ -275,8 +377,8 @@ def test_only_global_owner_can_delete_project_and_other_projects_are_untouched()
             db.add_all([first_character, second_character])
             db.flush()
             recruitment = GameRecruitment(
-                author_id=manager_id, project_id=first["id"], real_date="2026-08-01",
-                game_date="1492-01-01", start_time="18:00", duration="4 hours",
+                author_id=manager_id, project_id=first["id"], real_date=date(2026, 8, 1),
+                game_date=date(1492, 1, 1), start_time=time(18, 0), duration="4 hours",
                 location="Test", quest="Delete me",
             )
             db.add(recruitment)

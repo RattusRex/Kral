@@ -247,18 +247,18 @@ function Shell({ children, user }: { children: React.ReactNode; user: User | nul
             <Link className="btn-secondary" to="/characters"><UsersRound size={16} />Персонажи</Link>
             {project?.features.shop !== false && <Link className="btn-secondary" to="/shop"><ShoppingBag size={16} />Магазин</Link>}
             {project?.features.market !== false && <Link className="btn-secondary" to="/market"><Coins size={16} />Рынок</Link>}
-            {project?.features.karma_shop !== false && <Link className="btn-secondary" to="/karma-shop"><ShoppingBag size={16} />Карма</Link>}
-            <Link className="btn-secondary" to="/leaderboard"><Trophy size={16} />Лидеры</Link>
+            {project?.features.karma !== false && project?.features.karma_shop !== false && <Link className="btn-secondary" to="/karma-shop"><ShoppingBag size={16} />Карма</Link>}
+            {project?.features.leaderboard !== false && <Link className="btn-secondary" to="/leaderboard"><Trophy size={16} />Лидеры</Link>}
             <Link className="btn-secondary" to="/chat"><MessageSquare size={16} />Чат</Link>
             {project?.features.recruitments !== false && <Link className="btn-secondary" to="/game-recruitments"><CalendarDays size={16} />Набор на игры</Link>}
             <Link className="btn-secondary" to="/profile"><UserRound size={16} />Профиль</Link>
             {(user?.is_owner || project?.is_admin) && <Link className="btn-secondary" to="/admin"><Shield size={16} />Админ</Link>}
             {project?.can_manage_settings && <Link className="btn-secondary" to="/project-settings"><Shield size={16} />Настройки проекта</Link>}
             {user?.is_owner && <Link className="btn-secondary" to="/project-management"><Shield size={16} />Управление проектами</Link>}
-            {user?.is_admin && <Link className="btn-secondary" to="/admin/shop-logs"><ScrollText size={16} />Логи</Link>}
-            {user?.is_admin && <Link className="btn-secondary" to="/admin/market-sales"><ScrollText size={16} />Рынок-логи</Link>}
-            {user?.is_admin && <Link className="btn-secondary" to="/admin/transfer-logs"><ScrollText size={16} />Передачи</Link>}
-            {user?.is_admin && <Link className="btn-secondary" to="/admin/karma-shop-logs"><ScrollText size={16} />Карма-логи</Link>}
+            {project?.is_admin && project.features.logs !== false && <Link className="btn-secondary" to="/admin/shop-logs"><ScrollText size={16} />Логи</Link>}
+            {project?.is_admin && project.features.market_logs !== false && <Link className="btn-secondary" to="/admin/market-sales"><ScrollText size={16} />Рынок-логи</Link>}
+            {project?.is_admin && project.features.logs !== false && <Link className="btn-secondary" to="/admin/transfer-logs"><ScrollText size={16} />Передачи</Link>}
+            {project?.is_admin && project.features.karma_logs !== false && <Link className="btn-secondary" to="/admin/karma-shop-logs"><ScrollText size={16} />Карма-логи</Link>}
             <button className="btn-secondary" onClick={logout}><LogOut size={16} />Выйти</button>
           </div>
         </nav>
@@ -270,19 +270,21 @@ function Shell({ children, user }: { children: React.ReactNode; user: User | nul
 
 function HomePage() {
   const { user, loading } = useAuth();
+  const [project, setProject] = useState<ProjectContext | null>(null);
+  useEffect(() => { api.get<ProjectContext>("/projects/current").then((response) => setProject(response.data)); }, []);
   if (loading || !user) return <p>Загрузка...</p>;
   return (
     <div className="grid gap-4 md:grid-cols-[1fr_320px]">
       <section className="panel p-5">
         <h1 className="text-2xl font-bold text-ember">Главное меню</h1>
         <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          <Link className="btn" to="/shop"><ShoppingBag size={18} />Магазин</Link>
-          <Link className="btn" to="/market"><Coins size={18} />Рынок</Link>
-          <Link className="btn" to="/karma-shop"><ShoppingBag size={18} />Магазин Кармы</Link>
+          {project?.features.shop !== false && <Link className="btn" to="/shop"><ShoppingBag size={18} />Магазин</Link>}
+          {project?.features.market !== false && <Link className="btn" to="/market"><Coins size={18} />Рынок</Link>}
+          {project?.features.karma !== false && project?.features.karma_shop !== false && <Link className="btn" to="/karma-shop"><ShoppingBag size={18} />Магазин Кармы</Link>}
           <Link className="btn" to="/characters"><UsersRound size={18} />Мои персонажи</Link>
-          <Link className="btn" to="/leaderboard"><Trophy size={18} />Таблица лидеров</Link>
+          {project?.features.leaderboard !== false && <Link className="btn" to="/leaderboard"><Trophy size={18} />Таблица лидеров</Link>}
           <Link className="btn" to="/chat"><MessageSquare size={18} />Чат</Link>
-          <Link className="btn" to="/game-recruitments"><CalendarDays size={18} />Набор на игры</Link>
+          {project?.features.recruitments !== false && <Link className="btn" to="/game-recruitments"><CalendarDays size={18} />Набор на игры</Link>}
           <Link className="btn" to="/server-rules"><BookOpen size={18} />Правила сервера</Link>
           <Link className="btn" to="/approved-homebrew"><ScrollText size={18} />Одобренное ХБ</Link>
         </div>
@@ -291,7 +293,7 @@ function HomePage() {
         <h2 className="text-lg font-semibold text-ember">{user.username}</h2>
         <p className="mt-2 text-white/70">{user.email}</p>
         <p className="mt-3 text-sm text-white/80">Роль: {ROLE_LABELS[user.role ?? "player"]}</p>
-        <p className="mt-4 text-xl font-semibold">Карма: {user.karma}</p>
+        {project?.features.karma !== false && <p className="mt-4 text-xl font-semibold">Карма: {user.karma}</p>}
       </aside>
     </div>
   );
@@ -303,7 +305,13 @@ const PROJECT_FEATURE_LABELS: Record<string, string> = {
   karma_shop: "Магазин Кармы",
   recruitments: "Набор на игры",
   personal_hirelings: "Личные наёмники",
-  simulacrums: "Симулякры"
+  simulacrums: "Симулякры",
+  leaderboard: "Лидеры",
+  karma: "Карма",
+  karma_logs: "Карма-логи",
+  character_transfers: "Передача персонажей",
+  market_logs: "Рынок-логи",
+  logs: "Логи"
 };
 
 function ProjectSettingsPage() {
@@ -496,6 +504,14 @@ function Protected({ children }: { children: React.ReactNode }) {
   if (loading) return <div className="p-6 text-parchment">Загрузка...</div>;
   if (!localStorage.getItem(TOKEN_KEY)) return <Navigate to="/login" replace />;
   return <Shell user={user}>{children}</Shell>;
+}
+
+function FeatureProtected({ feature, children }: { feature: keyof ProjectContext["features"]; children: React.ReactNode }) {
+  const [project, setProject] = useState<ProjectContext | null>(null);
+  useEffect(() => { api.get<ProjectContext>("/projects/current").then((response) => setProject(response.data)); }, []);
+  if (!project) return <div className="p-6 text-parchment">Загрузка...</div>;
+  if (project.features[feature] === false) return <Navigate to="/" replace />;
+  return <>{children}</>;
 }
 
 function Login() {
@@ -972,16 +988,19 @@ function CharacterPage() {
   const [abilityRoll, setAbilityRoll] = useState<AbilityRoll | null>(null);
   const [savingThrowRoll, setSavingThrowRoll] = useState<SavingThrowRoll | null>(null);
   const [attackError, setAttackError] = useState("");
+  const [transfersEnabled, setTransfersEnabled] = useState(false);
 
   useEffect(() => {
     Promise.all([
       api.get<Character[]>("/characters"),
-      api.get<TransferTarget[]>("/characters/transfer-targets"),
+      api.get<ProjectContext>("/projects/current"),
       api.get<Inventory>(`/characters/${id}/inventory`),
       api.get<CharacterAttack[]>(`/characters/${id}/attacks`)
-    ]).then(([charactersResponse, targetsResponse, inventoryResponse, attacksResponse]) => {
+    ]).then(async ([charactersResponse, projectResponse, inventoryResponse, attacksResponse]) => {
       setCharacter(charactersResponse.data.find((item) => item.id === id) ?? null);
-      setTransferTargets(targetsResponse.data);
+      const enabled = projectResponse.data.features.character_transfers !== false;
+      setTransfersEnabled(enabled);
+      if (enabled) setTransferTargets((await api.get<TransferTarget[]>("/characters/transfer-targets")).data);
       setInventory(inventoryResponse.data);
       setAttacks(attacksResponse.data);
     });
@@ -1200,7 +1219,7 @@ function CharacterPage() {
           </section>
         </div>
 
-        <InventoryPanel inventory={inventory} onChange={setInventory} characterId={id} transferTargets={transferTargets} />
+        <InventoryPanel inventory={inventory} onChange={setInventory} characterId={id} transferTargets={transferTargets} transfersEnabled={transfersEnabled} />
       </div>
     </div>
   );
@@ -1453,7 +1472,7 @@ function ClassLevelsEditor({ classLevels, onChange }: {
   );
 }
 
-function InventoryPanel({ inventory, onChange, characterId, transferTargets }: { inventory: Inventory | null; onChange: (inventory: Inventory) => void; characterId: number; transferTargets: TransferTarget[] }) {
+function InventoryPanel({ inventory, onChange, characterId, transferTargets, transfersEnabled }: { inventory: Inventory | null; onChange: (inventory: Inventory) => void; characterId: number; transferTargets: TransferTarget[]; transfersEnabled: boolean }) {
   const recipients = transferTargets.filter((character) => character.id !== characterId);
   const [currencyTransfer, setCurrencyTransfer] = useState<{ recipient_character_id: string; gold: NumericInputValue; silver: NumericInputValue; copper: NumericInputValue }>({ recipient_character_id: "", gold: 0, silver: 0, copper: 0 });
   const [itemRecipients, setItemRecipients] = useState<Record<number, string>>({});
@@ -1538,7 +1557,7 @@ function InventoryPanel({ inventory, onChange, characterId, transferTargets }: {
           {notesSaved && <span className="text-sm text-emerald-200">Сохранено</span>}
         </div>
       </div>
-      <form className="mt-4 rounded-md border border-white/10 p-3" onSubmit={transferCurrency}>
+      {transfersEnabled && <form className="mt-4 rounded-md border border-white/10 p-3" onSubmit={transferCurrency}>
         <h3 className="font-semibold text-ember">Передать валюту</h3>
         <div className="mt-3 grid grid-cols-3 gap-2">
           {(["gold", "silver", "copper"] as const).map((field) => (
@@ -1557,7 +1576,7 @@ function InventoryPanel({ inventory, onChange, characterId, transferTargets }: {
           {recipients.map((character) => <option key={character.id} value={character.id}>{character.name} · {character.owner_username}</option>)}
         </select>
         <button className="btn mt-2 w-full" disabled={!currencyTransfer.recipient_character_id}>Передать</button>
-      </form>
+      </form>}
       {error && <p className="mt-3 text-sm text-red-300">{error}</p>}
       <div className="mt-4 space-y-3">
         {inventory?.items.map((item) => (
@@ -1567,11 +1586,11 @@ function InventoryPanel({ inventory, onChange, characterId, transferTargets }: {
             <div className="mt-3 flex flex-wrap gap-2">
               <Link className="btn-secondary" to={`/shop?mode=sell&character=${characterId}&item=${item.id}`}>Продать</Link>
               <button className="btn-secondary" onClick={() => remove(item)}>Удалить</button>
-              <select className="field min-w-0 flex-1" value={itemRecipients[item.id] ?? ""} onChange={(event) => setItemRecipients({ ...itemRecipients, [item.id]: event.target.value })}>
+              {transfersEnabled && <select className="field min-w-0 flex-1" value={itemRecipients[item.id] ?? ""} onChange={(event) => setItemRecipients({ ...itemRecipients, [item.id]: event.target.value })}>
                 <option value="">Кому передать</option>
                 {recipients.map((character) => <option key={character.id} value={character.id}>{character.name} · {character.owner_username}</option>)}
-              </select>
-              <button className="btn-secondary" disabled={!itemRecipients[item.id]} onClick={() => transferItem(item)}>Передать</button>
+              </select>}
+              {transfersEnabled && <button className="btn-secondary" disabled={!itemRecipients[item.id]} onClick={() => transferItem(item)}>Передать</button>}
             </div>
           </div>
         ))}
@@ -1960,12 +1979,16 @@ function ResultPanel({ result, onConfirm, onContinue }: { result: ShopResult | n
 
 function ProfilePage() {
   const { user, loading } = useAuth();
+  const [project, setProject] = useState<ProjectContext | null>(null);
   const [purchases, setPurchases] = useState<KarmaPurchase[]>([]);
   useEffect(() => {
-    if (user) api.get<KarmaPurchase[]>("/karma-shop/purchases").then((response) => setPurchases(response.data));
+    api.get<ProjectContext>("/projects/current").then((response) => {
+      setProject(response.data);
+      if (user && response.data.features.karma !== false && response.data.features.karma_shop !== false) api.get<KarmaPurchase[]>("/karma-shop/purchases").then((purchasesResponse) => setPurchases(purchasesResponse.data));
+    });
   }, [user]);
   if (loading || !user) return <p>Загрузка...</p>;
-  return <div className="grid gap-4 md:grid-cols-2"><section className="panel p-5"><h1 className="text-xl font-bold text-ember">{user.username}</h1><p>{user.email}</p><p className="mt-2">Карма: {user.karma}</p></section><section className="panel p-5"><h2 className="text-xl font-bold text-ember">Открывашки</h2><div className="mt-4 space-y-2">{purchases.map((purchase) => <div className="rounded-md bg-black/25 p-3" key={purchase.id}><p className="font-semibold">{purchase.name}</p><p className="text-sm text-white/55">{purchase.purchase_type === "opener" ? "Открывашка" : "Товар"} · {purchase.cost} кармы</p></div>)}{!purchases.length && <p className="text-white/55">Покупок пока нет</p>}</div></section></div>;
+  return <div className="grid gap-4 md:grid-cols-2"><section className="panel p-5"><h1 className="text-xl font-bold text-ember">{user.username}</h1><p>{user.email}</p>{project?.features.karma !== false && <p className="mt-2">Карма: {user.karma}</p>}</section>{project?.features.karma !== false && project?.features.karma_shop !== false && <section className="panel p-5"><h2 className="text-xl font-bold text-ember">Открывашки</h2><div className="mt-4 space-y-2">{purchases.map((purchase) => <div className="rounded-md bg-black/25 p-3" key={purchase.id}><p className="font-semibold">{purchase.name}</p><p className="text-sm text-white/55">{purchase.purchase_type === "opener" ? "Открывашка" : "Товар"} · {purchase.cost} кармы</p></div>)}{!purchases.length && <p className="text-white/55">Покупок пока нет</p>}</div></section>}</div>;
 }
 
 function KarmaShopPage() {
@@ -2494,6 +2517,7 @@ function PaginationControls({ page, pageSize, pages, total, onPageChange, onPage
 
 function AdminPage() {
   const { user } = useAuth();
+  const [project, setProject] = useState<ProjectContext | null>(null);
   const [characters, setCharacters] = useState<Character[]>([]);
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [selected, setSelected] = useState("");
@@ -2545,6 +2569,7 @@ function AdminPage() {
   }
 
   useEffect(load, [characterPage, characterPageSize, userPage, userPageSize]);
+  useEffect(() => { api.get<ProjectContext>("/projects/current").then((response) => setProject(response.data)); }, []);
 
   async function action(path: string, body?: unknown) {
     const payload = body && typeof body === "object" ? body : {};
@@ -2611,7 +2636,7 @@ function AdminPage() {
         <section className="panel flex flex-col gap-3 p-5">
           <div className="flex items-center justify-between gap-3">
             <h1 className="text-xl font-bold text-ember">Админка мастера</h1>
-            <div className="flex gap-2"><Link className="btn-secondary" to="/admin/grant-logs"><ScrollText size={16} />Журнал выдач</Link><PanelToggle panel="master" label="Админка мастера" /></div>
+            <div className="flex gap-2">{project?.features.logs !== false && <Link className="btn-secondary" to="/admin/grant-logs"><ScrollText size={16} />Журнал выдач</Link>}<PanelToggle panel="master" label="Админка мастера" /></div>
           </div>
           {!collapsed.master && <>
           <label className="field-label">
@@ -2642,7 +2667,7 @@ function AdminPage() {
             )}
           </div>
         </section>
-        <section className="panel flex flex-col gap-3 p-5">
+        {project?.features.karma !== false && <section className="panel flex flex-col gap-3 p-5">
           <div className="flex items-center justify-between gap-3"><h2 className="text-lg font-semibold text-ember">Карма игроков</h2><PanelToggle panel="karma" label="Карма игроков" /></div>
           {!collapsed.karma && <>
           <label className="field-label">
@@ -2660,7 +2685,7 @@ function AdminPage() {
           <label className="field-label"><span>Причина выдачи</span><textarea className="field" required value={reason} onChange={(event) => setReason(event.target.value)} /></label>
           <button className="btn" disabled={!karmaUserId || !reason.trim()} onClick={applyKarma}>Применить</button>
           </>}
-        </section>
+        </section>}
         {canManageRoles && (
           <section className="panel flex flex-col gap-3 p-5">
             <div className="flex items-center justify-between gap-3">
@@ -3407,8 +3432,8 @@ function App() {
         <Route path="/characters/:id/edit" element={<Protected><CharacterFormPage edit /></Protected>} />
         <Route path="/shop" element={<Protected><ShopPage /></Protected>} />
         <Route path="/market" element={<Protected><MarketPage /></Protected>} />
-        <Route path="/karma-shop" element={<Protected><KarmaShopPage /></Protected>} />
-        <Route path="/leaderboard" element={<Protected><LeaderboardPage /></Protected>} />
+        <Route path="/karma-shop" element={<Protected><FeatureProtected feature="karma"><FeatureProtected feature="karma_shop"><KarmaShopPage /></FeatureProtected></FeatureProtected></Protected>} />
+        <Route path="/leaderboard" element={<Protected><FeatureProtected feature="leaderboard"><LeaderboardPage /></FeatureProtected></Protected>} />
         <Route path="/chat" element={<Protected><ChatPage /></Protected>} />
         <Route path="/game-recruitments" element={<Protected><GameRecruitmentsPage /></Protected>} />
         <Route path="/server-rules" element={<Protected><ContentPage pageSlug="server-rules" title="Правила сервера" /></Protected>} />
@@ -3416,11 +3441,11 @@ function App() {
         <Route path="/profile" element={<Protected><ProfilePage /></Protected>} />
         <Route path="/project-settings" element={<Protected><ProjectSettingsPage /></Protected>} />
         <Route path="/project-management" element={<Protected><ProjectManagementPage /></Protected>} />
-        <Route path="/admin/shop-logs" element={<Protected><ShopLogsPage /></Protected>} />
-        <Route path="/admin/market-sales" element={<Protected><MarketSalesPage /></Protected>} />
-        <Route path="/admin/karma-shop-logs" element={<Protected><KarmaShopLogsPage /></Protected>} />
-        <Route path="/admin/transfer-logs" element={<Protected><TransferLogsPage /></Protected>} />
-        <Route path="/admin/grant-logs" element={<Protected><GrantLogsPage /></Protected>} />
+        <Route path="/admin/shop-logs" element={<Protected><FeatureProtected feature="logs"><ShopLogsPage /></FeatureProtected></Protected>} />
+        <Route path="/admin/market-sales" element={<Protected><FeatureProtected feature="market_logs"><MarketSalesPage /></FeatureProtected></Protected>} />
+        <Route path="/admin/karma-shop-logs" element={<Protected><FeatureProtected feature="karma_logs"><KarmaShopLogsPage /></FeatureProtected></Protected>} />
+        <Route path="/admin/transfer-logs" element={<Protected><FeatureProtected feature="logs"><TransferLogsPage /></FeatureProtected></Protected>} />
+        <Route path="/admin/grant-logs" element={<Protected><FeatureProtected feature="logs"><GrantLogsPage /></FeatureProtected></Protected>} />
         <Route path="/admin/characters/:id" element={<Protected><AdminCharacterPage /></Protected>} />
         <Route path="/admin" element={<Protected><AdminPage /></Protected>} />
         <Route path="*" element={<Navigate to="/" replace />} />

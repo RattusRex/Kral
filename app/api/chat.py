@@ -5,7 +5,9 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from app.api.users import get_current_user, get_db
+from app.api.projects import require_feature
 from app.models.chat import ChatMessage
+from app.models.project import Project, ProjectMembership
 from app.models.user import User
 from app.core.roles import is_admin_role
 from app.schemas.chat import (
@@ -94,9 +96,14 @@ def require_message_content(content: str) -> str:
 @router.get("/leaderboard")
 def get_leaderboard(
     db: Session = Depends(get_db),
-    _: User = Depends(get_current_user)
+    _: User = Depends(get_current_user),
+    project: Project = Depends(require_feature("leaderboard")),
 ):
-    users = db.query(User).order_by(
+    users = db.query(User).join(
+        ProjectMembership, ProjectMembership.user_id == User.id
+    ).filter(
+        ProjectMembership.project_id == project.id
+    ).order_by(
         User.karma.desc(),
         User.username.asc()
     ).all()
