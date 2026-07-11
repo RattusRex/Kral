@@ -30,6 +30,11 @@ span {
   overflow-wrap: anywhere;
 }
 
+.project-title {
+  overflow-wrap: normal;
+  word-break: normal;
+}
+
 button,
 input,
 select,
