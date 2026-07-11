@@ -604,9 +604,9 @@ function CalendarPanel({ characterId, agentType = "character", title = "Кале
                       <div className="text-sm text-white/60">{entry.reason || "Без описания"}</div>
                       {entry.source === "work" && <div className="text-xs text-emerald-200">Модификатор {entry.proficiency_modifier! >= 0 ? "+" : ""}{entry.proficiency_modifier} · заработок {Math.floor((entry.income_copper ?? 0) / 100)} зм {Math.floor(((entry.income_copper ?? 0) % 100) / 10)} см {(entry.income_copper ?? 0) % 10} мм</div>}
                     </div>
-                    {canManage && entry.source !== "work" && (
+                    {canManage && (
                       <div className="flex gap-2">
-                        <button className="btn-secondary" onClick={() => startEdit(entry)} type="button"><Pencil size={16} />Изменить</button>
+                        {entry.source !== "work" && <button className="btn-secondary" onClick={() => startEdit(entry)} type="button"><Pencil size={16} />Изменить</button>}
                         <button className="btn-secondary" onClick={() => removeEntry(entry.id)} type="button"><Trash2 size={16} />Удалить</button>
                       </div>
                     )}
