@@ -5,6 +5,7 @@ from pydantic import BaseModel, Field
 
 
 class RecruitmentCreate(BaseModel):
+    project_id: int | None = None
     real_date: date
     game_date: date
     start_time: time

@@ -3,7 +3,7 @@ import { createRoot } from "react-dom/client";
 import axios from "axios";
 import { Link, Navigate, Route, BrowserRouter as Router, Routes, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { ArrowDown, ArrowUp, BookOpen, CalendarDays, Check, ChevronDown, ChevronUp, Coins, Dice5, LogOut, MapPin, MessageSquare, Pencil, Plus, RefreshCw, Save, ScrollText, Search, Send, Shield, ShoppingBag, Swords, Trash2, Trophy, UserRound, UsersRound, X } from "lucide-react";
-import { AbilityRoll, AdminGrantLog, AdminUser, api, AttackRoll, CalendarSummary, Character, CharacterAttack, ChatMessage, ContentBlock, DamageRoll, GameRecruitment, Inventory, InventoryItem, KarmaPurchase, KarmaPurchaseResult, LeaderboardEntry, MagicItem, MarketSaleLog, MarketSaleResult, PaginatedResponse, ROLE_LABELS, SavingThrowRoll, ShopResult, ShopTransactionLog, SkillRoll, TOKEN_KEY, TransferLog, TransferTarget, User, UserRole } from "./api";
+import { AbilityRoll, AdminGrantLog, AdminUser, api, AttackRoll, CalendarSummary, Character, CharacterAttack, ChatMessage, ContentBlock, DamageRoll, GameRecruitment, Inventory, InventoryItem, KarmaPurchase, KarmaPurchaseResult, LeaderboardEntry, MagicItem, MarketSaleLog, MarketSaleResult, PaginatedResponse, Project, ROLE_LABELS, SavingThrowRoll, ShopResult, ShopTransactionLog, SkillRoll, TOKEN_KEY, TransferLog, TransferTarget, User, UserRole } from "./api";
 import "./styles.css";
 
 const rarities = ["Обычный", "Необычный", "Редкий"];
@@ -85,6 +85,7 @@ const adminNumberFields = [
   ...adminUnitNumberFields
 ] as const;
 const blankCharacter = {
+  project_id: 0,
   name: "",
   class_name: defaultCharacterClass,
   class_levels: [{ class_name: defaultCharacterClass, level: 1 }],
@@ -217,6 +218,7 @@ function Shell({ children, user }: { children: React.ReactNode; user: User | nul
             <Link className="btn-secondary" to="/game-recruitments"><CalendarDays size={16} />Набор на игры</Link>
             <Link className="btn-secondary" to="/profile"><UserRound size={16} />Профиль</Link>
             {user?.is_admin && <Link className="btn-secondary" to="/admin"><Shield size={16} />Админ</Link>}
+            {user?.is_owner && <Link className="btn-secondary" to="/projects"><MapPin size={16} />Проекты</Link>}
             {user?.is_admin && <Link className="btn-secondary" to="/admin/shop-logs"><ScrollText size={16} />Логи</Link>}
             {user?.is_admin && <Link className="btn-secondary" to="/admin/market-sales"><ScrollText size={16} />Рынок-логи</Link>}
             {user?.is_admin && <Link className="btn-secondary" to="/admin/transfer-logs"><ScrollText size={16} />Передачи</Link>}
@@ -258,6 +260,55 @@ function HomePage() {
       </aside>
     </div>
   );
+}
+
+function ProjectsPage() {
+  const { user, loading } = useAuth();
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [name, setName] = useState("");
+  const [error, setError] = useState("");
+
+  function loadProjects() {
+    api.get<Project[]>("/projects")
+      .then((response) => setProjects(response.data))
+      .catch((requestError) => setError(apiErrorDetail(requestError, "Не удалось загрузить проекты")));
+  }
+
+  useEffect(loadProjects, []);
+
+  async function create(event: FormEvent) {
+    event.preventDefault();
+    setError("");
+    try {
+      await api.post("/projects", { name });
+      setName("");
+      loadProjects();
+    } catch (requestError) {
+      setError(apiErrorDetail(requestError, "Не удалось создать проект"));
+    }
+  }
+
+  if (loading) return <p>Загрузка...</p>;
+  if (!user?.is_owner) return <Navigate to="/" replace />;
+  return <div className="grid gap-4 lg:grid-cols-[360px_1fr]">
+    <form className="panel flex flex-col gap-3 p-5" onSubmit={create}>
+      <h1 className="text-xl font-bold text-ember">Новый проект</h1>
+      <p className="text-sm text-white/65">Отдельная игровая экосистема со своими персонажами и администрацией.</p>
+      <input className="field" required maxLength={120} placeholder="Название проекта" value={name} onChange={(event) => setName(event.target.value)} />
+      <button className="btn" type="submit"><Plus size={16} />Создать</button>
+      {error && <p className="text-sm text-red-300">{error}</p>}
+    </form>
+    <section className="panel p-5">
+      <h2 className="text-xl font-bold text-ember">Игровые проекты</h2>
+      <div className="mt-4 grid gap-3 sm:grid-cols-2">
+        {projects.map((project) => <article className="rounded-md border border-white/10 p-4" key={project.id}>
+          <h3 className="font-semibold">{project.name}</h3>
+          <p className="mt-1 text-sm text-white/60">Создан {new Date(project.created_at).toLocaleDateString("ru-RU")}</p>
+          <p className="mt-2 text-xs uppercase text-ember">{project.role === "owner" ? "Владелец" : project.role}</p>
+        </article>)}
+      </div>
+    </section>
+  </div>;
 }
 
 type ContentPageSlug = "server-rules" | "approved-homebrew";
@@ -1216,6 +1267,16 @@ function CharacterFormPage({ edit = false }: { edit?: boolean }) {
   const id = Number(idParam);
   const [form, setForm] = useState(blankCharacter);
   const [error, setError] = useState("");
+  const [projects, setProjects] = useState<Project[]>([]);
+
+  useEffect(() => {
+    api.get<Project[]>("/projects").then((response) => {
+      setProjects(response.data);
+      if (!edit && response.data[0]) {
+        setForm((current) => ({ ...current, project_id: current.project_id || response.data[0].id }));
+      }
+    });
+  }, [edit]);
 
   useEffect(() => {
     if (!edit) return;
@@ -1257,6 +1318,20 @@ function CharacterFormPage({ edit = false }: { edit?: boolean }) {
   return (
     <form className="panel grid gap-3 p-5 md:grid-cols-2" onSubmit={submit}>
       <h1 className="text-xl font-bold text-ember md:col-span-2">{edit ? "Редактировать персонажа" : "Создать персонажа"}</h1>
+      <label className="field-label md:col-span-2">
+        <span>Проект / игровая экосистема</span>
+        <select
+          className="field"
+          required
+          disabled={edit}
+          value={form.project_id}
+          onChange={(event) => setForm({ ...form, project_id: Number(event.target.value) })}
+        >
+          <option value={0}>Выберите проект</option>
+          {projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}
+        </select>
+        <span className="text-xs text-white/45">Персонажа нельзя перенести между проектами.</span>
+      </label>
       <ClassLevelsEditor
         classLevels={form.class_levels}
         onChange={(classLevels) => setForm({
@@ -3282,6 +3357,7 @@ function App() {
         <Route path="/server-rules" element={<Protected><ContentPage pageSlug="server-rules" title="Правила сервера" /></Protected>} />
         <Route path="/approved-homebrew" element={<Protected><ContentPage pageSlug="approved-homebrew" title="Одобренное ХБ" /></Protected>} />
         <Route path="/profile" element={<Protected><ProfilePage /></Protected>} />
+        <Route path="/projects" element={<Protected><ProjectsPage /></Protected>} />
         <Route path="/admin/shop-logs" element={<Protected><ShopLogsPage /></Protected>} />
         <Route path="/admin/market-sales" element={<Protected><MarketSalesPage /></Protected>} />
         <Route path="/admin/karma-shop-logs" element={<Protected><KarmaShopLogsPage /></Protected>} />

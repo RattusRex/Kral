@@ -17,6 +17,8 @@ from app.schemas.character import (
     SkillRollResponse,
 )
 from app.api.users import get_db
+from app.core.projects import require_project_access
+from app.models.project import DEFAULT_PROJECT_NAME, Project
 
 ABILITY_FIELDS = {
     "strength": "Сила",
@@ -79,8 +81,17 @@ def create_character(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
+    project_id = character_data.project_id
+    if project_id is None:
+        # Backward compatibility for existing API clients: accounts migrated to
+        # the original ecosystem may omit the selector. New UI always sends it.
+        project_id = db.query(Project.id).filter(
+            Project.name == DEFAULT_PROJECT_NAME
+        ).scalar()
+    require_project_access(db, current_user, project_id)
     character_count = db.query(Character).filter(
-        Character.user_id == current_user.id
+        Character.user_id == current_user.id,
+        Character.project_id == project_id,
     ).count()
     if character_count >= MAX_CHARACTERS_PER_USER:
         raise HTTPException(
@@ -121,7 +132,8 @@ def create_character(
         speed=character_data.speed,
         level=character_data.level,
         route=character_data.route,
-        user_id=current_user.id
+        user_id=current_user.id,
+        project_id=project_id,
     )
 
     db.add(character)
@@ -132,6 +144,7 @@ def create_character(
 
     return {
         "id": character.id,
+        "project_id": character.project_id,
         "name": character.name,
         "class_name": character.class_name,
         "class_levels": character.class_levels,
@@ -181,15 +194,22 @@ def get_characters(
 @router.get("/characters/transfer-targets")
 def get_transfer_targets(
     db: Session = Depends(get_db),
-    _: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user)
 ):
+    project_ids = [row.project_id for row in current_user.project_memberships]
+    if current_user.is_owner:
+        query = db.query(Character)
+    elif not project_ids:
+        return []
+    else:
+        query = db.query(Character).filter(Character.project_id.in_(project_ids))
     return [{
         "id": character.id,
         "name": character.name,
         "class_name": character.class_name,
         "level": character.level,
         "owner_username": character.owner.username
-    } for character in db.query(Character).all()]
+    } for character in query.all()]
 
 
 @router.patch("/characters/{character_id}")

@@ -13,6 +13,8 @@ from app.schemas.recruitment import (
     RecruitmentCreate,
     RecruitmentStatusUpdate,
 )
+from app.core.projects import accessible_project_ids, require_project_admin
+from app.models.project import DEFAULT_PROJECT_NAME, Project
 
 
 router = APIRouter(prefix="/game-recruitments", tags=["game recruitments"])
@@ -20,7 +22,9 @@ DEFAULT_PAGE_SIZE = 10
 MAX_PAGE_SIZE = 100
 
 
-def require_recruitment(db: Session, recruitment_id: int) -> GameRecruitment:
+def require_recruitment(
+    db: Session, recruitment_id: int, current_user: User | None = None
+) -> GameRecruitment:
     recruitment = db.query(GameRecruitment).options(
         joinedload(GameRecruitment.author),
         joinedload(GameRecruitment.applications).joinedload(GameApplication.user),
@@ -29,6 +33,10 @@ def require_recruitment(db: Session, recruitment_id: int) -> GameRecruitment:
     ).filter(GameRecruitment.id == recruitment_id).first()
     if not recruitment:
         raise HTTPException(status_code=404, detail="Game recruitment not found")
+    if current_user is not None and not current_user.is_owner:
+        project_ids = accessible_project_ids(db, current_user)
+        if recruitment.project_id not in (project_ids or []):
+            raise HTTPException(status_code=404, detail="Game recruitment not found")
     return recruitment
 
 
@@ -92,6 +100,9 @@ def list_recruitments(
         GameRecruitment.start_time.asc(),
         GameRecruitment.id.asc(),
     )
+    project_ids = accessible_project_ids(db, current_user)
+    if project_ids is not None:
+        query = query.filter(GameRecruitment.project_id.in_(project_ids))
     if page is None and page_size is None:
         return [serialize_recruitment(row, current_user) for row in query.all()]
 
@@ -116,10 +127,13 @@ def create_recruitment(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    if not current_user.is_admin:
-        raise HTTPException(status_code=403, detail="Administrator role required")
+    project_id = data.project_id or db.query(Project.id).filter(
+        Project.name == DEFAULT_PROJECT_NAME
+    ).scalar()
+    require_project_admin(db, current_user, project_id)
     recruitment = GameRecruitment(
         author_id=current_user.id,
+        project_id=project_id,
         real_date=data.real_date,
         game_date=data.game_date,
         start_time=data.start_time,
@@ -130,7 +144,7 @@ def create_recruitment(
     )
     db.add(recruitment)
     db.commit()
-    return serialize_recruitment(require_recruitment(db, recruitment.id), current_user)
+    return serialize_recruitment(require_recruitment(db, recruitment.id, current_user), current_user)
 
 
 @router.patch("/{recruitment_id}/status")
@@ -140,15 +154,16 @@ def update_recruitment_status(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    recruitment = require_recruitment(db, recruitment_id)
-    if recruitment.author_id != current_user.id and not current_user.is_admin:
+    recruitment = require_recruitment(db, recruitment_id, current_user)
+    if recruitment.author_id != current_user.id:
+        require_project_admin(db, current_user, recruitment.project_id)
         raise HTTPException(
             status_code=403,
             detail="Only the recruitment author or an administrator can change status",
         )
     recruitment.status = data.status
     db.commit()
-    return serialize_recruitment(require_recruitment(db, recruitment.id), current_user)
+    return serialize_recruitment(require_recruitment(db, recruitment.id, current_user), current_user)
 
 
 @router.delete("/{recruitment_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -157,8 +172,9 @@ def delete_recruitment(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    recruitment = require_recruitment(db, recruitment_id)
-    if recruitment.author_id != current_user.id and not current_user.is_admin:
+    recruitment = require_recruitment(db, recruitment_id, current_user)
+    if recruitment.author_id != current_user.id:
+        require_project_admin(db, current_user, recruitment.project_id)
         raise HTTPException(
             status_code=403,
             detail="Only the recruitment author or an administrator can delete it",
@@ -174,7 +190,7 @@ def apply_to_recruitment(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    recruitment = require_recruitment(db, recruitment_id)
+    recruitment = require_recruitment(db, recruitment_id, current_user)
     if recruitment.status == "completed":
         raise HTTPException(status_code=409, detail="This game has already been completed")
     character = db.query(Character).filter(Character.id == data.character_id).first()
@@ -182,6 +198,8 @@ def apply_to_recruitment(
         raise HTTPException(status_code=404, detail="Character not found")
     if character.user_id != current_user.id:
         raise HTTPException(status_code=403, detail="Character does not belong to current user")
+    if character.project_id != recruitment.project_id:
+        raise HTTPException(status_code=403, detail="Character belongs to another project")
     if character.is_dead:
         raise HTTPException(status_code=400, detail="A dead character cannot join a game")
 
@@ -203,7 +221,7 @@ def apply_to_recruitment(
     except IntegrityError:
         db.rollback()
         raise HTTPException(status_code=409, detail="Player is already registered for this game")
-    return serialize_recruitment(require_recruitment(db, recruitment.id), current_user)
+    return serialize_recruitment(require_recruitment(db, recruitment.id, current_user), current_user)
 
 
 @router.post("/{recruitment_id}/participants")
@@ -213,7 +231,7 @@ def select_participants(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    recruitment = require_recruitment(db, recruitment_id)
+    recruitment = require_recruitment(db, recruitment_id, current_user)
     if recruitment.author_id != current_user.id:
         raise HTTPException(status_code=403, detail="Only the recruitment author can select participants")
 
@@ -234,4 +252,4 @@ def select_participants(
         content="Игроки выбраны:\n\n" + "\n".join(lines),
     ))
     db.commit()
-    return serialize_recruitment(require_recruitment(db, recruitment.id), current_user)
+    return serialize_recruitment(require_recruitment(db, recruitment.id, current_user), current_user)

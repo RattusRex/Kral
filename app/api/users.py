@@ -14,6 +14,7 @@ from app.core.auth_abuse import (
 )
 from app.db.database import SessionLocal
 from app.models.user import User
+from app.models.project import DEFAULT_PROJECT_NAME, Project, ProjectMembership
 from app.schemas.user import EmailResendRequest, EmailVerificationRequest, UserCreate
 from app.core.email_verification import (
     generate_verification_token,
@@ -107,6 +108,18 @@ def create_user(
             detail="Username or email already exists"
         )
     db.refresh(user)
+
+    # Registration starts with an explicit ecosystem choice in the UI. Until
+    # that choice is submitted, retain compatibility by granting access to the
+    # original public campaign; owners may later add/remove project access.
+    default_project = db.query(Project).filter(Project.name == DEFAULT_PROJECT_NAME).first()
+    if default_project:
+        db.add(ProjectMembership(
+            project_id=default_project.id,
+            user_id=user.id,
+            role="player",
+        ))
+        db.commit()
 
     try:
         send_verification_email(user.email, user.username, token)

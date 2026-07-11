@@ -15,6 +15,9 @@ class GameRecruitment(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     author_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
+    project_id: Mapped[int | None] = mapped_column(
+        ForeignKey("projects.id"), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
     real_date: Mapped[date] = mapped_column(Date)
     game_date: Mapped[date] = mapped_column(Date)
