@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from app.api.inventory import add_currency, get_character_inventory, validate_rarity
 from app.api.users import get_current_user, get_db
 from app.models.character import CalendarAuditLog, Character
-from app.models.inventory import AdminGrantLog, InventoryItem, KarmaPurchase, ShopTransactionLog, TransferLog
+from app.models.inventory import AdminGrantLog, InventoryItem, KarmaPurchase, MarketSaleLog, ShopTransactionLog, TransferLog
 from app.models.user import User
 from app.schemas.character import (
     MAX_CHARACTER_LEVEL,
@@ -19,6 +19,7 @@ from app.schemas.inventory import (
     AdminCurrencyUpdateRequest,
     AdminGrantLogResponse,
     InventoryResponse,
+    MarketSaleLogResponse,
     ShopTransactionLogResponse,
     TransferLogResponse,
 )
@@ -473,6 +474,40 @@ def list_shop_logs(
             )
 
     return query.order_by(ShopTransactionLog.created_at.desc()).all()
+
+
+@router.get("/market-sales", response_model=list[MarketSaleLogResponse])
+def list_market_sales(
+    character_id: int | None = None,
+    user_id: int | None = None,
+    operation_date: date | None = Query(default=None, alias="date"),
+    date_from: date | None = None,
+    date_to: date | None = None,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_admin),
+):
+    query = db.query(MarketSaleLog)
+    if character_id is not None:
+        query = query.filter(MarketSaleLog.character_id == character_id)
+    if user_id is not None:
+        query = query.filter(MarketSaleLog.user_id == user_id)
+    if operation_date is not None:
+        start = datetime.combine(operation_date, time.min)
+        query = query.filter(
+            MarketSaleLog.created_at >= start,
+            MarketSaleLog.created_at < start + timedelta(days=1),
+        )
+    else:
+        if date_from is not None:
+            query = query.filter(
+                MarketSaleLog.created_at >= datetime.combine(date_from, time.min)
+            )
+        if date_to is not None:
+            query = query.filter(
+                MarketSaleLog.created_at
+                < datetime.combine(date_to, time.min) + timedelta(days=1)
+            )
+    return query.order_by(MarketSaleLog.created_at.desc(), MarketSaleLog.id.desc()).all()
 
 
 @router.get("/transfer-logs", response_model=list[TransferLogResponse])

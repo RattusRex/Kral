@@ -1,8 +1,8 @@
 import { Component, FormEvent, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { Link, Navigate, Route, BrowserRouter as Router, Routes, useNavigate, useParams } from "react-router-dom";
-import { ArrowDown, ArrowUp, BookOpen, CalendarDays, Check, ChevronDown, ChevronUp, Dice5, LogOut, MapPin, MessageSquare, Pencil, Plus, RefreshCw, Save, ScrollText, Search, Send, Shield, ShoppingBag, Swords, Trash2, Trophy, UserRound, UsersRound, X } from "lucide-react";
-import { AbilityRoll, AdminGrantLog, AdminUser, api, AttackRoll, CalendarSummary, Character, CharacterAttack, ChatMessage, ContentBlock, DamageRoll, GameRecruitment, Inventory, InventoryItem, KarmaPurchase, KarmaPurchaseResult, LeaderboardEntry, MagicItem, PaginatedResponse, ROLE_LABELS, SavingThrowRoll, ShopResult, ShopTransactionLog, SkillRoll, TOKEN_KEY, TransferLog, TransferTarget, User, UserRole } from "./api";
+import { ArrowDown, ArrowUp, BookOpen, CalendarDays, Check, ChevronDown, ChevronUp, Coins, Dice5, LogOut, MapPin, MessageSquare, Pencil, Plus, RefreshCw, Save, ScrollText, Search, Send, Shield, ShoppingBag, Swords, Trash2, Trophy, UserRound, UsersRound, X } from "lucide-react";
+import { AbilityRoll, AdminGrantLog, AdminUser, api, AttackRoll, CalendarSummary, Character, CharacterAttack, ChatMessage, ContentBlock, DamageRoll, GameRecruitment, Inventory, InventoryItem, KarmaPurchase, KarmaPurchaseResult, LeaderboardEntry, MagicItem, MarketSaleLog, MarketSaleResult, PaginatedResponse, ROLE_LABELS, SavingThrowRoll, ShopResult, ShopTransactionLog, SkillRoll, TOKEN_KEY, TransferLog, TransferTarget, User, UserRole } from "./api";
 import "./styles.css";
 
 const rarities = ["Обычный", "Необычный", "Редкий"];
@@ -208,6 +208,7 @@ function Shell({ children, user }: { children: React.ReactNode; user: User | nul
             <Link className="btn-secondary" to="/"><UsersRound size={16} />Меню</Link>
             <Link className="btn-secondary" to="/characters"><UsersRound size={16} />Персонажи</Link>
             <Link className="btn-secondary" to="/shop"><ShoppingBag size={16} />Магазин</Link>
+            <Link className="btn-secondary" to="/market"><Coins size={16} />Рынок</Link>
             <Link className="btn-secondary" to="/karma-shop"><ShoppingBag size={16} />Карма</Link>
             <Link className="btn-secondary" to="/leaderboard"><Trophy size={16} />Лидеры</Link>
             <Link className="btn-secondary" to="/chat"><MessageSquare size={16} />Чат</Link>
@@ -215,6 +216,7 @@ function Shell({ children, user }: { children: React.ReactNode; user: User | nul
             <Link className="btn-secondary" to="/profile"><UserRound size={16} />Профиль</Link>
             {user?.is_admin && <Link className="btn-secondary" to="/admin"><Shield size={16} />Админ</Link>}
             {user?.is_admin && <Link className="btn-secondary" to="/admin/shop-logs"><ScrollText size={16} />Логи</Link>}
+            {user?.is_admin && <Link className="btn-secondary" to="/admin/market-sales"><ScrollText size={16} />Рынок-логи</Link>}
             {user?.is_admin && <Link className="btn-secondary" to="/admin/transfer-logs"><ScrollText size={16} />Передачи</Link>}
             {user?.is_admin && <Link className="btn-secondary" to="/admin/karma-shop-logs"><ScrollText size={16} />Карма-логи</Link>}
             <button className="btn-secondary" onClick={logout}><LogOut size={16} />Выйти</button>
@@ -235,6 +237,7 @@ function HomePage() {
         <h1 className="text-2xl font-bold text-ember">Главное меню</h1>
         <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           <Link className="btn" to="/shop"><ShoppingBag size={18} />Shop</Link>
+          <Link className="btn" to="/market"><Coins size={18} />Рынок</Link>
           <Link className="btn" to="/karma-shop"><ShoppingBag size={18} />Магазин Кармы</Link>
           <Link className="btn" to="/characters"><UsersRound size={18} />My Characters</Link>
           <Link className="btn" to="/characters/new"><Plus size={18} />Create Character</Link>
@@ -1634,6 +1637,104 @@ function ShopPage() {
   );
 }
 
+function MarketPage() {
+  const [characters, setCharacters] = useState<Character[]>([]);
+  const [characterId, setCharacterId] = useState("");
+  const [inventory, setInventory] = useState<Inventory | null>(null);
+  const [form, setForm] = useState({ item_name: "", gold: "" });
+  const [lastSale, setLastSale] = useState<MarketSaleLog | null>(null);
+  const [error, setError] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    api.get<Character[]>("/characters")
+      .then((response) => {
+        setCharacters(response.data);
+        setCharacterId(String(response.data[0]?.id ?? ""));
+      })
+      .catch((loadError) => setError(apiErrorDetail(loadError, "Не удалось загрузить персонажей")));
+  }, []);
+
+  useEffect(() => {
+    if (!characterId) {
+      setInventory(null);
+      return;
+    }
+    setError("");
+    api.get<Inventory>(`/characters/${characterId}/inventory`)
+      .then((response) => setInventory(response.data))
+      .catch((loadError) => setError(apiErrorDetail(loadError, "Не удалось загрузить баланс")));
+  }, [characterId]);
+
+  async function sell(event: FormEvent) {
+    event.preventDefault();
+    setError("");
+    setLastSale(null);
+    setSubmitting(true);
+    try {
+      const response = await api.post<MarketSaleResult>(
+        `/characters/${characterId}/market/sales`,
+        { item_name: form.item_name, gold: Number(form.gold) },
+      );
+      setInventory(response.data.inventory);
+      setLastSale(response.data.sale);
+      setForm({ item_name: "", gold: "" });
+    } catch (saleError) {
+      setError(apiErrorDetail(saleError, "Не удалось выполнить продажу"));
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  const selectedCharacter = characters.find((character) => String(character.id) === characterId);
+  return (
+    <div className="mx-auto grid max-w-4xl gap-4 lg:grid-cols-[420px_1fr]">
+      <form className="panel flex flex-col gap-4 p-5" onSubmit={sell}>
+        <div>
+          <h1 className="text-xl font-bold text-ember">Рынок</h1>
+          <p className="mt-1 text-sm text-white/60">Быстрая продажа обычной добычи</p>
+        </div>
+        <label className="field-label">
+          <span>Персонаж</span>
+          <select className="field" required value={characterId} onChange={(event) => setCharacterId(event.target.value)}>
+            <option value="">Выберите персонажа</option>
+            {characters.map((character) => <option key={character.id} value={character.id}>{character.name}</option>)}
+          </select>
+        </label>
+        <label className="field-label">
+          <span>Наименование предмета</span>
+          <input className="field" required maxLength={255} placeholder="Например, длинный меч" value={form.item_name} onChange={(event) => setForm({ ...form, item_name: event.target.value })} />
+        </label>
+        <label className="field-label">
+          <span>Полученная сумма, зм</span>
+          <input className="field" required type="number" min="1" step="1" value={form.gold} onChange={(event) => setForm({ ...form, gold: event.target.value })} />
+        </label>
+        <button className="btn" disabled={submitting || !characterId || !form.item_name.trim() || Number(form.gold) <= 0}>
+          <Coins size={17} />{submitting ? "Продажа..." : "Продать предмет"}
+        </button>
+        {error && <p className="text-sm text-red-300">{error}</p>}
+      </form>
+      <section className="panel p-5">
+        <h2 className="text-lg font-semibold text-ember">Баланс персонажа</h2>
+        {selectedCharacter ? (
+          <>
+            <p className="mt-3 text-white/65">{selectedCharacter.name}</p>
+            <p className="mt-2 text-2xl font-bold">{inventory?.gold ?? 0} зм</p>
+            <p className="mt-1 text-sm text-white/55">{inventory?.silver ?? 0} см · {inventory?.copper ?? 0} мм</p>
+          </>
+        ) : <p className="mt-3 text-sm text-white/55">Создайте персонажа, чтобы воспользоваться рынком.</p>}
+        {lastSale && (
+          <div className="mt-6 rounded-md border border-emerald-400/30 bg-emerald-950/25 p-4 text-sm text-emerald-100">
+            <p className="font-semibold">Продажа записана</p>
+            <p className="mt-1">{lastSale.item_name}: +{lastSale.gold} зм</p>
+          </div>
+        )}
+        <p className="mt-6 text-sm text-white/55">Каждая операция сохраняется в журнале для проверки администрацией.</p>
+      </section>
+    </div>
+  );
+}
+
 function ResultPanel({ result, onConfirm, onContinue }: { result: ShopResult | null; onConfirm: () => void; onContinue: () => void }) {
   if (!result) return <section className="panel p-5 text-white/60">Результат поиска появится здесь.</section>;
   const action = result.mode === "buy" ? "Купить предмет" : "Продать предмет";
@@ -2836,6 +2937,28 @@ function ShopLogsPage() {
   );
 }
 
+function MarketSalesPage() {
+  const [logs, setLogs] = useState<MarketSaleLog[]>([]);
+  const [date, setDate] = useState("");
+  const [error, setError] = useState("");
+  useEffect(() => {
+    api.get<MarketSaleLog[]>("/admin/market-sales", { params: date ? { date } : {} })
+      .then((response) => setLogs(response.data))
+      .catch((loadError) => setError(apiErrorDetail(loadError, "Не удалось загрузить продажи")));
+  }, [date]);
+  return (
+    <section className="panel p-5">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div><h1 className="text-xl font-bold text-ember">Журнал рынка</h1><p className="text-sm text-white/60">Продажи обычных предметов игроками</p></div>
+        <Link className="btn-secondary" to="/admin">Назад</Link>
+      </div>
+      <label className="field-label mt-5 max-w-xs"><span>Дата</span><input className="field" type="date" value={date} onChange={(event) => setDate(event.target.value)} /></label>
+      {error && <p className="mt-3 text-sm text-red-300">{error}</p>}
+      <div className="mt-5 overflow-x-auto"><table className="w-full min-w-[700px] text-left text-sm"><thead className="text-xs uppercase text-white/45"><tr><th className="py-2 pr-3">Дата</th><th className="py-2 pr-3">Игрок</th><th className="py-2 pr-3">Персонаж</th><th className="py-2 pr-3">Предмет</th><th className="py-2 pr-3">Сумма</th></tr></thead><tbody>{logs.map((log) => <tr className="border-t border-white/10" key={log.id}><td className="py-3 pr-3">{new Date(log.created_at).toLocaleString("ru-RU")}</td><td className="py-3 pr-3">{log.username}</td><td className="py-3 pr-3">{log.character_name}</td><td className="py-3 pr-3">{log.item_name}</td><td className="py-3 pr-3 font-semibold text-ember">+{log.gold} зм</td></tr>)}</tbody></table>{!logs.length && <p className="py-6 text-center text-white/55">Записей нет</p>}</div>
+    </section>
+  );
+}
+
 const karmaPurchaseLabels: Record<KarmaPurchase["purchase_type"], string> = {
   xp: "Покупка опыта",
   item: "Товар магазина",
@@ -3034,6 +3157,7 @@ function App() {
         <Route path="/characters/:id" element={<Protected><CharacterPage /></Protected>} />
         <Route path="/characters/:id/edit" element={<Protected><CharacterFormPage edit /></Protected>} />
         <Route path="/shop" element={<Protected><ShopPage /></Protected>} />
+        <Route path="/market" element={<Protected><MarketPage /></Protected>} />
         <Route path="/karma-shop" element={<Protected><KarmaShopPage /></Protected>} />
         <Route path="/leaderboard" element={<Protected><LeaderboardPage /></Protected>} />
         <Route path="/chat" element={<Protected><ChatPage /></Protected>} />
@@ -3042,6 +3166,7 @@ function App() {
         <Route path="/approved-homebrew" element={<Protected><ContentPage pageSlug="approved-homebrew" title="Одобренное ХБ" /></Protected>} />
         <Route path="/profile" element={<Protected><ProfilePage /></Protected>} />
         <Route path="/admin/shop-logs" element={<Protected><ShopLogsPage /></Protected>} />
+        <Route path="/admin/market-sales" element={<Protected><MarketSalesPage /></Protected>} />
         <Route path="/admin/karma-shop-logs" element={<Protected><KarmaShopLogsPage /></Protected>} />
         <Route path="/admin/transfer-logs" element={<Protected><TransferLogsPage /></Protected>} />
         <Route path="/admin/grant-logs" element={<Protected><GrantLogsPage /></Protected>} />
