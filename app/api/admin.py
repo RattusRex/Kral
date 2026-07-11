@@ -28,7 +28,8 @@ from app.schemas.karma_shop import KarmaPurchaseResponse
 from app.core import calendar as game_calendar
 from app.core.calendar import GAME_EPOCH
 from app.core.roles import Role, VALID_ROLES, normalize_role, can_manage_roles
-from app.core.projects import admin_project_ids, get_admin_character_or_404
+from app.api.projects import require_project_admin as require_selected_project_admin
+from app.core.projects import get_admin_character_or_404
 from app.models.project import DEFAULT_PROJECT_NAME, Project, ProjectMembership
 
 
@@ -53,12 +54,12 @@ def paginated_response(query, page: int, page_size: int, serializer) -> dict:
     }
 
 
-def require_admin(current_user: User = Depends(get_current_user)) -> User:
-    if not current_user.is_admin:
-        raise HTTPException(
-            status_code=403,
-            detail="Admin permissions required"
-        )
+def require_admin(
+    current_user: User = Depends(get_current_user),
+    access: tuple[Project, str] = Depends(require_selected_project_admin),
+) -> User:
+    current_user.active_project_id = access[0].id
+    current_user.active_project_role = access[1]
     return current_user
 
 
@@ -92,7 +93,8 @@ def require_role_manager(current_user: User = Depends(get_current_user)) -> User
 
 
 def require_character_deleter(current_user: User = Depends(get_current_user)) -> User:
-    if normalize_role(current_user.role) not in (Role.OWNER, Role.HEAD_ADMIN):
+    role = getattr(current_user, "active_project_role", current_user.role)
+    if normalize_role(role) not in (Role.OWNER, Role.PROJECT_OWNER, Role.HEAD_ADMIN):
         raise HTTPException(
             status_code=403,
             detail="Only the owner or head administrator may delete characters"
@@ -293,10 +295,9 @@ def list_characters(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin)
 ):
-    query = db.query(Character).order_by(Character.id)
-    project_ids = admin_project_ids(db, current_user)
-    if project_ids is not None:
-        query = query.filter(Character.project_id.in_(project_ids))
+    query = db.query(Character).filter(
+        Character.project_id == current_user.active_project_id
+    ).order_by(Character.id)
     if page is None and page_size is None:
         return [serialize_character(character) for character in query.all()]
     resolved_page = page or 1
@@ -389,7 +390,9 @@ def list_users(
     db: Session = Depends(get_db),
     _: User = Depends(require_admin)
 ):
-    query = db.query(User).order_by(User.id)
+    query = db.query(User).join(ProjectMembership).filter(
+        ProjectMembership.project_id == _.active_project_id
+    ).order_by(User.id)
     if page is None and page_size is None:
         return [serialize_admin_user(user) for user in query.all()]
     resolved_page = page or 1

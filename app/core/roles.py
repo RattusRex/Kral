@@ -1,4 +1,4 @@
-"""User role definitions and helpers.
+"""Global and project-scoped role definitions and helpers.
 
 The application recognises four roles, ordered from most to least privileged:
 
@@ -17,13 +17,31 @@ The application recognises four roles, ordered from most to least privileged:
 
 class Role:
     OWNER = "owner"
+    PROJECT_OWNER = "project_owner"
     HEAD_ADMIN = "head_admin"
     ADMIN = "admin"
+    TECHNICIAN = "technician"
     PLAYER = "player"
 
 
 # All valid role identifiers.
-VALID_ROLES = (Role.OWNER, Role.HEAD_ADMIN, Role.ADMIN, Role.PLAYER)
+PROJECT_ROLES = (
+    Role.PROJECT_OWNER,
+    Role.HEAD_ADMIN,
+    Role.ADMIN,
+    Role.TECHNICIAN,
+    Role.PLAYER,
+)
+VALID_ROLES = (Role.OWNER, *PROJECT_ROLES)
+
+ROLE_RANK = {
+    Role.PLAYER: 0,
+    Role.TECHNICIAN: 1,
+    Role.ADMIN: 2,
+    Role.HEAD_ADMIN: 3,
+    Role.PROJECT_OWNER: 4,
+    Role.OWNER: 5,
+}
 
 # Roles that may use the game-master / administrative endpoints.
 ADMIN_ROLES = (Role.OWNER, Role.HEAD_ADMIN, Role.ADMIN)

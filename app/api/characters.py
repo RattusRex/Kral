@@ -18,7 +18,7 @@ from app.schemas.character import (
 )
 from app.api.users import get_db
 from app.core.projects import require_project_access
-from app.models.project import DEFAULT_PROJECT_NAME, Project
+from app.models.project import Project
 
 ABILITY_FIELDS = {
     "strength": "Сила",
@@ -79,15 +79,14 @@ def validate_not_before_epoch(value, label: str):
 def create_character(
     character_data: CharacterCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
 ):
     project_id = character_data.project_id
     if project_id is None:
-        # Backward compatibility for existing API clients: accounts migrated to
-        # the original ecosystem may omit the selector. New UI always sends it.
-        project_id = db.query(Project.id).filter(
-            Project.name == DEFAULT_PROJECT_NAME
-        ).scalar()
+        from app.api.projects import get_current_project_access
+        # Header-less legacy clients are resolved by the same default/single
+        # membership rules as other selected-project endpoints.
+        project_id = get_current_project_access(None, current_user, db)[0].id
     require_project_access(db, current_user, project_id)
     character_count = db.query(Character).filter(
         Character.user_id == current_user.id,

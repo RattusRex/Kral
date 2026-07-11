@@ -2,15 +2,38 @@ import axios from "axios";
 import { API_BASE_URL } from "./apiBase";
 
 export const TOKEN_KEY = "access_token";
+export const PROJECT_KEY = "active_project_id";
 
-export type UserRole = "owner" | "head_admin" | "admin" | "player";
+export type UserRole = "owner" | "project_owner" | "head_admin" | "admin" | "technician" | "player";
 
 export const ROLE_LABELS: Record<UserRole, string> = {
   owner: "👑 Владелец",
+  project_owner: "🏰 Владелец проекта",
   head_admin: "🛡 Главный Администратор",
-  admin: "🛠 Администратор",
+  admin: "🎲 Мастер игры",
+  technician: "🔧 Техник",
   player: "🎮 Игрок"
 };
+
+export interface ProjectFeatures {
+  shop: boolean;
+  market: boolean;
+  karma_shop: boolean;
+  recruitments: boolean;
+  personal_hirelings: boolean;
+  simulacrums: boolean;
+}
+
+export interface ProjectContext {
+  id: number;
+  name: string;
+  slug: string;
+  role: UserRole;
+  features: ProjectFeatures;
+  is_admin: boolean;
+  can_manage_settings: boolean;
+  can_manage_roles: boolean;
+}
 
 export interface User {
   id: number;
@@ -407,6 +430,8 @@ api.interceptors.request.use((config) => {
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
   }
+  const projectId = localStorage.getItem(PROJECT_KEY);
+  if (projectId) config.headers["X-Project-ID"] = projectId;
   return config;
 });
 

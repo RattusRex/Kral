@@ -27,7 +27,7 @@ from app.api.content import router as content_router
 from app.models.chat import ChatMessage
 from app.models.recruitment import GameApplication, GameRecruitment, RecruitmentMessage
 from app.models.content import ContentBlock
-from app.models.project import DEFAULT_PROJECT_NAME, Project, ProjectMembership
+from app.models.project import DEFAULT_FEATURES, DEFAULT_PROJECT_NAME, Project, ProjectMembership
 from app.api.projects import router as projects_router
 from app.core.calendar import GAME_EPOCH
 from app.core.security import hash_password
@@ -72,7 +72,14 @@ def seed_default_project(db: Session) -> None:
         return
     project = db.query(Project).filter(Project.name == DEFAULT_PROJECT_NAME).first()
     if not project:
-        project = Project(name=DEFAULT_PROJECT_NAME, owner_id=owner.id, settings={})
+        project = Project(
+            name=DEFAULT_PROJECT_NAME,
+            slug="epoch-of-catastrophe",
+            is_default=True,
+            owner_id=owner.id,
+            settings={},
+            features=dict(DEFAULT_FEATURES),
+        )
         db.add(project)
         db.flush()
     for user in db.query(User).all():
@@ -140,6 +147,11 @@ def migrate_email_verification() -> None:
 
 
 def ensure_schema_columns() -> None:
+    # Projects created before feature flags were introduced only have the
+    # upstream ecosystem columns. Add the optional metadata in place.
+    ensure_column("projects", "slug", "VARCHAR(100)")
+    ensure_column("projects", "is_default", "BOOLEAN NOT NULL DEFAULT FALSE")
+    ensure_column("projects", "features", "JSON NOT NULL DEFAULT '{}'")
     # Existing installations predate projects; all legacy characters belong to
     # the campaign's original ecosystem.
     with SessionLocal() as db:
@@ -224,6 +236,14 @@ def ensure_schema_columns() -> None:
     migrate_user_roles()
     migrate_email_verification()
     with engine.begin() as connection:
+        connection.execute(
+            text(
+                "UPDATE projects SET is_default = TRUE "
+                "WHERE name = :name AND NOT EXISTS "
+                "(SELECT 1 FROM projects WHERE is_default = TRUE)"
+            ),
+            {"name": DEFAULT_PROJECT_NAME},
+        )
         connection.execute(
             text("UPDATE characters SET project_id = :project_id WHERE project_id IS NULL"),
             {"project_id": default_project_id},
