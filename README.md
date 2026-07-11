@@ -38,6 +38,7 @@ Notable protected API routes:
 
 - `GET /api/leaderboard` returns users ranked by karma.
 - `GET/POST /api/chat/messages` stores general chat messages and `/r` roll commands.
+- `DELETE /api/chat/messages/{id}` lets an administrator, head administrator, or owner remove any chat message; players are rejected by the backend.
 - `GET/POST /api/game-recruitments` lists game announcements and lets administrators publish them. Players enroll an owned living character through `/applications`; only the announcement author can publish the selected roster through `/participants`. Enrollment and selection notices are persisted in the announcement chat.
 - `POST /api/dice/roll` rolls formulas such as `/r 2d6` or `/r 1d37` and stores the result in the rolls channel.
 - `PATCH /api/characters/{id}/inventory/notes` saves free-form inventory notes.
@@ -112,6 +113,8 @@ Owner
 The seeded `admin` account is an **owner**. New accounts are created as **players**. Owners and head admins can change another user's role from the admin panel, subject to the restrictions above. These restrictions are enforced on the backend, so a direct API call cannot bypass them.
 
 Character sheets support proficiency for each of the six saving throws. A proficient saving throw adds the level-based proficiency bonus automatically. The available classes also include **Егерь** with a `d8` hit die.
+
+Character sheets also support multiclass characters. Each class stores its own level, the first entry is the primary class, and the total character level is always derived from the sum of all class levels (maximum 20). Character owners and administrators can edit this list through their existing character editors.
 
 ## Authentication Abuse Controls
 

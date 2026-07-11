@@ -194,6 +194,9 @@ def serialize_character(character: Character):
         "id": character.id,
         "name": character.name,
         "class_name": character.class_name,
+        "class_levels": character.class_levels or [
+            {"class_name": character.class_name, "level": character.level}
+        ],
         "subclass": character.subclass,
         "race": character.race,
         "background": character.background,
@@ -242,6 +245,7 @@ def apply_xp_delta(character: Character, amount: int):
         MAX_CHARACTER_LEVEL,
         max(MIN_CHARACTER_LEVEL, character.level),
     )
+    previous_level = character.level
     character.xp = max(0, character.xp + amount)
     if amount <= 0:
         return
@@ -252,6 +256,12 @@ def apply_xp_delta(character: Character, amount: int):
     ):
         character.xp -= character.level + 1
         character.level += 1
+    gained_levels = character.level - previous_level
+    if character.class_levels and gained_levels > 0:
+        character.class_levels[-1] = {
+            **character.class_levels[-1],
+            "level": character.class_levels[-1]["level"] + gained_levels,
+        }
 
 
 def validate_admin_character_update(update_data: dict) -> None:
@@ -316,11 +326,38 @@ def update_admin_character(
     character = get_character_or_404(character_id, db)
     update_data = character_data.model_dump(exclude_unset=True)
 
+    if "class_levels" in update_data:
+        class_levels = update_data["class_levels"]
+        update_data["class_name"] = class_levels[0]["class_name"]
+        update_data["level"] = sum(entry["level"] for entry in class_levels)
+    elif "class_name" in update_data:
+        current_levels = character.class_levels or [{
+            "class_name": character.class_name,
+            "level": character.level,
+        }]
+        update_data["class_levels"] = [
+            {**current_levels[0], "class_name": update_data["class_name"]},
+            *current_levels[1:],
+        ]
+
     if "level" in update_data and update_data["level"] is not None:
         update_data["level"] = min(
             MAX_CHARACTER_LEVEL,
             max(MIN_CHARACTER_LEVEL, update_data["level"]),
         )
+        if "class_levels" not in update_data and character.class_levels:
+            level_delta = update_data["level"] - character.level
+            if level_delta:
+                adjusted_level = character.class_levels[-1]["level"] + level_delta
+                if adjusted_level < MIN_CHARACTER_LEVEL:
+                    raise HTTPException(
+                        status_code=400,
+                        detail="Уровни классов должны быть не меньше 1",
+                    )
+                update_data["class_levels"] = [
+                    *character.class_levels[:-1],
+                    {**character.class_levels[-1], "level": adjusted_level},
+                ]
     if "xp" in update_data and update_data["xp"] is not None:
         update_data["xp"] = max(0, update_data["xp"])
     validate_admin_character_update(update_data)
