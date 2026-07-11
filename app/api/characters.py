@@ -94,6 +94,11 @@ def create_character(
     character = Character(
         name=character_data.name,
         class_name=character_data.class_name,
+        class_levels=(
+            [entry.model_dump() for entry in character_data.class_levels]
+            if character_data.class_levels
+            else [{"class_name": character_data.class_name, "level": character_data.level}]
+        ),
         game_created_at=game_created_at,
         subclass=character_data.subclass,
         race=character_data.race,
@@ -129,6 +134,7 @@ def create_character(
         "id": character.id,
         "name": character.name,
         "class_name": character.class_name,
+        "class_levels": character.class_levels,
         "level": character.level,
         "xp": character.xp,
         "route": character.route,
@@ -205,6 +211,20 @@ def update_character(
         )
 
     update_data = character_data.model_dump(exclude_unset=True)
+
+    if "class_levels" in update_data:
+        class_levels = update_data["class_levels"]
+        update_data["class_name"] = class_levels[0]["class_name"]
+        update_data["level"] = sum(entry["level"] for entry in class_levels)
+    elif "class_name" in update_data:
+        current_levels = character.class_levels or [{
+            "class_name": character.class_name,
+            "level": character.level,
+        }]
+        update_data["class_levels"] = [
+            {**current_levels[0], "class_name": update_data["class_name"]},
+            *current_levels[1:],
+        ]
 
     for key, value in update_data.items():
         setattr(character, key, value)

@@ -86,6 +86,7 @@ const adminNumberFields = [
 const blankCharacter = {
   name: "",
   class_name: defaultCharacterClass,
+  class_levels: [{ class_name: defaultCharacterClass, level: 1 }],
   subclass: "",
   race: "",
   background: "",
@@ -902,7 +903,7 @@ function CharacterPage() {
           <div>
             <p className="text-xs uppercase text-white/45">Лист персонажа</p>
             <h1 className="text-3xl font-bold text-ember">{character.name}</h1>
-            <p className="mt-1 text-white/70">{character.class_name}{character.subclass ? ` / ${character.subclass}` : ""}</p>
+            <p className="mt-1 text-white/70">{(character.class_levels?.length ? character.class_levels : [{ class_name: character.class_name, level: character.level }]).map((entry) => `${entry.class_name} — ${entry.level} ур.`).join(" · ")}{character.subclass ? ` / ${character.subclass}` : ""}</p>
           </div>
           <Link className="btn-secondary" to={`/characters/${id}/edit`}>Редактировать</Link>
         </div>
@@ -1176,8 +1177,9 @@ function CharacterFormPage({ edit = false }: { edit?: boolean }) {
     setError("");
     try {
       if (edit) {
-        const payload: Record<string, string | number | string[] | undefined> = {
+        const payload: Record<string, string | number | string[] | Character["class_levels"] | undefined> = {
           class_name: form.class_name,
+          class_levels: form.class_levels,
           saving_throw_proficiencies: form.saving_throw_proficiencies
         };
         textFields.forEach(({ field }) => {
@@ -1202,9 +1204,15 @@ function CharacterFormPage({ edit = false }: { edit?: boolean }) {
   return (
     <form className="panel grid gap-3 p-5 md:grid-cols-2" onSubmit={submit}>
       <h1 className="text-xl font-bold text-ember md:col-span-2">{edit ? "Редактировать персонажа" : "Создать персонажа"}</h1>
-      <div className="md:col-span-2">
-        <ClassSelect value={form.class_name} onChange={(value) => setForm({ ...form, class_name: value })} />
-      </div>
+      <ClassLevelsEditor
+        classLevels={form.class_levels}
+        onChange={(classLevels) => setForm({
+          ...form,
+          class_name: classLevels[0].class_name,
+          class_levels: classLevels,
+          level: classLevels.reduce((total, entry) => total + entry.level, 0)
+        })}
+      />
       <label className="field-label md:col-span-2">
         <span>📅 Дата создания персонажа</span>
         <input
@@ -1254,6 +1262,30 @@ function CharacterFormPage({ edit = false }: { edit?: boolean }) {
       {error && <p className="text-sm text-red-300 md:col-span-2">{error}</p>}
       <button className="btn md:col-span-2" type="submit">Сохранить</button>
     </form>
+  );
+}
+
+function ClassLevelsEditor({ classLevels, onChange }: {
+  classLevels: Character["class_levels"];
+  onChange: (classLevels: Character["class_levels"]) => void;
+}) {
+  const levels = classLevels.length ? classLevels : [{ class_name: defaultCharacterClass, level: 1 }];
+  const totalLevel = levels.reduce((total, entry) => total + entry.level, 0);
+  return (
+    <fieldset className="md:col-span-2 rounded-md border border-white/10 p-3">
+      <legend className="px-2 text-sm font-semibold text-ember">Дополнительные классы</legend>
+      <p className="mb-3 text-sm text-white/55">Первый класс — основной. Общий уровень: {totalLevel}</p>
+      <div className="space-y-2">
+        {levels.map((entry, index) => (
+          <div className="grid gap-2 sm:grid-cols-[1fr_120px_auto]" key={`${index}-${entry.class_name}`}>
+            <ClassSelect value={entry.class_name} onChange={(value) => onChange(levels.map((item, itemIndex) => itemIndex === index ? { ...item, class_name: value } : item))} />
+            <label className="field-label"><span>Уровень класса</span><input className="field" min={1} max={20} type="number" value={entry.level} onChange={(event) => onChange(levels.map((item, itemIndex) => itemIndex === index ? { ...item, level: Number(event.target.value) } : item))} /></label>
+            {index > 0 && <button className="btn-secondary self-end" type="button" onClick={() => onChange(levels.filter((_, itemIndex) => itemIndex !== index))}><Trash2 size={16} />Удалить</button>}
+          </div>
+        ))}
+      </div>
+      <button className="btn-secondary mt-3" type="button" onClick={() => onChange([...levels, { class_name: defaultCharacterClass, level: 1 }])}><Plus size={16} />Добавить класс</button>
+    </fieldset>
   );
 }
 
@@ -1989,6 +2021,7 @@ function GameRecruitmentsPage() {
 }
 
 function ChatPage() {
+  const { user } = useAuth();
   const [channel, setChannel] = useState<"general" | "rolls">("general");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [content, setContent] = useState("");
@@ -2074,6 +2107,17 @@ function ChatPage() {
     }
   }
 
+  async function deleteMessage(messageId: number) {
+    if (!window.confirm("Удалить сообщение?")) return;
+    setError("");
+    try {
+      await api.delete(`/chat/messages/${messageId}`);
+      setMessages((current) => current.filter((message) => message.id !== messageId));
+    } catch (deleteError) {
+      setError(apiErrorDetail(deleteError, "Не удалось удалить сообщение"));
+    }
+  }
+
   return (
     <section className="panel flex h-[calc(100vh-7rem)] flex-col p-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -2099,7 +2143,10 @@ function ChatPage() {
           <article className="rounded-md bg-black/25 p-3" key={message.id}>
             <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
               <span className="font-semibold text-ember">{message.username}</span>
-              <span className="text-white/45">{new Date(message.created_at).toLocaleString("ru-RU")}</span>
+              <span className="flex items-center gap-2 text-white/45">
+                {new Date(message.created_at).toLocaleString("ru-RU")}
+                {user?.is_admin && <button aria-label="Удалить сообщение" className="rounded p-1 text-red-200 hover:bg-red-400/15" type="button" onClick={() => deleteMessage(message.id)}><Trash2 size={15} /></button>}
+              </span>
             </div>
             {message.channel === "rolls" ? (
               <div className="mt-2 text-sm text-white/80">
@@ -2453,8 +2500,9 @@ function AdminCharacterPage() {
     setError("");
     setSaved(false);
 
-    const payload: Record<string, string | number | boolean | string[] | undefined> = {
-      class_name: form.class_name
+    const payload: Record<string, string | number | boolean | string[] | Character["class_levels"] | undefined> = {
+      class_name: form.class_name,
+      class_levels: form.class_levels
     };
     textFields.forEach(({ field }) => {
       payload[field] = form[field];
@@ -2507,12 +2555,18 @@ function AdminCharacterPage() {
           <Link className="btn-secondary" to="/admin">Назад</Link>
         </div>
         <form className="grid gap-3 md:grid-cols-2" onSubmit={save}>
-          <div className="md:col-span-2">
-            <ClassSelect value={form.class_name} onChange={(value) => {
+          <ClassLevelsEditor
+            classLevels={form.class_levels}
+            onChange={(classLevels) => {
               setSaved(false);
-              setForm({ ...form, class_name: value });
-            }} />
-          </div>
+              setForm({
+                ...form,
+                class_name: classLevels[0].class_name,
+                class_levels: classLevels,
+                level: classLevels.reduce((total, entry) => total + entry.level, 0)
+              });
+            }}
+          />
           {textFields.map(({ field, label }) => (
             <label className="field-label" key={field}>
               <span>{label}</span>

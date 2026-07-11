@@ -20,6 +20,11 @@ class Character(Base):
 
     class_name: Mapped[str]
 
+    class_levels: Mapped[list[dict]] = mapped_column(
+        JSON,
+        default=list
+    )
+
     subclass: Mapped[str] = mapped_column(
         default=""
     )

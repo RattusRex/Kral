@@ -19,6 +19,38 @@ ABILITY_KEYS = {
 }
 
 
+class CharacterClassLevel(BaseModel):
+    class_name: str = Field(min_length=1, max_length=100)
+    level: int = Field(ge=MIN_CHARACTER_LEVEL, le=MAX_CHARACTER_LEVEL)
+
+    @field_validator("class_name")
+    @classmethod
+    def normalize_class_name(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("Название класса не может быть пустым")
+        return normalized
+
+
+def validate_class_levels(
+    class_levels: list[CharacterClassLevel] | None,
+    total_level: int | None = None,
+) -> list[CharacterClassLevel] | None:
+    if class_levels is None:
+        return None
+    if not class_levels:
+        raise ValueError("У персонажа должен быть хотя бы один класс")
+    names = [entry.class_name.casefold() for entry in class_levels]
+    if len(names) != len(set(names)):
+        raise ValueError("Классы персонажа не должны повторяться")
+    calculated_level = sum(entry.level for entry in class_levels)
+    if calculated_level > MAX_CHARACTER_LEVEL:
+        raise ValueError(f"Общий уровень не может превышать {MAX_CHARACTER_LEVEL}")
+    if total_level is not None and calculated_level != total_level:
+        raise ValueError("Общий уровень должен равняться сумме уровней классов")
+    return class_levels
+
+
 class SkillSettings(BaseModel):
     skill_proficiencies: Optional[list[str]] = None
     skill_expertise: Optional[list[str]] = None
@@ -53,6 +85,7 @@ class CharacterCreate(SkillSettings):
 
     name: str
     class_name: str
+    class_levels: Optional[list[CharacterClassLevel]] = None
     level: int = Field(ge=MIN_CHARACTER_LEVEL, le=MAX_CHARACTER_LEVEL)
     route: str
     game_created_at: Optional[date] = None
@@ -71,9 +104,17 @@ class CharacterCreate(SkillSettings):
     armor_class: int = 9
     speed: int = 30
 
+    @model_validator(mode="after")
+    def validate_multiclass(self):
+        self.class_levels = validate_class_levels(self.class_levels, self.level)
+        if self.class_levels and self.class_levels[0].class_name != self.class_name:
+            raise ValueError("Первый класс должен совпадать с основным классом")
+        return self
+
 class CharacterEditableFields(SkillSettings):
     name: Optional[str] = None
     class_name: Optional[str] = None
+    class_levels: Optional[list[CharacterClassLevel]] = None
     route: Optional[str] = None
     subclass: Optional[str] = None
     race: Optional[str] = None
@@ -89,6 +130,18 @@ class CharacterEditableFields(SkillSettings):
     temp_hp: Optional[int] = None
     armor_class: Optional[int] = None
     speed: Optional[int] = None
+
+    @model_validator(mode="after")
+    def validate_multiclass(self):
+        if "class_levels" in self.model_fields_set:
+            self.class_levels = validate_class_levels(self.class_levels)
+            if (
+                self.class_levels
+                and self.class_name is not None
+                and self.class_levels[0].class_name != self.class_name
+            ):
+                raise ValueError("Первый класс должен совпадать с основным классом")
+        return self
 
 
 class PlayerCharacterUpdate(CharacterEditableFields):

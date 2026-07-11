@@ -1863,6 +1863,251 @@ def test_chat_messages_and_dice_roll_commands_persist_to_channels():
         assert "1d37" in formulas
 
 
+@pytest.mark.parametrize("role", ["admin", "head_admin", "owner"])
+def test_administrative_roles_can_delete_any_chat_message(role):
+    with TestClient(app) as client:
+        owner_headers = {
+            "Authorization": f"Bearer {login(client, 'admin', 'admin123')}"
+        }
+        client.post("/api/users", json={
+            "username": f"moderator-{role}",
+            "email": f"moderator-{role}@example.com",
+            "password": "secret123",
+        })
+        user_id = next(
+            user["id"] for user in client.get(
+                "/api/admin/users", headers=owner_headers
+            ).json() if user["username"] == f"moderator-{role}"
+        )
+        changed = client.post(
+            f"/api/admin/users/{user_id}/role",
+            headers=owner_headers,
+            json={"role": role},
+        )
+        assert changed.status_code == 200, changed.text
+
+        player = client.post("/api/users", json={
+            "username": f"author-{role}",
+            "email": f"author-{role}@example.com",
+            "password": "secret123",
+        })
+        assert player.status_code == 200, player.text
+        player_headers = {
+            "Authorization": (
+                f"Bearer {login(client, f'author-{role}', 'secret123')}"
+            )
+        }
+        message = client.post(
+            "/api/chat/messages",
+            headers=player_headers,
+            json={"content": "Удалить это сообщение"},
+        )
+        moderator_headers = {
+            "Authorization": (
+                f"Bearer {login(client, f'moderator-{role}', 'secret123')}"
+            )
+        }
+
+        deleted = client.delete(
+            f"/api/chat/messages/{message.json()['id']}",
+            headers=moderator_headers,
+        )
+
+        assert deleted.status_code == 204, deleted.text
+        assert client.get(
+            "/api/chat/messages",
+            headers=player_headers,
+            params={"channel": "general"},
+        ).json() == []
+
+
+def test_player_cannot_delete_chat_messages_and_missing_message_returns_404():
+    with TestClient(app) as client:
+        client.post("/api/users", json={
+            "username": "chat-player",
+            "email": "chat-player@example.com",
+            "password": "secret123",
+        })
+        player_headers = {
+            "Authorization": f"Bearer {login(client, 'chat-player', 'secret123')}"
+        }
+        message = client.post(
+            "/api/chat/messages",
+            headers=player_headers,
+            json={"content": "Чужое сообщение"},
+        )
+
+        forbidden = client.delete(
+            f"/api/chat/messages/{message.json()['id']}",
+            headers=player_headers,
+        )
+        assert forbidden.status_code == 403
+
+        owner_headers = {
+            "Authorization": f"Bearer {login(client, 'admin', 'admin123')}"
+        }
+        missing = client.delete(
+            "/api/chat/messages/999999",
+            headers=owner_headers,
+        )
+        assert missing.status_code == 404
+
+
+def test_character_multiclass_levels_are_persisted_and_sum_to_total_level():
+    with TestClient(app) as client:
+        headers = {"Authorization": f"Bearer {login(client, 'admin', 'admin123')}"}
+        created = client.post("/api/characters", headers=headers, json={
+            "name": "Боевой маг",
+            "class_name": "Воин",
+            "level": 8,
+            "route": "Open Table",
+            "class_levels": [
+                {"class_name": "Воин", "level": 5},
+                {"class_name": "Плут", "level": 3},
+            ],
+        })
+
+        assert created.status_code == 200, created.text
+        assert created.json()["level"] == 8
+        assert created.json()["class_levels"] == [
+            {"class_name": "Воин", "level": 5},
+            {"class_name": "Плут", "level": 3},
+        ]
+        listed = client.get("/api/characters", headers=headers).json()[0]
+        assert listed["class_levels"] == created.json()["class_levels"]
+
+
+def test_character_multiclass_rejects_invalid_totals_duplicates_and_bounds():
+    with TestClient(app) as client:
+        headers = {"Authorization": f"Bearer {login(client, 'admin', 'admin123')}"}
+        base = {
+            "name": "Invalid Multiclass",
+            "class_name": "Воин",
+            "level": 8,
+            "route": "Open Table",
+        }
+        invalid_class_levels = (
+            [{"class_name": "Воин", "level": 5}, {"class_name": "Плут", "level": 2}],
+            [{"class_name": "Воин", "level": 5}, {"class_name": "Воин", "level": 3}],
+            [{"class_name": "Воин", "level": 0}, {"class_name": "Плут", "level": 8}],
+            [{"class_name": "Воин", "level": 20}, {"class_name": "Плут", "level": 1}],
+        )
+        for class_levels in invalid_class_levels:
+            response = client.post(
+                "/api/characters",
+                headers=headers,
+                json={**base, "class_levels": class_levels},
+            )
+            assert response.status_code == 422, response.text
+
+
+def test_xp_progression_keeps_multiclass_total_in_sync():
+    character = Character(
+        level=8,
+        xp=0,
+        class_name="Воин",
+        class_levels=[
+            {"class_name": "Воин", "level": 5},
+            {"class_name": "Плут", "level": 3},
+        ],
+    )
+
+    apply_xp_delta(character, 9)
+
+    assert character.level == 9
+    assert character.xp == 0
+    assert character.class_levels == [
+        {"class_name": "Воин", "level": 5},
+        {"class_name": "Плут", "level": 4},
+    ]
+
+
+def test_admin_direct_level_edit_keeps_single_class_level_in_sync():
+    with TestClient(app) as client:
+        headers = {"Authorization": f"Bearer {login(client, 'admin', 'admin123')}"}
+        created = client.post("/api/characters", headers=headers, json={
+            "name": "Level Correction",
+            "class_name": "Воин",
+            "level": 3,
+            "route": "Open Table",
+        })
+
+        edited = client.patch(
+            f"/api/admin/characters/{created.json()['id']}",
+            headers=headers,
+            json={"level": 4},
+        )
+
+        assert edited.status_code == 200, edited.text
+        assert edited.json()["level"] == 4
+        assert edited.json()["class_levels"] == [
+            {"class_name": "Воин", "level": 4}
+        ]
+
+
+def test_owner_and_admin_can_edit_multiclass_but_other_player_cannot():
+    with TestClient(app) as client:
+        client.post("/api/users", json={
+            "username": "multiclass-owner",
+            "email": "multiclass-owner@example.com",
+            "password": "secret123",
+        })
+        owner_headers = {
+            "Authorization": (
+                f"Bearer {login(client, 'multiclass-owner', 'secret123')}"
+            )
+        }
+        created = client.post("/api/characters", headers=owner_headers, json={
+            "name": "Герой",
+            "class_name": "Воин",
+            "level": 5,
+            "route": "Open Table",
+        })
+        character_id = created.json()["id"]
+        class_levels = [
+            {"class_name": "Воин", "level": 3},
+            {"class_name": "Плут", "level": 2},
+        ]
+
+        owner_edit = client.patch(
+            f"/api/characters/{character_id}",
+            headers=owner_headers,
+            json={"class_levels": class_levels},
+        )
+        assert owner_edit.status_code == 200, owner_edit.text
+        assert owner_edit.json()["class_levels"] == class_levels
+
+        admin_headers = {
+            "Authorization": f"Bearer {login(client, 'admin', 'admin123')}"
+        }
+        admin_edit = client.patch(
+            f"/api/admin/characters/{character_id}",
+            headers=admin_headers,
+            json={"class_levels": [
+                {"class_name": "Воин", "level": 4},
+                {"class_name": "Плут", "level": 1},
+            ]},
+        )
+        assert admin_edit.status_code == 200, admin_edit.text
+
+        client.post("/api/users", json={
+            "username": "multiclass-stranger",
+            "email": "multiclass-stranger@example.com",
+            "password": "secret123",
+        })
+        stranger_headers = {
+            "Authorization": (
+                f"Bearer {login(client, 'multiclass-stranger', 'secret123')}"
+            )
+        }
+        forbidden = client.patch(
+            f"/api/characters/{character_id}",
+            headers=stranger_headers,
+            json={"class_levels": class_levels},
+        )
+        assert forbidden.status_code == 404
+
+
 def test_persisted_text_fields_enforce_boundaries():
     with TestClient(app) as client:
         token = login(client, "admin", "admin123")
