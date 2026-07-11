@@ -126,6 +126,8 @@ class ShopTransactionLogResponse(BaseModel):
     created_at: datetime
     user_id: int
     username: str
+    actor_id: int | None = None
+    actor_username: str | None = None
     character_id: int
     character_name: str
     mode: str
@@ -149,6 +151,8 @@ class MarketSaleLogResponse(BaseModel):
     created_at: datetime
     user_id: int
     username: str
+    actor_id: int | None = None
+    actor_username: str | None = None
     character_id: int
     character_name: str
     item_name: str

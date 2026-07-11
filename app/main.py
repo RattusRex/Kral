@@ -27,7 +27,7 @@ from app.api.content import router as content_router
 from app.models.chat import ChatMessage
 from app.models.recruitment import GameApplication, GameRecruitment, RecruitmentMessage
 from app.models.content import ContentBlock
-from app.models.project import DEFAULT_FEATURES, DEFAULT_PROJECT_NAME, Project, ProjectMembership
+from app.models.project import DEFAULT_FEATURES, DEFAULT_PROJECT_NAME, Project, ProjectAuditLog, ProjectMembership
 from app.api.projects import router as projects_router
 from app.core.calendar import GAME_EPOCH
 from app.core.security import hash_password
@@ -231,6 +231,9 @@ def ensure_schema_columns() -> None:
     ensure_column("downtime_entries", "proficiency_modifier", "INTEGER")
     ensure_column("downtime_entries", "income_copper", "INTEGER")
     ensure_column("shop_transaction_logs", "total_copper", "INTEGER")
+    for table_name in ("shop_transaction_logs", "market_sale_logs", "karma_purchases"):
+        ensure_column(table_name, "actor_id", "INTEGER")
+        ensure_column(table_name, "actor_username", "VARCHAR(50)")
     ensure_column(
         "shop_quotes",
         "searcher_type",
@@ -241,6 +244,12 @@ def ensure_schema_columns() -> None:
         "game_recruitments",
         "status",
         "VARCHAR(20) NOT NULL DEFAULT 'upcoming'",
+    )
+    ensure_column("recruitment_messages", "user_id", "INTEGER REFERENCES users(id)")
+    ensure_column("recruitment_messages", "username", "VARCHAR(50)")
+    ensure_column(
+        "recruitment_messages", "is_system",
+        "BOOLEAN NOT NULL DEFAULT FALSE",
     )
     with engine.begin() as connection:
         connection.execute(

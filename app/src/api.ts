@@ -28,6 +28,7 @@ export interface ProjectContext {
   id: number;
   name: string;
   slug: string;
+  is_default: boolean;
   role: UserRole;
   features: ProjectFeatures;
   is_admin: boolean;
@@ -257,7 +258,20 @@ export interface GameApplication {
 export interface RecruitmentMessage {
   id: number;
   created_at: string;
+  user_id: number | null;
+  username: string | null;
+  is_system: boolean;
   content: string;
+}
+
+export interface ProjectAuditLog {
+  id: number;
+  created_at: string;
+  admin_id: number;
+  admin_username: string;
+  project_id: number;
+  project_name: string;
+  action: string;
 }
 
 export interface GameRecruitment {
@@ -338,6 +352,8 @@ export interface ShopTransactionLog {
   created_at: string;
   user_id: number;
   username: string;
+  actor_id?: number | null;
+  actor_username?: string | null;
   character_id: number;
   character_name: string;
   mode: "buy" | "sell" | "work";
@@ -354,6 +370,8 @@ export interface MarketSaleLog {
   created_at: string;
   user_id: number;
   username: string;
+  actor_id?: number | null;
+  actor_username?: string | null;
   character_id: number;
   character_name: string;
   item_name: string;
@@ -402,6 +420,8 @@ export interface KarmaPurchase {
   created_at: string;
   user_id: number;
   username: string;
+  actor_id?: number | null;
+  actor_username?: string | null;
   character_id: number | null;
   character_name: string | null;
   character_level: number | null;

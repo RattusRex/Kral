@@ -179,6 +179,8 @@ class ShopTransactionLog(Base):
     username: Mapped[str] = mapped_column(
         String(50)
     )
+    actor_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    actor_username: Mapped[str | None] = mapped_column(String(50), nullable=True)
 
     character_id: Mapped[int] = mapped_column(
         ForeignKey("characters.id")
@@ -224,6 +226,8 @@ class MarketSaleLog(Base):
     # foreign keys, so deleting a user or character cannot erase sale history.
     user_id: Mapped[int] = mapped_column(Integer)
     username: Mapped[str] = mapped_column(String(50))
+    actor_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    actor_username: Mapped[str | None] = mapped_column(String(50), nullable=True)
     character_id: Mapped[int] = mapped_column(Integer)
     character_name: Mapped[str] = mapped_column(String(255))
     item_name: Mapped[str] = mapped_column(String(255))
@@ -321,6 +325,8 @@ class KarmaPurchase(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
     user_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     username: Mapped[str] = mapped_column(String(50))
+    actor_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    actor_username: Mapped[str | None] = mapped_column(String(50), nullable=True)
     character_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     character_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     character_level: Mapped[int | None] = mapped_column(Integer, nullable=True)

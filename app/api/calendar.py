@@ -450,6 +450,8 @@ def create_work_entry(
     db.add(ShopTransactionLog(
         user_id=character.owner.id,
         username=character.owner.username,
+        actor_id=current_user.id,
+        actor_username=current_user.username,
         character_id=character.id,
         character_name=character.name,
         inventory_id=inventory.id,

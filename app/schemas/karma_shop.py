@@ -32,6 +32,8 @@ class KarmaPurchaseResponse(BaseModel):
     created_at: datetime
     user_id: int | None
     username: str
+    actor_id: int | None = None
+    actor_username: str | None = None
     character_id: int | None
     character_name: str | None
     character_level: int | None

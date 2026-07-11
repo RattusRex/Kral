@@ -239,6 +239,7 @@ function Shell({ children, user }: { children: React.ReactNode; user: User | nul
             <Link className="btn-secondary" to="/profile"><UserRound size={16} />Профиль</Link>
             {(user?.is_owner || project?.is_admin) && <Link className="btn-secondary" to="/admin"><Shield size={16} />Админ</Link>}
             {project?.can_manage_settings && <Link className="btn-secondary" to="/project-settings"><Shield size={16} />Настройки проекта</Link>}
+            {user?.is_owner && <Link className="btn-secondary" to="/project-management"><Shield size={16} />Управление проектами</Link>}
             {user?.is_admin && <Link className="btn-secondary" to="/admin/shop-logs"><ScrollText size={16} />Логи</Link>}
             {user?.is_admin && <Link className="btn-secondary" to="/admin/market-sales"><ScrollText size={16} />Рынок-логи</Link>}
             {user?.is_admin && <Link className="btn-secondary" to="/admin/transfer-logs"><ScrollText size={16} />Передачи</Link>}
@@ -305,6 +306,37 @@ function ProjectSettingsPage() {
   if (error) return <section className="panel p-5 text-red-300">{error}</section>;
   if (!project) return <p>Загрузка...</p>;
   return <section className="panel p-5"><h1 className="text-2xl font-bold text-ember">Настройки проекта</h1><p className="mt-2 text-white/60">{project.name} · {ROLE_LABELS[project.role]}</p><div className="mt-5 grid gap-3 sm:grid-cols-2">{Object.entries(PROJECT_FEATURE_LABELS).map(([feature, label]) => <label className="flex items-center justify-between rounded-md border border-white/10 p-3" key={feature}><span>{label}</span><input aria-label={label} type="checkbox" checked={project.features[feature as keyof typeof project.features]} onChange={(event) => toggle(feature, event.target.checked)} /></label>)}</div></section>;
+}
+
+function ProjectManagementPage() {
+  const { user, loading } = useAuth();
+  const [projects, setProjects] = useState<ProjectContext[]>([]);
+  const [name, setName] = useState("");
+  const [slug, setSlug] = useState("");
+  const [error, setError] = useState("");
+  async function load() {
+    const response = await api.get<ProjectContext[]>("/projects");
+    setProjects(response.data);
+  }
+  useEffect(() => { if (user?.is_owner) load().catch((e) => setError(apiErrorDetail(e, "Не удалось загрузить проекты"))); }, [user?.is_owner]);
+  async function create(event: FormEvent) {
+    event.preventDefault();
+    try {
+      await api.post("/projects", { name, slug: slug || undefined });
+      setName(""); setSlug(""); await load();
+    } catch (e) { setError(apiErrorDetail(e, "Не удалось создать проект")); }
+  }
+  async function remove(project: ProjectContext) {
+    if (!window.confirm(`Удалить проект «${project.name}» и все его данные?`)) return;
+    try {
+      await api.delete(`/projects/${project.id}`);
+      if (localStorage.getItem(PROJECT_KEY) === String(project.id)) localStorage.removeItem(PROJECT_KEY);
+      await load();
+    } catch (e) { setError(apiErrorDetail(e, "Не удалось удалить проект")); }
+  }
+  if (loading) return <p>Загрузка...</p>;
+  if (!user?.is_owner) return <Navigate to="/" replace />;
+  return <div className="space-y-5"><section className="panel p-5"><h1 className="text-2xl font-bold text-ember">Управление проектами</h1><p className="mt-2 text-white/60">Создание и полное удаление независимых игровых экосистем.</p><form className="mt-5 grid gap-3 md:grid-cols-[1fr_1fr_auto]" onSubmit={create}><input required maxLength={100} className="field" placeholder="Название" value={name} onChange={(e) => setName(e.target.value)} /><input pattern="[a-z0-9-]+" maxLength={100} className="field" placeholder="slug (необязательно)" value={slug} onChange={(e) => setSlug(e.target.value)} /><button className="btn"><Plus size={16} />Создать</button></form>{error && <p className="mt-3 text-red-300">{error}</p>}</section><section className="grid gap-3">{projects.map((project) => <article className="panel flex items-center justify-between gap-4 p-4" key={project.id}><div><h2 className="font-semibold text-ember">{project.name}</h2><p className="text-sm text-white/50">{project.slug}</p></div><button className="btn-secondary text-red-200" disabled={(project as ProjectContext & { is_default?: boolean }).is_default} onClick={() => remove(project)}><Trash2 size={16} />Удалить</button></article>)}</section></div>;
 }
 
 type ContentPageSlug = "server-rules" | "approved-homebrew";
@@ -2024,6 +2056,9 @@ function GameRecruitmentsPage() {
   const [pageSize, setPageSize] = useState(10);
   const [total, setTotal] = useState(0);
   const [pages, setPages] = useState(0);
+  const [chatMessages, setChatMessages] = useState<Record<number, import("./api").RecruitmentMessage[]>>({});
+  const [chatDrafts, setChatDrafts] = useState<Record<number, string>>({});
+  const [chatHasOlder, setChatHasOlder] = useState<Record<number, boolean>>({});
 
   async function load() {
     setError("");
@@ -2046,6 +2081,25 @@ function GameRecruitmentsPage() {
   }
 
   useEffect(() => { load(); }, [page, pageSize]);
+
+  async function loadChat(recruitmentId: number, beforeId?: number) {
+    const response = await api.get<import("./api").RecruitmentMessage[]>(`/game-recruitments/${recruitmentId}/messages`, { params: { before_id: beforeId, limit: CHAT_PAGE_SIZE } });
+    setChatMessages((current) => ({ ...current, [recruitmentId]: beforeId ? [...response.data, ...(current[recruitmentId] ?? [])] : response.data }));
+    setChatHasOlder((current) => ({ ...current, [recruitmentId]: response.data.length === CHAT_PAGE_SIZE }));
+  }
+
+  async function sendChat(recruitmentId: number) {
+    const content = (chatDrafts[recruitmentId] ?? "").trim();
+    if (!content) return;
+    const response = await api.post<import("./api").RecruitmentMessage>(`/game-recruitments/${recruitmentId}/messages`, { content });
+    setChatMessages((current) => ({ ...current, [recruitmentId]: [...(current[recruitmentId] ?? []), response.data] }));
+    setChatDrafts((current) => ({ ...current, [recruitmentId]: "" }));
+  }
+
+  async function deleteChatMessage(recruitmentId: number, messageId: number) {
+    await api.delete(`/game-recruitments/${recruitmentId}/messages/${messageId}`);
+    setChatMessages((current) => ({ ...current, [recruitmentId]: (current[recruitmentId] ?? []).filter((message) => message.id !== messageId) }));
+  }
 
   async function createRecruitment(event: FormEvent) {
     event.preventDefault();
@@ -2202,11 +2256,12 @@ function GameRecruitmentsPage() {
               ) : null}
             </section>
             <section>
-              <h3 className="font-semibold text-ember">Чат публикации</h3>
-              <div className="mt-3 max-h-80 space-y-2 overflow-y-auto rounded-md border border-white/10 p-3">
-                {recruitment.messages.map((message) => <div className="rounded-md bg-black/25 p-3" key={message.id}><p className="whitespace-pre-wrap text-sm text-white/80">{message.content}</p><p className="mt-2 text-xs text-white/35">{new Date(message.created_at).toLocaleString("ru-RU")}</p></div>)}
-                {!recruitment.messages.length && <p className="text-sm text-white/50">Событий пока нет.</p>}
-              </div>
+              <div className="flex items-center justify-between"><h3 className="font-semibold text-ember">Чат публикации</h3>{!chatMessages[recruitment.id] && <button className="btn-secondary" onClick={() => loadChat(recruitment.id)}>Открыть чат</button>}</div>
+              {chatMessages[recruitment.id] && <><div className="mt-3 max-h-80 space-y-2 overflow-y-auto rounded-md border border-white/10 p-3" onScroll={(event) => { if (event.currentTarget.scrollTop === 0 && chatHasOlder[recruitment.id]) loadChat(recruitment.id, chatMessages[recruitment.id][0]?.id); }}>
+                {chatHasOlder[recruitment.id] && <p className="text-center text-xs text-white/40">Прокрутите вверх для старых сообщений</p>}
+                {chatMessages[recruitment.id].map((message) => <div className="rounded-md bg-black/25 p-3" key={message.id}><div className="flex items-start justify-between gap-2"><p className="text-xs text-white/45">{message.is_system ? "Система" : `#${message.username}`}</p>{!message.is_system && (message.user_id === user?.id || user?.is_admin) && <button aria-label="Удалить сообщение" className="text-red-300" onClick={() => deleteChatMessage(recruitment.id, message.id)}><Trash2 size={14} /></button>}</div><p className="mt-1 whitespace-pre-wrap text-sm text-white/80">{message.content}</p><p className="mt-2 text-xs text-white/35">{new Date(message.created_at).toLocaleString("ru-RU")}</p></div>)}
+                {!chatMessages[recruitment.id].length && <p className="text-sm text-white/50">Сообщений пока нет.</p>}
+              </div><div className="mt-2 flex gap-2"><input maxLength={2000} className="field flex-1" placeholder="Сообщение" value={chatDrafts[recruitment.id] ?? ""} onChange={(event) => setChatDrafts((current) => ({ ...current, [recruitment.id]: event.target.value }))} onKeyDown={(event) => { if (event.key === "Enter") sendChat(recruitment.id); }} /><button className="btn" onClick={() => sendChat(recruitment.id)}><Send size={16} /></button></div></>}
             </section>
           </div>
         </article>
@@ -3071,6 +3126,7 @@ function ShopLogsPage() {
           <thead className="text-xs uppercase text-white/45">
             <tr>
               <th className="py-2 pr-3">Дата</th>
+              <th className="py-2 pr-3">Кто выполнил</th>
               <th className="py-2 pr-3">Игрок</th>
               <th className="py-2 pr-3">Персонаж</th>
               <th className="py-2 pr-3">Операция</th>
@@ -3084,6 +3140,7 @@ function ShopLogsPage() {
             {logs.map((log) => (
               <tr className="border-t border-white/10" key={log.id}>
                 <td className="py-3 pr-3">{new Date(log.created_at).toLocaleString("ru-RU")}</td>
+                <td className="py-3 pr-3">{log.actor_username ?? log.username}</td>
                 <td className="py-3 pr-3">{log.username}</td>
                 <td className="py-3 pr-3">{log.character_name}</td>
                 <td className="py-3 pr-3">{log.mode === "buy" ? "Покупка" : log.mode === "sell" ? "Продажа" : "Работа"}</td>
@@ -3095,7 +3152,7 @@ function ShopLogsPage() {
             ))}
             {logs.length === 0 && (
               <tr className="border-t border-white/10">
-                <td className="py-6 text-center text-white/55" colSpan={8}>Записей нет</td>
+                <td className="py-6 text-center text-white/55" colSpan={9}>Записей нет</td>
               </tr>
             )}
           </tbody>
@@ -3122,7 +3179,7 @@ function MarketSalesPage() {
       </div>
       <label className="field-label mt-5 max-w-xs"><span>Дата</span><input className="field" type="date" value={date} onChange={(event) => setDate(event.target.value)} /></label>
       {error && <p className="mt-3 text-sm text-red-300">{error}</p>}
-      <div className="mt-5 overflow-x-auto"><table className="w-full min-w-[700px] text-left text-sm"><thead className="text-xs uppercase text-white/45"><tr><th className="py-2 pr-3">Дата</th><th className="py-2 pr-3">Игрок</th><th className="py-2 pr-3">Персонаж</th><th className="py-2 pr-3">Предмет</th><th className="py-2 pr-3">Сумма</th></tr></thead><tbody>{logs.map((log) => <tr className="border-t border-white/10" key={log.id}><td className="py-3 pr-3">{new Date(log.created_at).toLocaleString("ru-RU")}</td><td className="py-3 pr-3">{log.username}</td><td className="py-3 pr-3">{log.character_name}</td><td className="py-3 pr-3">{log.item_name}</td><td className="py-3 pr-3 font-semibold text-ember">+{log.gold} зм</td></tr>)}</tbody></table>{!logs.length && <p className="py-6 text-center text-white/55">Записей нет</p>}</div>
+      <div className="mt-5 overflow-x-auto"><table className="w-full min-w-[700px] text-left text-sm"><thead className="text-xs uppercase text-white/45"><tr><th className="py-2 pr-3">Дата</th><th className="py-2 pr-3">Кто выполнил</th><th className="py-2 pr-3">Игрок</th><th className="py-2 pr-3">Персонаж</th><th className="py-2 pr-3">Предмет</th><th className="py-2 pr-3">Сумма</th></tr></thead><tbody>{logs.map((log) => <tr className="border-t border-white/10" key={log.id}><td className="py-3 pr-3">{new Date(log.created_at).toLocaleString("ru-RU")}</td><td className="py-3 pr-3">{log.actor_username ?? log.username}</td><td className="py-3 pr-3">{log.username}</td><td className="py-3 pr-3">{log.character_name}</td><td className="py-3 pr-3">{log.item_name}</td><td className="py-3 pr-3 font-semibold text-ember">+{log.gold} зм</td></tr>)}</tbody></table>{!logs.length && <p className="py-6 text-center text-white/55">Записей нет</p>}</div>
     </section>
   );
 }
@@ -3142,7 +3199,7 @@ function KarmaShopLogsPage() {
       .then((response) => setLogs(response.data))
       .catch((loadError) => setError(apiErrorDetail(loadError, "Не удалось загрузить логи")));
   }, []);
-  return <section className="panel p-5"><div className="flex flex-wrap items-center justify-between gap-3"><div><h1 className="text-2xl font-bold text-ember">Логи магазина кармы</h1><p className="text-sm text-white/55">История всех покупок за карму</p></div><Link className="btn-secondary" to="/admin">Назад</Link></div>{error && <p className="mt-3 text-red-300">{error}</p>}<div className="mt-5 overflow-x-auto"><table className="w-full min-w-[850px] text-left text-sm"><thead className="text-xs uppercase text-white/45"><tr><th className="py-2 pr-3">Дата</th><th className="py-2 pr-3">Игрок</th><th className="py-2 pr-3">Персонаж</th><th className="py-2 pr-3">Тип</th><th className="py-2 pr-3">Наименование</th><th className="py-2 pr-3">Стоимость</th><th className="py-2 pr-3">Уровень</th></tr></thead><tbody>{logs.map((log) => <tr className="border-t border-white/10" key={log.id}><td className="py-3 pr-3">{new Date(log.created_at).toLocaleString("ru-RU")}</td><td className="py-3 pr-3">{log.username}</td><td className="py-3 pr-3">{log.character_name ?? "-"}</td><td className="py-3 pr-3">{karmaPurchaseLabels[log.purchase_type]}</td><td className="py-3 pr-3">{log.name}</td><td className="py-3 pr-3">{log.cost} кармы</td><td className="py-3 pr-3">{log.character_level ?? "-"}</td></tr>)}</tbody></table>{!logs.length && <p className="py-6 text-center text-white/55">Записей нет</p>}</div></section>;
+  return <section className="panel p-5"><div className="flex flex-wrap items-center justify-between gap-3"><div><h1 className="text-2xl font-bold text-ember">Логи магазина кармы</h1><p className="text-sm text-white/55">История всех покупок за карму</p></div><Link className="btn-secondary" to="/admin">Назад</Link></div>{error && <p className="mt-3 text-red-300">{error}</p>}<div className="mt-5 overflow-x-auto"><table className="w-full min-w-[850px] text-left text-sm"><thead className="text-xs uppercase text-white/45"><tr><th className="py-2 pr-3">Дата</th><th className="py-2 pr-3">Кто выполнил</th><th className="py-2 pr-3">Игрок</th><th className="py-2 pr-3">Персонаж</th><th className="py-2 pr-3">Тип</th><th className="py-2 pr-3">Наименование</th><th className="py-2 pr-3">Стоимость</th><th className="py-2 pr-3">Уровень</th></tr></thead><tbody>{logs.map((log) => <tr className="border-t border-white/10" key={log.id}><td className="py-3 pr-3">{new Date(log.created_at).toLocaleString("ru-RU")}</td><td className="py-3 pr-3">{log.actor_username ?? log.username}</td><td className="py-3 pr-3">{log.username}</td><td className="py-3 pr-3">{log.character_name ?? "-"}</td><td className="py-3 pr-3">{karmaPurchaseLabels[log.purchase_type]}</td><td className="py-3 pr-3">{log.name}</td><td className="py-3 pr-3">{log.cost} кармы</td><td className="py-3 pr-3">{log.character_level ?? "-"}</td></tr>)}</tbody></table>{!logs.length && <p className="py-6 text-center text-white/55">Записей нет</p>}</div></section>;
 }
 
 function TransferLogsPage() {
@@ -3335,6 +3392,7 @@ function App() {
         <Route path="/approved-homebrew" element={<Protected><ContentPage pageSlug="approved-homebrew" title="Одобренное ХБ" /></Protected>} />
         <Route path="/profile" element={<Protected><ProfilePage /></Protected>} />
         <Route path="/project-settings" element={<Protected><ProjectSettingsPage /></Protected>} />
+        <Route path="/project-management" element={<Protected><ProjectManagementPage /></Protected>} />
         <Route path="/admin/shop-logs" element={<Protected><ShopLogsPage /></Protected>} />
         <Route path="/admin/market-sales" element={<Protected><MarketSalesPage /></Protected>} />
         <Route path="/admin/karma-shop-logs" element={<Protected><KarmaShopLogsPage /></Protected>} />

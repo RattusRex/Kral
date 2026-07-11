@@ -1,9 +1,13 @@
-from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.api.users import get_current_user, get_db
 from app.core.roles import PROJECT_ROLES, ROLE_RANK, Role, normalize_role
-from app.models.project import DEFAULT_FEATURES, Project, ProjectMembership
+from app.models.project import DEFAULT_FEATURES, Project, ProjectAuditLog, ProjectMembership
+from app.models.character import Character
+from app.models.chat import ChatMessage
+from app.models.content import ContentBlock
+from app.models.recruitment import GameRecruitment
 from app.models.user import User
 from app.schemas.project import ProjectCreate, ProjectFeaturesUpdate, ProjectRoleUpdate
 
@@ -17,6 +21,7 @@ def serialize_project(project: Project, membership: ProjectMembership | None, us
         "id": project.id,
         "name": project.name,
         "slug": project.slug,
+        "is_default": project.is_default,
         "role": role,
         "features": {**DEFAULT_FEATURES, **(project.features or {})},
         "can_manage_settings": user.is_owner or role in (Role.PROJECT_OWNER, Role.HEAD_ADMIN),
@@ -120,6 +125,40 @@ def create_project(data: ProjectCreate, current_user: User = Depends(get_current
     db.commit()
     db.refresh(project)
     return serialize_project(project, None, current_user)
+
+
+@router.delete("/{project_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_project(
+    project_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    if not current_user.is_owner:
+        raise HTTPException(status_code=403, detail="Owner permissions required")
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    if project.is_default:
+        raise HTTPException(status_code=409, detail="The default project cannot be deleted")
+
+    db.add(ProjectAuditLog(
+        admin_id=current_user.id,
+        admin_username=current_user.username,
+        project_id=project.id,
+        project_name=project.name,
+        action="delete",
+    ))
+    # Project data predates consistent database-level ON DELETE cascades. Delete
+    # project roots through the ORM so their existing delete-orphan cascades run.
+    for recruitment in db.query(GameRecruitment).filter_by(project_id=project.id).all():
+        db.delete(recruitment)
+    for character in db.query(Character).filter_by(project_id=project.id).all():
+        db.delete(character)
+    db.query(ChatMessage).filter_by(project_id=project.id).delete(synchronize_session=False)
+    db.query(ContentBlock).filter_by(project_id=project.id).delete(synchronize_session=False)
+    db.query(ProjectMembership).filter_by(project_id=project.id).delete(synchronize_session=False)
+    db.delete(project)
+    db.commit()
 
 
 @router.get("/current")

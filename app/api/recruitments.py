@@ -11,6 +11,7 @@ from app.schemas.recruitment import (
     ApplicationCreate,
     ParticipantSelection,
     RecruitmentCreate,
+    RecruitmentMessageCreate,
     RecruitmentStatusUpdate,
 )
 from app.core.projects import accessible_project_ids, require_project_admin
@@ -75,11 +76,79 @@ def serialize_recruitment(recruitment: GameRecruitment, current_user: User) -> d
         "can_manage": recruitment.author_id == current_user.id or current_user.is_admin,
         "application_status": own_application.status if own_application else "not_applied",
         "applications": [serialize_application(row) for row in recruitment.applications],
-        "messages": [
-            {"id": row.id, "created_at": row.created_at, "content": row.content}
-            for row in recruitment.messages
-        ],
+        "messages": [],
     }
+
+
+def serialize_message(message: RecruitmentMessage) -> dict:
+    return {
+        "id": message.id,
+        "created_at": message.created_at,
+        "user_id": message.user_id,
+        "username": message.username,
+        "is_system": message.is_system,
+        "content": message.content,
+    }
+
+
+@router.get("/{recruitment_id}/messages")
+def list_recruitment_messages(
+    recruitment_id: int,
+    before_id: int | None = Query(default=None, ge=1),
+    limit: int = Query(default=50, ge=1, le=200),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    require_recruitment(db, recruitment_id, current_user)
+    query = db.query(RecruitmentMessage).filter(
+        RecruitmentMessage.recruitment_id == recruitment_id
+    )
+    if before_id is not None:
+        query = query.filter(RecruitmentMessage.id < before_id)
+    rows = query.order_by(RecruitmentMessage.id.desc()).limit(limit).all()
+    return [serialize_message(row) for row in reversed(rows)]
+
+
+@router.post("/{recruitment_id}/messages", status_code=status.HTTP_201_CREATED)
+def create_recruitment_message(
+    recruitment_id: int,
+    data: RecruitmentMessageCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    require_recruitment(db, recruitment_id, current_user)
+    message = RecruitmentMessage(
+        recruitment_id=recruitment_id,
+        user_id=current_user.id,
+        username=current_user.username,
+        content=data.content.strip(),
+    )
+    if not message.content:
+        raise HTTPException(status_code=422, detail="Message cannot be empty")
+    db.add(message)
+    db.commit()
+    db.refresh(message)
+    return serialize_message(message)
+
+
+@router.delete("/{recruitment_id}/messages/{message_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_recruitment_message(
+    recruitment_id: int,
+    message_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    recruitment = require_recruitment(db, recruitment_id, current_user)
+    message = db.query(RecruitmentMessage).filter(
+        RecruitmentMessage.id == message_id,
+        RecruitmentMessage.recruitment_id == recruitment.id,
+    ).first()
+    if not message:
+        raise HTTPException(status_code=404, detail="Recruitment message not found")
+    if message.user_id != current_user.id:
+        require_project_admin(db, current_user, recruitment.project_id)
+    db.delete(message)
+    db.commit()
 
 
 @router.get("")
@@ -202,6 +271,7 @@ def apply_to_recruitment(
     )
     message = RecruitmentMessage(
         recruitment_id=recruitment.id,
+        is_system=True,
         content=(
             f'Игрок #{current_user.username} записался на персонаже "{character.name}".\n\n'
             f"Класс: {character.class_name}\nУровень: {character.level}"
@@ -241,6 +311,7 @@ def select_participants(
     ]
     db.add(RecruitmentMessage(
         recruitment_id=recruitment.id,
+        is_system=True,
         content="Игроки выбраны:\n\n" + "\n".join(lines),
     ))
     db.commit()
