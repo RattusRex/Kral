@@ -108,8 +108,11 @@ default **Epoch of Catastrophe** project.
 
 Project owners and head administrators can open **Project Settings** to enable
 or disable the shop, market, Karma Shop, game recruitment, personal hirelings,
-and simulacrums. Disabled features disappear from project navigation and their
-backend entry points reject access.
+simulacrums, leaderboard, karma, karma logs, character transfers, market logs,
+and general logs. Disabled features disappear from project navigation and their
+backend entry points reject access. These settings are stored per project;
+changing one project does not affect any other project. Only the global owner,
+that project's owner, or one of its head administrators may change them.
 
 Global owners can open **Project Management** to list and create projects or
 delete a non-default project. Deletion is owner-only at the API boundary,

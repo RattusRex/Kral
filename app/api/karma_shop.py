@@ -2,9 +2,11 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.api.admin import apply_xp_delta
+from app.api.projects import require_feature
 from app.api.users import get_current_user, get_db
 from app.models.character import Character
 from app.models.inventory import KarmaPurchase
+from app.models.project import Project
 from app.models.user import User
 from app.schemas.karma_shop import (
     KarmaItemPurchaseRequest,
@@ -14,7 +16,10 @@ from app.schemas.karma_shop import (
     KarmaXpPurchaseRequest,
 )
 
-router = APIRouter(prefix="/karma-shop")
+router = APIRouter(
+    prefix="/karma-shop",
+    dependencies=[Depends(require_feature("karma")), Depends(require_feature("karma_shop"))],
+)
 XP_KARMA_COST = 5
 
 

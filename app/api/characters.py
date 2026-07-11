@@ -17,6 +17,7 @@ from app.schemas.character import (
     SkillRollResponse,
 )
 from app.api.users import get_db
+from app.api.projects import require_feature
 from app.core.projects import require_project_access
 from app.models.project import Project
 
@@ -193,15 +194,10 @@ def get_characters(
 @router.get("/characters/transfer-targets")
 def get_transfer_targets(
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
+    project: Project = Depends(require_feature("character_transfers")),
 ):
-    project_ids = [row.project_id for row in current_user.project_memberships]
-    if current_user.is_owner:
-        query = db.query(Character)
-    elif not project_ids:
-        return []
-    else:
-        query = db.query(Character).filter(Character.project_id.in_(project_ids))
+    query = db.query(Character).filter(Character.project_id == project.id)
     return [{
         "id": character.id,
         "name": character.name,
