@@ -1,6 +1,6 @@
 import os
 from datetime import datetime, timedelta, timezone
-from jose import JWTError
+from jose import ExpiredSignatureError, JWTError
 from jose import jwt
 import bcrypt
 from fastapi import Depends, HTTPException
@@ -23,7 +23,7 @@ if not _secret:
     )
 SECRET_KEY = _secret
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "30"))
+ACCESS_TOKEN_LIFETIME = timedelta(hours=2)
 
 
 def hash_password(password: str) -> str:
@@ -43,12 +43,11 @@ def verify_password(
 
 def create_access_token(data: dict):
     to_encode = data.copy()
-
-    expire = datetime.now(timezone.utc) + timedelta(
-        minutes=ACCESS_TOKEN_EXPIRE_MINUTES
-    )
-
-    to_encode.update({"exp": expire})
+    issued_at = datetime.now(timezone.utc)
+    to_encode.update({
+        "iat": issued_at,
+        "exp": issued_at + ACCESS_TOKEN_LIFETIME,
+    })
 
     encoded_jwt = jwt.encode(
         to_encode,
@@ -76,6 +75,14 @@ def verify_access_token(token: str):
 
         return email
 
+    except ExpiredSignatureError:
+        raise HTTPException(
+            status_code=401,
+            detail={
+                "code": "token_expired",
+                "message": "Сессия истекла. Войдите снова.",
+            },
+        )
     except JWTError:
         raise HTTPException(
             status_code=401,
