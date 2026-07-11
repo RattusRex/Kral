@@ -110,6 +110,21 @@ const blankCharacter = {
   saving_throw_proficiencies: [] as string[]
 };
 const maxCharacters = 10;
+type NumericInputValue = number | "";
+
+function numericInputChange(setValue: (value: NumericInputValue) => void) {
+  return (event: React.ChangeEvent<HTMLInputElement>) => setValue(event.target.value === "" ? "" : event.target.value as unknown as number);
+}
+
+function normalizeNumber(value: NumericInputValue, fallback = 0) {
+  if (value === "") return fallback;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : fallback;
+}
+
+function normalizeNumberOnBlur(setValue: (value: number) => void, fallback = 0) {
+  return (event: React.FocusEvent<HTMLInputElement>) => setValue(normalizeNumber(event.target.value as NumericInputValue, fallback));
+}
 
 function apiErrorDetail(error: unknown, fallback: string) {
   const detail = (error as { response?: { data?: { detail?: unknown } } }).response?.data?.detail;
@@ -685,12 +700,12 @@ function CharactersPage() {
 
 function CalendarPanel({ characterId, agentType = "character", title = "Календарь персонажа" }: { characterId: number; agentType?: CalendarAgentType; title?: string }) {
   const [summary, setSummary] = useState<CalendarSummary | null>(null);
-  const [form, setForm] = useState({ start_date: GAME_EPOCH, days: 1, reason: "" });
-  const [workForm, setWorkForm] = useState({ start_date: GAME_EPOCH, days: 1, tools: "", proficiency_modifier: 0 });
+  const [form, setForm] = useState<{ start_date: string; days: NumericInputValue; reason: string }>({ start_date: GAME_EPOCH, days: 1, reason: "" });
+  const [workForm, setWorkForm] = useState<{ start_date: string; days: NumericInputValue; tools: string; proficiency_modifier: NumericInputValue }>({ start_date: GAME_EPOCH, days: 1, tools: "", proficiency_modifier: 0 });
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   const [editingId, setEditingId] = useState<number | null>(null);
-  const [editForm, setEditForm] = useState({ start_date: GAME_EPOCH, days: 1, reason: "" });
+  const [editForm, setEditForm] = useState<{ start_date: string; days: NumericInputValue; reason: string }>({ start_date: GAME_EPOCH, days: 1, reason: "" });
   const [page, setPage] = useState(1);
   const canManage = summary?.can_manage ?? false;
   const isUnitCalendar = agentType !== "character";
@@ -724,7 +739,7 @@ function CalendarPanel({ characterId, agentType = "character", title = "Кале
     try {
       await api.post<CalendarSummary>(`${calendarPath}/downtime`, {
         start_date: form.start_date,
-        days: Number(form.days),
+        days: normalizeNumber(form.days, 1),
         reason: form.reason
       });
       if (page === 1) {
@@ -745,8 +760,8 @@ function CalendarPanel({ characterId, agentType = "character", title = "Кале
     try {
       await api.post(`${calendarPath}/work`, {
         ...workForm,
-        days: Number(workForm.days),
-        proficiency_modifier: Number(workForm.proficiency_modifier)
+        days: normalizeNumber(workForm.days, 1),
+        proficiency_modifier: normalizeNumber(workForm.proficiency_modifier)
       });
       const response = await api.get<CalendarSummary>(calendarPath, { params: { page: 1, page_size: 10 } });
       setSummary(response.data);
@@ -784,7 +799,7 @@ function CalendarPanel({ characterId, agentType = "character", title = "Кале
     try {
       await api.patch<CalendarSummary>(`${calendarPath}/downtime/${editingId}`, {
         start_date: editForm.start_date,
-        days: Number(editForm.days),
+        days: normalizeNumber(editForm.days, 1),
         reason: editForm.reason
       });
       const response = await api.get<CalendarSummary>(calendarPath, { params: { page, page_size: 10 } });
@@ -816,9 +831,9 @@ function CalendarPanel({ characterId, agentType = "character", title = "Кале
           {!isUnitCalendar && (
             <form className="mt-5 grid gap-3 md:grid-cols-[150px_110px_1fr_auto]" onSubmit={addWork}>
               <label className="field-label"><span>Дата начала</span><input className="field" type="date" min={summary.created_at} max={summary.current_date} value={workForm.start_date} onChange={(event) => setWorkForm({ ...workForm, start_date: event.target.value })} /></label>
-              <label className="field-label"><span>Дней работы</span><input className="field" type="number" min={1} value={workForm.days} onChange={(event) => setWorkForm({ ...workForm, days: Number(event.target.value) })} /></label>
+              <label className="field-label"><span>Дней работы</span><input className="field" type="number" min={1} value={workForm.days} onChange={numericInputChange((days) => setWorkForm({ ...workForm, days }))} onBlur={normalizeNumberOnBlur((days) => setWorkForm((current) => ({ ...current, days })), 1)} /></label>
               <label className="field-label"><span>Используемые инструменты</span><input className="field" required maxLength={255} placeholder="Инструменты кузнеца" value={workForm.tools} onChange={(event) => setWorkForm({ ...workForm, tools: event.target.value })} /></label>
-              <label className="field-label"><span>Модификатор владения</span><input className="field" type="number" min={-20} max={100} value={workForm.proficiency_modifier} onChange={(event) => setWorkForm({ ...workForm, proficiency_modifier: Number(event.target.value) })} /></label>
+              <label className="field-label"><span>Модификатор владения</span><input className="field" type="number" min={-20} max={100} value={workForm.proficiency_modifier} onChange={numericInputChange((proficiency_modifier) => setWorkForm({ ...workForm, proficiency_modifier }))} onBlur={normalizeNumberOnBlur((proficiency_modifier) => setWorkForm((current) => ({ ...current, proficiency_modifier })))} /></label>
               <button className="btn self-end" type="submit"><Plus size={16} />Работать</button>
             </form>
           )}
@@ -843,7 +858,8 @@ function CalendarPanel({ characterId, agentType = "character", title = "Кале
                   type="number"
                   min={1}
                   value={form.days}
-                  onChange={(event) => setForm({ ...form, days: Number(event.target.value) })}
+                  onChange={numericInputChange((days) => setForm({ ...form, days }))}
+                  onBlur={normalizeNumberOnBlur((days) => setForm((current) => ({ ...current, days })), 1)}
                 />
               </label>
               <label className="field-label">
@@ -908,7 +924,8 @@ function CalendarPanel({ characterId, agentType = "character", title = "Кале
                           type="number"
                           min={1}
                           value={editForm.days}
-                          onChange={(event) => setEditForm({ ...editForm, days: Number(event.target.value) })}
+                          onChange={numericInputChange((days) => setEditForm({ ...editForm, days }))}
+                          onBlur={normalizeNumberOnBlur((days) => setEditForm((current) => ({ ...current, days })), 1)}
                         />
                       </label>
                       <label className="field-label">
@@ -949,7 +966,7 @@ function CharacterPage() {
   const [inventory, setInventory] = useState<Inventory | null>(null);
   const [transferTargets, setTransferTargets] = useState<TransferTarget[]>([]);
   const [attacks, setAttacks] = useState<CharacterAttack[]>([]);
-  const [attackForm, setAttackForm] = useState({ name: "", attack_bonus: 0, damage: "" });
+  const [attackForm, setAttackForm] = useState<{ name: string; attack_bonus: NumericInputValue; damage: string }>({ name: "", attack_bonus: 0, damage: "" });
   const [attackRoll, setAttackRoll] = useState<AttackRoll | null>(null);
   const [damageRoll, setDamageRoll] = useState<DamageRoll | null>(null);
   const [abilityRoll, setAbilityRoll] = useState<AbilityRoll | null>(null);
@@ -980,7 +997,7 @@ function CharacterPage() {
     event.preventDefault();
     setAttackError("");
     try {
-      const response = await api.post<CharacterAttack>(`/characters/${id}/attacks`, attackForm);
+      const response = await api.post<CharacterAttack>(`/characters/${id}/attacks`, { ...attackForm, attack_bonus: normalizeNumber(attackForm.attack_bonus) });
       setAttacks((current) => [...current, response.data]);
       setAttackForm({ name: "", attack_bonus: 0, damage: "" });
     } catch (createError) {
@@ -1159,7 +1176,7 @@ function CharacterPage() {
             </div>
             <form className="mt-4 grid gap-3 md:grid-cols-[1fr_120px_1fr_auto]" onSubmit={createAttack}>
               <input className="field" placeholder="Название атаки" value={attackForm.name} onChange={(event) => setAttackForm({ ...attackForm, name: event.target.value })} />
-              <input className="field" type="number" value={attackForm.attack_bonus} onChange={(event) => setAttackForm({ ...attackForm, attack_bonus: Number(event.target.value) })} />
+              <input className="field" type="number" value={attackForm.attack_bonus} onChange={numericInputChange((attack_bonus) => setAttackForm({ ...attackForm, attack_bonus }))} onBlur={normalizeNumberOnBlur((attack_bonus) => setAttackForm((current) => ({ ...current, attack_bonus })))} />
               <input className="field" placeholder="Урон, например 1d8+3 рубящий" value={attackForm.damage} onChange={(event) => setAttackForm({ ...attackForm, damage: event.target.value })} />
               <button className="btn" disabled={!attackForm.name.trim()} type="submit"><Plus size={16} />Добавить</button>
             </form>
@@ -1382,7 +1399,7 @@ function CharacterFormPage({ edit = false }: { edit?: boolean }) {
       {(edit ? numberFields.filter(({ field }) => field !== "level") : numberFields).map(({ field, label }) => (
         <label className="field-label" key={field}>
           <span>{label}</span>
-          <input className="field" type="number" value={form[field]} onChange={(event) => setForm({ ...form, [field]: Number(event.target.value) })} />
+          <input className="field" type="number" value={form[field]} onChange={numericInputChange((value) => setForm({ ...form, [field]: value }))} onBlur={normalizeNumberOnBlur((value) => setForm((current) => ({ ...current, [field]: value })))} />
         </label>
       ))}
       <div className="md:col-span-2 grid gap-2 rounded-md border border-white/10 p-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -1413,8 +1430,11 @@ function ClassLevelsEditor({ classLevels, onChange }: {
   classLevels: Character["class_levels"];
   onChange: (classLevels: Character["class_levels"]) => void;
 }) {
-  const levels = classLevels.length ? classLevels : [{ class_name: defaultCharacterClass, level: 1 }];
-  const totalLevel = levels.reduce((total, entry) => total + entry.level, 0);
+  const [draftLevels, setDraftLevels] = useState<Array<{ class_name: string; level: NumericInputValue }>>(classLevels);
+  useEffect(() => setDraftLevels(classLevels), [classLevels]);
+  const levels = draftLevels.length ? draftLevels : [{ class_name: defaultCharacterClass, level: 1 }];
+  const commitLevels = (next: typeof levels) => onChange(next.map((entry) => ({ ...entry, level: normalizeNumber(entry.level, 1) })));
+  const totalLevel = levels.reduce((total, entry) => total + normalizeNumber(entry.level), 0);
   return (
     <fieldset className="md:col-span-2 rounded-md border border-white/10 p-3">
       <legend className="px-2 text-sm font-semibold text-ember">Дополнительные классы</legend>
@@ -1422,20 +1442,20 @@ function ClassLevelsEditor({ classLevels, onChange }: {
       <div className="space-y-2">
         {levels.map((entry, index) => (
           <div className="grid gap-2 sm:grid-cols-[1fr_120px_auto]" key={`${index}-${entry.class_name}`}>
-            <ClassSelect value={entry.class_name} onChange={(value) => onChange(levels.map((item, itemIndex) => itemIndex === index ? { ...item, class_name: value } : item))} />
-            <label className="field-label"><span>Уровень класса</span><input className="field" min={1} max={20} type="number" value={entry.level} onChange={(event) => onChange(levels.map((item, itemIndex) => itemIndex === index ? { ...item, level: Number(event.target.value) } : item))} /></label>
-            {index > 0 && <button className="btn-secondary self-end" type="button" onClick={() => onChange(levels.filter((_, itemIndex) => itemIndex !== index))}><Trash2 size={16} />Удалить</button>}
+            <ClassSelect value={entry.class_name} onChange={(value) => { const next = levels.map((item, itemIndex) => itemIndex === index ? { ...item, class_name: value } : item); setDraftLevels(next); commitLevels(next); }} />
+            <label className="field-label"><span>Уровень класса</span><input className="field" min={1} max={20} type="number" value={entry.level} onChange={numericInputChange((level) => setDraftLevels(levels.map((item, itemIndex) => itemIndex === index ? { ...item, level } : item)))} onBlur={normalizeNumberOnBlur((level) => { const next = levels.map((item, itemIndex) => itemIndex === index ? { ...item, level } : item); setDraftLevels(next); commitLevels(next); }, 1)} /></label>
+            {index > 0 && <button className="btn-secondary self-end" type="button" onClick={() => { const next = levels.filter((_, itemIndex) => itemIndex !== index); setDraftLevels(next); commitLevels(next); }}><Trash2 size={16} />Удалить</button>}
           </div>
         ))}
       </div>
-      <button className="btn-secondary mt-3" type="button" onClick={() => onChange([...levels, { class_name: defaultCharacterClass, level: 1 }])}><Plus size={16} />Добавить класс</button>
+      <button className="btn-secondary mt-3" type="button" onClick={() => { const next = [...levels, { class_name: defaultCharacterClass, level: 1 }]; setDraftLevels(next); commitLevels(next); }}><Plus size={16} />Добавить класс</button>
     </fieldset>
   );
 }
 
 function InventoryPanel({ inventory, onChange, characterId, transferTargets }: { inventory: Inventory | null; onChange: (inventory: Inventory) => void; characterId: number; transferTargets: TransferTarget[] }) {
   const recipients = transferTargets.filter((character) => character.id !== characterId);
-  const [currencyTransfer, setCurrencyTransfer] = useState({ recipient_character_id: "", gold: 0, silver: 0, copper: 0 });
+  const [currencyTransfer, setCurrencyTransfer] = useState<{ recipient_character_id: string; gold: NumericInputValue; silver: NumericInputValue; copper: NumericInputValue }>({ recipient_character_id: "", gold: 0, silver: 0, copper: 0 });
   const [itemRecipients, setItemRecipients] = useState<Record<number, string>>({});
   const [notesDraft, setNotesDraft] = useState("");
   const [notesSaved, setNotesSaved] = useState(false);
@@ -1451,7 +1471,9 @@ function InventoryPanel({ inventory, onChange, characterId, transferTargets }: {
     setError("");
     try {
       const response = await api.post<Inventory>(`/characters/${characterId}/inventory/currency/transfer`, {
-        ...currencyTransfer,
+        gold: normalizeNumber(currencyTransfer.gold),
+        silver: normalizeNumber(currencyTransfer.silver),
+        copper: normalizeNumber(currencyTransfer.copper),
         recipient_character_id: Number(currencyTransfer.recipient_character_id)
       });
       onChange(response.data);
@@ -1526,7 +1548,8 @@ function InventoryPanel({ inventory, onChange, characterId, transferTargets }: {
               min={0}
               type="number"
               value={currencyTransfer[field]}
-              onChange={(event) => setCurrencyTransfer({ ...currencyTransfer, [field]: Number(event.target.value) })}
+              onChange={numericInputChange((value) => setCurrencyTransfer({ ...currencyTransfer, [field]: value }))}
+              onBlur={normalizeNumberOnBlur((value) => setCurrencyTransfer((current) => ({ ...current, [field]: value })))}
             />
           ))}
         </div>
@@ -1882,7 +1905,7 @@ function MarketPage() {
         </label>
         <label className="field-label">
           <span>Полученная сумма, зм</span>
-          <input className="field" required type="number" min="1" step="1" value={form.gold} onChange={(event) => setForm({ ...form, gold: event.target.value })} />
+          <input className="field" required type="number" min="1" step="1" value={form.gold} onChange={numericInputChange((gold) => setForm({ ...form, gold: String(gold) }))} onBlur={normalizeNumberOnBlur((gold) => setForm((current) => ({ ...current, gold: String(gold) })), 1)} />
         </label>
         <button className="btn" disabled={submitting || !characterId || !form.item_name.trim() || Number(form.gold) <= 0}>
           <Coins size={17} />{submitting ? "Продажа..." : "Продать предмет"}
@@ -1949,10 +1972,10 @@ function KarmaShopPage() {
   const { user, setUser } = useAuth();
   const [characters, setCharacters] = useState<Character[]>([]);
   const [characterId, setCharacterId] = useState("");
-  const [xpAmount, setXpAmount] = useState(1);
+  const [xpAmount, setXpAmount] = useState<NumericInputValue>(1);
   const [purchaseType, setPurchaseType] = useState<"item" | "opener">("opener");
   const [name, setName] = useState("");
-  const [cost, setCost] = useState(1);
+  const [cost, setCost] = useState<NumericInputValue>(1);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
 
@@ -1988,7 +2011,7 @@ function KarmaShopPage() {
     }
   }
 
-  return <div className="space-y-4"><section className="panel p-5"><h1 className="text-2xl font-bold text-ember">Магазин Кармы</h1><p className="mt-2 text-white/70">Баланс: {user?.karma ?? 0} кармы</p>{message && <p className="mt-3 text-emerald-200">{message}</p>}{error && <p className="mt-3 text-red-300">{error}</p>}</section><div className="grid gap-4 lg:grid-cols-3"><section className="panel p-5"><h2 className="text-lg font-semibold text-ember">Покупка опыта</h2><p className="text-sm text-white/55">1 опыт = 5 кармы</p><select className="field mt-4" value={characterId} onChange={(event) => setCharacterId(event.target.value)}><option value="">Выберите персонажа</option>{characters.map((character) => <option key={character.id} value={character.id}>{character.name} · ур. {character.level}</option>)}</select><input className="field mt-3" min={1} type="number" value={xpAmount} onChange={(event) => setXpAmount(Number(event.target.value))} /><button className="btn mt-3" disabled={!characterId || xpAmount < 1} onClick={() => execute("/karma-shop/xp", { character_id: Number(characterId), amount: xpAmount }, `Куплено ${xpAmount} опыта`)}>Купить за {xpAmount * 5} кармы</button></section><section className="panel p-5"><h2 className="text-lg font-semibold text-ember">Специальная покупка</h2><select className="field mt-4" value={purchaseType} onChange={(event) => setPurchaseType(event.target.value as "item" | "opener")}><option value="opener">Открывашка</option><option value="item">Другой товар</option></select><input className="field mt-3" placeholder="Название" value={name} onChange={(event) => setName(event.target.value)} /><input className="field mt-3" min={1} type="number" value={cost} onChange={(event) => setCost(Number(event.target.value))} /><button className="btn mt-3" disabled={!name.trim() || cost < 1} onClick={() => execute("/karma-shop/purchases", { purchase_type: purchaseType, name, cost }, "Покупка сохранена")}>Купить за {cost} кармы</button></section><section className="panel p-5"><h2 className="text-lg font-semibold text-ember">Воскресить персонажа</h2><p className="text-sm text-white/55">1–5 уровень: 5 кармы · 6–10: 10 кармы · 11+: недоступно</p><select className="field mt-4" value={resurrectionCharacter ? characterId : ""} onChange={(event) => setCharacterId(event.target.value)}><option value="">Выберите погибшего персонажа</option>{resurrectionCharacters.map((character) => <option key={character.id} value={character.id}>{character.name} · ур. {character.level}</option>)}</select>{resurrectionCharacters.length === 0 && <p className="mt-3 text-sm text-white/55">Нет погибших персонажей доступного уровня.</p>}{resurrectionCost !== null && !canAffordResurrection && <p className="mt-3 text-sm text-red-300">Недостаточно кармы для воскрешения.</p>}<button className="btn mt-3" disabled={!resurrectionCharacter || !canAffordResurrection} onClick={() => execute("/karma-shop/resurrect", { character_id: Number(characterId) }, "Персонаж воскрешён")}>Воскресить за {resurrectionCost ?? "—"} кармы</button></section></div></div>;
+  return <div className="space-y-4"><section className="panel p-5"><h1 className="text-2xl font-bold text-ember">Магазин Кармы</h1><p className="mt-2 text-white/70">Баланс: {user?.karma ?? 0} кармы</p>{message && <p className="mt-3 text-emerald-200">{message}</p>}{error && <p className="mt-3 text-red-300">{error}</p>}</section><div className="grid gap-4 lg:grid-cols-3"><section className="panel p-5"><h2 className="text-lg font-semibold text-ember">Покупка опыта</h2><p className="text-sm text-white/55">1 опыт = 5 кармы</p><select className="field mt-4" value={characterId} onChange={(event) => setCharacterId(event.target.value)}><option value="">Выберите персонажа</option>{characters.map((character) => <option key={character.id} value={character.id}>{character.name} · ур. {character.level}</option>)}</select><input className="field mt-3" min={1} type="number" value={xpAmount} onChange={numericInputChange(setXpAmount)} onBlur={normalizeNumberOnBlur(setXpAmount, 1)} /><button className="btn mt-3" disabled={!characterId || normalizeNumber(xpAmount) < 1} onClick={() => execute("/karma-shop/xp", { character_id: Number(characterId), amount: normalizeNumber(xpAmount, 1) }, `Куплено ${normalizeNumber(xpAmount, 1)} опыта`)}>Купить за {normalizeNumber(xpAmount) * 5} кармы</button></section><section className="panel p-5"><h2 className="text-lg font-semibold text-ember">Специальная покупка</h2><select className="field mt-4" value={purchaseType} onChange={(event) => setPurchaseType(event.target.value as "item" | "opener")}><option value="opener">Открывашка</option><option value="item">Другой товар</option></select><input className="field mt-3" placeholder="Название" value={name} onChange={(event) => setName(event.target.value)} /><input className="field mt-3" min={1} type="number" value={cost} onChange={numericInputChange(setCost)} onBlur={normalizeNumberOnBlur(setCost, 1)} /><button className="btn mt-3" disabled={!name.trim() || normalizeNumber(cost) < 1} onClick={() => execute("/karma-shop/purchases", { purchase_type: purchaseType, name, cost: normalizeNumber(cost, 1) }, "Покупка сохранена")}>Купить за {cost || 0} кармы</button></section><section className="panel p-5"><h2 className="text-lg font-semibold text-ember">Воскресить персонажа</h2><p className="text-sm text-white/55">1–5 уровень: 5 кармы · 6–10: 10 кармы · 11+: недоступно</p><select className="field mt-4" value={resurrectionCharacter ? characterId : ""} onChange={(event) => setCharacterId(event.target.value)}><option value="">Выберите погибшего персонажа</option>{resurrectionCharacters.map((character) => <option key={character.id} value={character.id}>{character.name} · ур. {character.level}</option>)}</select>{resurrectionCharacters.length === 0 && <p className="mt-3 text-sm text-white/55">Нет погибших персонажей доступного уровня.</p>}{resurrectionCost !== null && !canAffordResurrection && <p className="mt-3 text-sm text-red-300">Недостаточно кармы для воскрешения.</p>}<button className="btn mt-3" disabled={!resurrectionCharacter || !canAffordResurrection} onClick={() => execute("/karma-shop/resurrect", { character_id: Number(characterId) }, "Персонаж воскрешён")}>Воскресить за {resurrectionCost ?? "—"} кармы</button></section></div></div>;
 }
 
 function LeaderboardPage() {
@@ -2474,9 +2497,9 @@ function AdminPage() {
   const [characters, setCharacters] = useState<Character[]>([]);
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [selected, setSelected] = useState("");
-  const [amount, setAmount] = useState(1);
+  const [amount, setAmount] = useState<NumericInputValue>(1);
   const [karmaUserId, setKarmaUserId] = useState("");
-  const [karmaAmount, setKarmaAmount] = useState(1);
+  const [karmaAmount, setKarmaAmount] = useState<NumericInputValue>(1);
   const [item, setItem] = useState({ name: "", rarity: "Обычный", is_consumable: false });
   const [reason, setReason] = useState("");
   const [roleError, setRoleError] = useState("");
@@ -2530,7 +2553,7 @@ function AdminPage() {
   }
 
   async function applyKarma() {
-    await api.post(`/admin/users/${karmaUserId}/karma`, { amount: karmaAmount, reason });
+    await api.post(`/admin/users/${karmaUserId}/karma`, { amount: normalizeNumber(karmaAmount), reason });
     load();
   }
 
@@ -2600,11 +2623,11 @@ function AdminPage() {
           </label>
           <label className="field-label">
             <span>Изменение</span>
-            <input className="field" type="number" value={amount} onChange={(event) => setAmount(Number(event.target.value))} />
+            <input className="field" type="number" value={amount} onChange={numericInputChange(setAmount)} onBlur={normalizeNumberOnBlur(setAmount)} />
           </label>
           <label className="field-label"><span>Причина выдачи</span><textarea className="field" required value={reason} onChange={(event) => setReason(event.target.value)} /></label>
-          <button className="btn" disabled={!selected || !reason.trim()} onClick={() => action("xp", { amount })}>Применить XP</button>
-          <button className="btn" disabled={!selected || !reason.trim()} onClick={() => action("gold", { amount })}>Применить золото</button>
+          <button className="btn" disabled={!selected || !reason.trim()} onClick={() => action("xp", { amount: normalizeNumber(amount) })}>Применить XP</button>
+          <button className="btn" disabled={!selected || !reason.trim()} onClick={() => action("gold", { amount: normalizeNumber(amount) })}>Применить золото</button>
           <button className="btn-secondary" disabled={!selected} onClick={() => action("revive")}>Воскресить персонажа</button>
           </>}
           <div className="mt-2 border-t border-white/10 pt-3">
@@ -2631,7 +2654,7 @@ function AdminPage() {
           </label>
           <label className="field-label">
             <span>Изменение кармы</span>
-            <input className="field" type="number" value={karmaAmount} onChange={(event) => setKarmaAmount(Number(event.target.value))} />
+            <input className="field" type="number" value={karmaAmount} onChange={numericInputChange(setKarmaAmount)} onBlur={normalizeNumberOnBlur(setKarmaAmount)} />
           </label>
           <p className="text-sm text-white/65">{selectedUser?.username ?? "Игрок"}: {selectedUser?.karma ?? 0}</p>
           <label className="field-label"><span>Причина выдачи</span><textarea className="field" required value={reason} onChange={(event) => setReason(event.target.value)} /></label>
@@ -2853,11 +2876,12 @@ function AdminCharacterPage() {
               <input
                 className="field"
                 type="number"
-                value={form[field] ?? 0}
-                onChange={(event) => {
+                value={form[field] ?? ""}
+                onChange={numericInputChange((value) => {
                   setSaved(false);
-                  setForm({ ...form, [field]: Number(event.target.value) });
-                }}
+                  setForm({ ...form, [field]: value });
+                })}
+                onBlur={normalizeNumberOnBlur((value) => setForm((current) => current ? { ...current, [field]: value } : current))}
               />
             </label>
           ))}
