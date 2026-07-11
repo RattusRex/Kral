@@ -2182,6 +2182,26 @@ def test_saving_throw_proficiency_is_persisted_and_added_to_roll():
         assert invalid.status_code == 422
 
 
+def test_ranger_class_is_persisted_and_returned_by_character_endpoints():
+    with TestClient(app) as client:
+        headers = {"Authorization": f"Bearer {login(client, 'admin', 'admin123')}"}
+        created = client.post("/api/characters", headers=headers, json={
+            "name": "Следопыт пустошей",
+            "class_name": "Егерь",
+            "level": 1,
+            "route": "Путь охотника",
+        })
+
+        assert created.status_code == 200, created.text
+        assert created.json()["class_name"] == "Егерь"
+
+        character_id = created.json()["id"]
+        assert any(
+            character["id"] == character_id and character["class_name"] == "Егерь"
+            for character in client.get("/api/characters", headers=headers).json()
+        )
+
+
 def test_skill_roll_uses_ability_proficiency_expertise_and_logs():
     with TestClient(app) as client:
         headers = {"Authorization": f"Bearer {login(client, 'admin', 'admin123')}"}
