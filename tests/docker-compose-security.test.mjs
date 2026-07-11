@@ -3,6 +3,7 @@ import fs from "node:fs";
 import { test } from "node:test";
 
 const composeConfig = fs.readFileSync("docker-compose.yml", "utf8");
+const exampleEnv = fs.readFileSync(".env.example", "utf8");
 const developmentOverride = fs.readFileSync(
   "docker-compose.dev.yml",
   "utf8"
@@ -46,4 +47,33 @@ test("development override explicitly publishes the backend port", () => {
     /^    ports:\n      - "8000:8000"$/m,
     "development override should opt in to direct FastAPI access"
   );
+});
+
+test("example environment satisfies the required email backend setting", () => {
+  const backend = extractService(composeConfig, "backend");
+
+  assert.match(
+    backend,
+    /^      EMAIL_BACKEND: \$\{EMAIL_BACKEND:\?set EMAIL_BACKEND to console or smtp\}$/m,
+    "compose should fail with a useful message when EMAIL_BACKEND is missing"
+  );
+  assert.match(
+    exampleEnv,
+    /^EMAIL_BACKEND=console$/m,
+    "a fresh .env copied from the example should start with console email delivery"
+  );
+  for (const variable of [
+    "SMTP_HOST",
+    "SMTP_PORT",
+    "SMTP_USE_TLS",
+    "SMTP_USERNAME",
+    "SMTP_PASSWORD",
+    "SMTP_FROM_EMAIL"
+  ]) {
+    assert.match(
+      exampleEnv,
+      new RegExp(`^# ${variable}=`, "m"),
+      `${variable} should be documented for SMTP deployments`
+    );
+  }
 });
