@@ -248,13 +248,9 @@ function Shell({ children, user }: { children: React.ReactNode; user: User | nul
             <Link className="btn-secondary" to="/chat"><MessageSquare size={16} />Чат</Link>
             {project?.features.recruitments !== false && <Link className="btn-secondary" to="/game-recruitments"><CalendarDays size={16} />Набор на игры</Link>}
             <Link className="btn-secondary" to="/profile"><UserRound size={16} />Профиль</Link>
-            {(user?.is_owner || project?.is_admin) && <Link className="btn-secondary" to="/admin"><Shield size={16} />Админ</Link>}
+            {(user?.is_owner || project?.is_admin) && <Link className="btn-secondary" to="/admin-menu"><Shield size={16} />Админ-Меню</Link>}
             {project?.can_manage_settings && <Link className="btn-secondary" to="/project-settings"><Shield size={16} />Настройки проекта</Link>}
             {user?.is_owner && <Link className="btn-secondary" to="/project-management"><Shield size={16} />Управление проектами</Link>}
-            {project?.is_admin && project.features.logs !== false && <Link className="btn-secondary" to="/admin/shop-logs"><ScrollText size={16} />Логи</Link>}
-            {project?.is_admin && project.features.market_logs !== false && <Link className="btn-secondary" to="/admin/market-sales"><ScrollText size={16} />Рынок-логи</Link>}
-            {project?.is_admin && project.features.logs !== false && <Link className="btn-secondary" to="/admin/transfer-logs"><ScrollText size={16} />Передачи</Link>}
-            {project?.is_admin && project.features.karma_logs !== false && <Link className="btn-secondary" to="/admin/karma-shop-logs"><ScrollText size={16} />Карма-логи</Link>}
             <button className="btn-secondary" onClick={logout}><LogOut size={16} />Выйти</button>
           </div>
         </nav>
@@ -309,6 +305,26 @@ const PROJECT_FEATURE_LABELS: Record<string, string> = {
   market_logs: "Рынок-логи",
   logs: "Логи"
 };
+
+function AdminMenuPage() {
+  const [project, setProject] = useState<ProjectContext | null>(null);
+  useEffect(() => { api.get<ProjectContext>("/projects/current").then((response) => setProject(response.data)); }, []);
+  if (!project) return <p>Загрузка...</p>;
+  return (
+    <section className="panel p-5">
+      <h1 className="text-2xl font-bold text-ember">Админ-Меню</h1>
+      <p className="mt-2 text-white/60">Административные функции проекта</p>
+      <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <Link className="btn" to="/admin"><Shield size={18} />Администрирование</Link>
+        {project.features.logs !== false && <Link className="btn" to="/admin/shop-logs"><ScrollText size={18} />Логи</Link>}
+        {project.features.market_logs !== false && <Link className="btn" to="/admin/market-sales"><ScrollText size={18} />Рынок-логи</Link>}
+        {project.features.logs !== false && <Link className="btn" to="/admin/transfer-logs"><ScrollText size={18} />Передачи</Link>}
+        {project.features.karma_logs !== false && <Link className="btn" to="/admin/karma-shop-logs"><ScrollText size={18} />Карма-логи</Link>}
+        {project.features.logs !== false && <Link className="btn" to="/admin/grant-logs"><ScrollText size={18} />Журнал выдач</Link>}
+      </div>
+    </section>
+  );
+}
 
 function ProjectSettingsPage() {
   const [project, setProject] = useState<ProjectContext | null>(null);
@@ -546,6 +562,21 @@ function FeatureProtected({ feature, children }: { feature: keyof ProjectContext
   if (!project) return <div className="p-6 text-parchment">Загрузка...</div>;
   if (project.features[feature] === false) return <Navigate to="/" replace />;
   return <>{children}</>;
+}
+
+function AdminProtected({ children }: { children: React.ReactNode }) {
+  const { loading } = useAuth();
+  const [project, setProject] = useState<ProjectContext | null>(null);
+  useEffect(() => {
+    if (localStorage.getItem(TOKEN_KEY)) {
+      api.get<ProjectContext>("/projects/current").then((response) => setProject(response.data));
+    }
+  }, []);
+  if (loading) return <div className="p-6 text-parchment">Загрузка...</div>;
+  if (!localStorage.getItem(TOKEN_KEY)) return <Navigate to="/login" replace />;
+  if (!project) return <div className="p-6 text-parchment">Загрузка...</div>;
+  if (!project.is_admin) return <Navigate to="/" replace />;
+  return <Protected>{children}</Protected>;
 }
 
 function Login() {
@@ -3105,7 +3136,7 @@ function GrantLogsPage() {
     <section className="panel p-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div><h1 className="text-2xl font-bold text-ember">Журнал выдач</h1><p className="text-sm text-white/55">История выдачи игровых ресурсов администраторами</p></div>
-        <Link className="btn-secondary" to="/admin">Назад</Link>
+        <Link className="btn-secondary" to="/admin-menu">Назад</Link>
       </div>
       <div className="mt-5 grid gap-3 md:grid-cols-4">
         <select className="field" value={filters.user_id} onChange={(event) => setFilters({ ...filters, user_id: event.target.value })}><option value="">Все игроки</option>{users.map((row) => <option key={row.id} value={row.id}>{row.username}</option>)}</select>
@@ -3172,7 +3203,7 @@ function ShopLogsPage() {
           <h1 className="text-xl font-bold text-ember">Логи магазина</h1>
           <p className="text-sm text-white/60">Покупки, продажи и заработок персонажей</p>
         </div>
-        <Link className="btn-secondary" to="/admin">Назад</Link>
+        <Link className="btn-secondary" to="/admin-menu">Назад</Link>
       </div>
       <div className="mt-5 grid gap-3 md:grid-cols-4">
         <label className="field-label">
@@ -3261,7 +3292,7 @@ function MarketSalesPage() {
     <section className="panel p-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div><h1 className="text-xl font-bold text-ember">Журнал рынка</h1><p className="text-sm text-white/60">Продажи обычных предметов игроками</p></div>
-        <Link className="btn-secondary" to="/admin">Назад</Link>
+        <Link className="btn-secondary" to="/admin-menu">Назад</Link>
       </div>
       <label className="field-label mt-5 max-w-xs"><span>Дата</span><input className="field" type="date" value={date} onChange={(event) => setDate(event.target.value)} /></label>
       {error && <p className="mt-3 text-sm text-red-300">{error}</p>}
@@ -3285,7 +3316,7 @@ function KarmaShopLogsPage() {
       .then((response) => setLogs(response.data))
       .catch((loadError) => setError(apiErrorDetail(loadError, "Не удалось загрузить логи")));
   }, []);
-  return <section className="panel p-5"><div className="flex flex-wrap items-center justify-between gap-3"><div><h1 className="text-2xl font-bold text-ember">Логи магазина кармы</h1><p className="text-sm text-white/55">История всех покупок за карму</p></div><Link className="btn-secondary" to="/admin">Назад</Link></div>{error && <p className="mt-3 text-red-300">{error}</p>}<div className="responsive-table mt-5"><table className="w-full min-w-[850px] text-left text-sm"><thead className="text-xs uppercase text-white/45"><tr><th className="py-2 pr-3">Дата</th><th className="py-2 pr-3">Кто выполнил</th><th className="py-2 pr-3">Игрок</th><th className="py-2 pr-3">Персонаж</th><th className="py-2 pr-3">Тип</th><th className="py-2 pr-3">Наименование</th><th className="py-2 pr-3">Стоимость</th><th className="py-2 pr-3">Уровень</th></tr></thead><tbody>{logs.map((log) => <tr className="border-t border-white/10" key={log.id}><td className="py-3 pr-3">{new Date(log.created_at).toLocaleString("ru-RU")}</td><td className="py-3 pr-3">{log.actor_username ?? log.username}</td><td className="py-3 pr-3">{log.username}</td><td className="py-3 pr-3">{log.character_name ?? "-"}</td><td className="py-3 pr-3">{karmaPurchaseLabels[log.purchase_type]}</td><td className="py-3 pr-3">{log.name}</td><td className="py-3 pr-3">{log.cost} кармы</td><td className="py-3 pr-3">{log.character_level ?? "-"}</td></tr>)}</tbody></table>{!logs.length && <p className="py-6 text-center text-white/55">Записей нет</p>}</div></section>;
+  return <section className="panel p-5"><div className="flex flex-wrap items-center justify-between gap-3"><div><h1 className="text-2xl font-bold text-ember">Логи магазина кармы</h1><p className="text-sm text-white/55">История всех покупок за карму</p></div><Link className="btn-secondary" to="/admin-menu">Назад</Link></div>{error && <p className="mt-3 text-red-300">{error}</p>}<div className="responsive-table mt-5"><table className="w-full min-w-[850px] text-left text-sm"><thead className="text-xs uppercase text-white/45"><tr><th className="py-2 pr-3">Дата</th><th className="py-2 pr-3">Кто выполнил</th><th className="py-2 pr-3">Игрок</th><th className="py-2 pr-3">Персонаж</th><th className="py-2 pr-3">Тип</th><th className="py-2 pr-3">Наименование</th><th className="py-2 pr-3">Стоимость</th><th className="py-2 pr-3">Уровень</th></tr></thead><tbody>{logs.map((log) => <tr className="border-t border-white/10" key={log.id}><td className="py-3 pr-3">{new Date(log.created_at).toLocaleString("ru-RU")}</td><td className="py-3 pr-3">{log.actor_username ?? log.username}</td><td className="py-3 pr-3">{log.username}</td><td className="py-3 pr-3">{log.character_name ?? "-"}</td><td className="py-3 pr-3">{karmaPurchaseLabels[log.purchase_type]}</td><td className="py-3 pr-3">{log.name}</td><td className="py-3 pr-3">{log.cost} кармы</td><td className="py-3 pr-3">{log.character_level ?? "-"}</td></tr>)}</tbody></table>{!logs.length && <p className="py-6 text-center text-white/55">Записей нет</p>}</div></section>;
 }
 
 function TransferLogsPage() {
@@ -3334,7 +3365,7 @@ function TransferLogsPage() {
           <h1 className="text-xl font-bold text-ember">Логи передач</h1>
           <p className="text-sm text-white/60">Валюта и предметы между персонажами</p>
         </div>
-        <Link className="btn-secondary" to="/admin">Назад</Link>
+        <Link className="btn-secondary" to="/admin-menu">Назад</Link>
       </div>
       <div className="mt-5 grid gap-3 md:grid-cols-4">
         <label className="field-label">
@@ -3479,13 +3510,14 @@ function App() {
         <Route path="/profile" element={<Protected><ProfilePage /></Protected>} />
         <Route path="/project-settings" element={<Protected><ProjectSettingsPage /></Protected>} />
         <Route path="/project-management" element={<Protected><ProjectManagementPage /></Protected>} />
-        <Route path="/admin/shop-logs" element={<Protected><FeatureProtected feature="logs"><ShopLogsPage /></FeatureProtected></Protected>} />
-        <Route path="/admin/market-sales" element={<Protected><FeatureProtected feature="market_logs"><MarketSalesPage /></FeatureProtected></Protected>} />
-        <Route path="/admin/karma-shop-logs" element={<Protected><FeatureProtected feature="karma_logs"><KarmaShopLogsPage /></FeatureProtected></Protected>} />
-        <Route path="/admin/transfer-logs" element={<Protected><FeatureProtected feature="logs"><TransferLogsPage /></FeatureProtected></Protected>} />
-        <Route path="/admin/grant-logs" element={<Protected><FeatureProtected feature="logs"><GrantLogsPage /></FeatureProtected></Protected>} />
-        <Route path="/admin/characters/:id" element={<Protected><AdminCharacterPage /></Protected>} />
-        <Route path="/admin" element={<Protected><AdminPage /></Protected>} />
+        <Route path="/admin-menu" element={<AdminProtected><AdminMenuPage /></AdminProtected>} />
+        <Route path="/admin/shop-logs" element={<AdminProtected><FeatureProtected feature="logs"><ShopLogsPage /></FeatureProtected></AdminProtected>} />
+        <Route path="/admin/market-sales" element={<AdminProtected><FeatureProtected feature="market_logs"><MarketSalesPage /></FeatureProtected></AdminProtected>} />
+        <Route path="/admin/karma-shop-logs" element={<AdminProtected><FeatureProtected feature="karma_logs"><KarmaShopLogsPage /></FeatureProtected></AdminProtected>} />
+        <Route path="/admin/transfer-logs" element={<AdminProtected><FeatureProtected feature="logs"><TransferLogsPage /></FeatureProtected></AdminProtected>} />
+        <Route path="/admin/grant-logs" element={<AdminProtected><FeatureProtected feature="logs"><GrantLogsPage /></FeatureProtected></AdminProtected>} />
+        <Route path="/admin/characters/:id" element={<AdminProtected><AdminCharacterPage /></AdminProtected>} />
+        <Route path="/admin" element={<AdminProtected><AdminPage /></AdminProtected>} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Router>
