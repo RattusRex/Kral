@@ -3,7 +3,7 @@ import { createRoot } from "react-dom/client";
 import axios from "axios";
 import { Link, Navigate, Route, BrowserRouter as Router, Routes, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { ArrowDown, ArrowUp, BookOpen, CalendarDays, Check, ChevronDown, ChevronUp, Coins, Dice5, LogOut, MapPin, MessageSquare, Pencil, Plus, RefreshCw, Save, ScrollText, Search, Send, Shield, ShoppingBag, Swords, Trash2, Trophy, UserRound, UsersRound, X } from "lucide-react";
-import { AbilityRoll, AdminGrantLog, AdminUser, api, AttackRoll, CalendarSummary, Character, CharacterAttack, ChatMessage, ContentBlock, DamageRoll, GameRecruitment, Inventory, InventoryItem, KarmaPurchase, KarmaPurchaseResult, LeaderboardEntry, MagicItem, MarketSaleLog, MarketSaleResult, PaginatedResponse, PROJECT_KEY, ProjectContext, ROLE_LABELS, SavingThrowRoll, ShopResult, ShopTransactionLog, SkillRoll, TOKEN_KEY, TransferLog, TransferTarget, User, UserRole } from "./api";
+import { AbilityRoll, AdminGrantLog, AdminUser, api, AttackRoll, AUTH_NOTICE_KEY, CalendarSummary, Character, CharacterAttack, ChatMessage, ContentBlock, DamageRoll, GameRecruitment, Inventory, InventoryItem, KarmaPurchase, KarmaPurchaseResult, LeaderboardEntry, MagicItem, MarketSaleLog, MarketSaleResult, PaginatedResponse, PROJECT_KEY, ProjectContext, ROLE_LABELS, SavingThrowRoll, ShopResult, ShopTransactionLog, SkillRoll, TOKEN_KEY, TransferLog, TransferTarget, User, UserRole } from "./api";
 import "./styles.css";
 
 const rarities = ["Обычный", "Необычный", "Редкий"];
@@ -560,7 +560,11 @@ function Login() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [unverifiedEmail, setUnverifiedEmail] = useState("");
-  const [notice, setNotice] = useState("");
+  const [notice, setNotice] = useState(() => {
+    const authNotice = sessionStorage.getItem(AUTH_NOTICE_KEY) ?? "";
+    sessionStorage.removeItem(AUTH_NOTICE_KEY);
+    return authNotice;
+  });
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -598,7 +602,7 @@ function Login() {
     <input className="field" placeholder="password" type="password" value={password} onChange={(event) => setPassword(event.target.value)} />
     <button className="btn" type="submit">Войти</button>
     {unverifiedEmail && <button className="btn-secondary" type="button" onClick={resend}>Отправить письмо повторно</button>}
-    {notice && <p className="text-sm text-green-300">{notice}</p>}
+    {notice && <p className="text-sm text-amber-200">{notice}</p>}
     <Link className="btn-secondary" to="/register">Перейти к регистрации</Link>
   </AuthPanel>;
 }

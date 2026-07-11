@@ -1,5 +1,5 @@
 import os
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 from unittest.mock import patch
 
 import anyio
@@ -18,6 +18,7 @@ from starlette.types import Message, Scope
 from app.core.auth_abuse import reset_auth_abuse_state
 from app.core.request_limits import RequestBodyLimitMiddleware
 from app.core.text_limits import MAX_CHAT_MESSAGE_LENGTH, MAX_INVENTORY_NOTES_LENGTH
+from app.core.security import ACCESS_TOKEN_LIFETIME, ALGORITHM, SECRET_KEY
 from app.db.database import Base, SessionLocal, engine
 from app.main import app
 from app.api.admin import apply_xp_delta
@@ -243,6 +244,41 @@ def test_admin_seed_and_username_login():
         response = client.get("/api/me", headers={"Authorization": f"Bearer {token}"})
         assert response.status_code == 200
         assert response.json()["is_admin"] is True
+
+
+def test_access_token_lifetime_is_exactly_two_hours_for_every_role():
+    from jose import jwt
+
+    with TestClient(app) as client:
+        token = login(client, "admin", "admin123")
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+
+        assert ACCESS_TOKEN_LIFETIME == timedelta(hours=2)
+        assert payload["exp"] - payload["iat"] == 2 * 60 * 60
+
+
+def test_backend_rejects_expired_access_token_with_explicit_reason():
+    from jose import jwt
+
+    now = datetime.now(timezone.utc)
+    token = jwt.encode(
+        {
+            "sub": "admin@local",
+            "iat": now - timedelta(hours=3),
+            "exp": now - timedelta(hours=1),
+        },
+        SECRET_KEY,
+        algorithm=ALGORITHM,
+    )
+
+    with TestClient(app) as client:
+        response = client.get("/api/me", headers={"Authorization": f"Bearer {token}"})
+
+    assert response.status_code == 401
+    assert response.json()["detail"] == {
+        "code": "token_expired",
+        "message": "Сессия истекла. Войдите снова.",
+    }
 
 
 def test_create_user_then_login_with_username_and_email():

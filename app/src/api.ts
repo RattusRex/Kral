@@ -3,6 +3,8 @@ import { API_BASE_URL } from "./apiBase";
 
 export const TOKEN_KEY = "access_token";
 export const PROJECT_KEY = "active_project_id";
+export const AUTH_NOTICE_KEY = "auth_notice";
+export const SESSION_EXPIRED_MESSAGE = "Сессия истекла. Войдите снова.";
 
 export type UserRole = "owner" | "project_owner" | "head_admin" | "admin" | "technician" | "player";
 
@@ -473,6 +475,9 @@ api.interceptors.response.use(
   },
   (error) => {
     if (error.response?.status === 401) {
+      if (error.response?.data?.detail?.code === "token_expired") {
+        sessionStorage.setItem(AUTH_NOTICE_KEY, SESSION_EXPIRED_MESSAGE);
+      }
       localStorage.removeItem(TOKEN_KEY);
       window.dispatchEvent(new Event("auth:logout"));
     }
