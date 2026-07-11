@@ -1839,22 +1839,14 @@ function ResultPanel({ result, onConfirm, onContinue }: { result: ShopResult | n
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="text-lg font-semibold text-ember">{result.success ? "Сделка найдена" : "Сделка не найдена"}</h2>
-          <p className="text-sm text-white/65">{result.item_name} · {result.rarity} · {result.mode === "buy" ? "покупка" : "продажа"}</p>
+          <p className="text-sm text-white/65">{result.item_name}</p>
         </div>
         {result.is_consumed && <span className="rounded-md border border-emerald-400/40 px-2 py-1 text-sm text-emerald-200">Сделка завершена</span>}
       </div>
-      <dl className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-4">
-        <Stat label="Бросок" value={result.search_roll} />
-        <Stat label="Модификатор" value={result.modifier >= 0 ? `+${result.modifier}` : result.modifier} />
-        <Stat label="Итог" value={result.total_roll} />
-        <Stat label="DC" value={result.dc} />
-        <Stat label="Ищет" value={result.searcher_label} />
-        <Stat label="Дни" value={result.days} />
-        <Stat label="Бросок цены" value={result.price_roll ?? "-"} />
-        <Stat label="Множитель" value={result.multiplier ? `x${result.multiplier.toFixed(2)}` : "-"} />
-        <Stat label="Цена, зм" value={result.item_price ?? "-"} />
-        <Stat label="Наёмник, зм" value={result.hireling_cost} />
-        <Stat label="Итого, зм" value={result.total_cost ?? "-"} />
+      <dl className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-3">
+        <Stat label="Время поиска" value={`${result.days} дн.`} />
+        {result.item_price !== null && <Stat label="Цена" value={`${result.item_price} зм`} />}
+        {result.searcher_type === "paid_hireling" && <Stat label="Плата наёмнику" value={`${result.hireling_cost} зм`} />}
       </dl>
       <div className="mt-5 flex flex-wrap gap-2">
         {result.success && !result.is_consumed && <button className="btn" onClick={onConfirm}><Check size={16} />{action}</button>}
