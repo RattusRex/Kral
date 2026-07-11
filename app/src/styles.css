@@ -10,8 +10,24 @@
 
 body {
   margin: 0;
-  min-width: 320px;
+  min-width: 0;
   min-height: 100vh;
+  overflow-x: hidden;
+}
+
+#root {
+  min-width: 0;
+}
+
+p,
+dd,
+td,
+th,
+a,
+button,
+label,
+span {
+  overflow-wrap: anywhere;
 }
 
 button,
@@ -23,10 +39,13 @@ textarea {
 
 .panel {
   @apply rounded-lg border border-white/10 bg-iron/90 shadow-xl shadow-black/25;
+  min-width: 0;
 }
 
 .field {
   @apply w-full rounded-md border border-white/10 bg-black/25 px-3 py-2 text-sm text-parchment outline-none transition focus:border-ember;
+  min-width: 0;
+  max-width: 100%;
 }
 
 select.field {
@@ -55,10 +74,14 @@ select.field option:hover {
 
 .btn {
   @apply inline-flex items-center justify-center gap-2 rounded-md bg-ember px-3 py-2 text-sm font-semibold text-black transition hover:bg-[#e0b35f] disabled:cursor-not-allowed disabled:opacity-50;
+  min-width: 0;
+  white-space: normal;
 }
 
 .btn-secondary {
   @apply inline-flex items-center justify-center gap-2 rounded-md border border-white/15 px-3 py-2 text-sm font-semibold text-parchment transition hover:border-ember hover:text-ember;
+  min-width: 0;
+  white-space: normal;
 }
 
 .mode-tab {
@@ -79,4 +102,45 @@ select.field option:hover {
 
 .ability-card {
   @apply flex min-h-28 items-center justify-between rounded-md border border-white/10 bg-black/25 p-4;
+  min-width: 0;
+}
+
+.responsive-table {
+  max-width: 100%;
+  overflow-x: auto;
+  overscroll-behavior-inline: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+.skill-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.skill-roll {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.skill-options {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.5rem 0.75rem;
+}
+
+@media (max-width: 639px) {
+  .skill-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .skill-options {
+    justify-content: flex-start;
+  }
 }
