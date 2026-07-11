@@ -3337,6 +3337,32 @@ def test_manual_downtime_entry_reduces_free_days():
         assert summary["entries"][0]["reason"] == "Крафт"
 
 
+def test_downtime_entry_reports_inclusive_end_date(monkeypatch):
+    from app.core import calendar as game_calendar
+
+    monkeypatch.setattr(
+        game_calendar,
+        "current_game_date",
+        lambda: date(2026, 10, 9),
+    )
+
+    with TestClient(app) as client:
+        headers = {"Authorization": f"Bearer {login(client, 'admin', 'admin123')}"}
+        cid = _make_character(client, headers)["id"]
+
+        response = client.post(
+            f"/api/characters/{cid}/calendar/downtime",
+            headers=headers,
+            json={"start_date": "2026-07-01", "days": 100, "reason": "Крафт"},
+        )
+
+        assert response.status_code == 200, response.text
+        entry = response.json()["entries"][0]
+        assert entry["start_date"] == "2026-07-01"
+        assert entry["end_date"] == "2026-10-08"
+        assert entry["days"] == 100
+
+
 def test_manual_downtime_cannot_start_before_creation_date():
     with TestClient(app) as client:
         headers = {"Authorization": f"Bearer {login(client, 'admin', 'admin123')}"}

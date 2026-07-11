@@ -842,7 +842,8 @@ function CalendarPanel({ characterId, agentType = "character", title = "Кале
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div>
                       <div className="font-semibold">
-                        {formatGameDate(entry.start_date)} · {entry.days} дн.
+                        <div>{formatGameDate(entry.start_date)} — {formatGameDate(entry.end_date)}</div>
+                        <div className="text-sm text-white/70">Всего: {entry.days} дн.</div>
                         {entry.source === "shop" && <span className="ml-2 rounded bg-amber-400/15 px-2 py-0.5 text-xs text-amber-200">магазин</span>}
                         {entry.source === "work" && <span className="ml-2 rounded bg-emerald-400/15 px-2 py-0.5 text-xs text-emerald-200">работа</span>}
                       </div>

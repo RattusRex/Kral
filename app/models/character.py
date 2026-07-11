@@ -1,4 +1,4 @@
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 from sqlalchemy import ForeignKey
 from sqlalchemy.orm import Mapped
@@ -235,6 +235,11 @@ class DowntimeEntry(Base):
     tools: Mapped[str | None] = mapped_column(String(255), nullable=True)
     proficiency_modifier: Mapped[int | None] = mapped_column(Integer, nullable=True)
     income_copper: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+    @property
+    def end_date(self) -> date:
+        """Return the inclusive final busy day of this entry."""
+        return self.start_date + timedelta(days=max(1, self.days) - 1)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime,
