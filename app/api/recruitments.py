@@ -157,10 +157,6 @@ def update_recruitment_status(
     recruitment = require_recruitment(db, recruitment_id, current_user)
     if recruitment.author_id != current_user.id:
         require_project_admin(db, current_user, recruitment.project_id)
-        raise HTTPException(
-            status_code=403,
-            detail="Only the recruitment author or an administrator can change status",
-        )
     recruitment.status = data.status
     db.commit()
     return serialize_recruitment(require_recruitment(db, recruitment.id, current_user), current_user)
@@ -175,10 +171,6 @@ def delete_recruitment(
     recruitment = require_recruitment(db, recruitment_id, current_user)
     if recruitment.author_id != current_user.id:
         require_project_admin(db, current_user, recruitment.project_id)
-        raise HTTPException(
-            status_code=403,
-            detail="Only the recruitment author or an administrator can delete it",
-        )
     db.delete(recruitment)
     db.commit()
 
