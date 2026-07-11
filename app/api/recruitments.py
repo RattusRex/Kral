@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy import case
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload
 
@@ -6,10 +7,17 @@ from app.api.users import get_current_user, get_db
 from app.models.character import Character
 from app.models.recruitment import GameApplication, GameRecruitment, RecruitmentMessage
 from app.models.user import User
-from app.schemas.recruitment import ApplicationCreate, ParticipantSelection, RecruitmentCreate
+from app.schemas.recruitment import (
+    ApplicationCreate,
+    ParticipantSelection,
+    RecruitmentCreate,
+    RecruitmentStatusUpdate,
+)
 
 
 router = APIRouter(prefix="/game-recruitments", tags=["game recruitments"])
+DEFAULT_PAGE_SIZE = 10
+MAX_PAGE_SIZE = 100
 
 
 def require_recruitment(db: Session, recruitment_id: int) -> GameRecruitment:
@@ -55,7 +63,8 @@ def serialize_recruitment(recruitment: GameRecruitment, current_user: User) -> d
         "location": recruitment.location,
         "quest": recruitment.quest,
         "notes": recruitment.notes,
-        "can_manage": recruitment.author_id == current_user.id,
+        "status": recruitment.status,
+        "can_manage": recruitment.author_id == current_user.id or current_user.is_admin,
         "application_status": own_application.status if own_application else "not_applied",
         "applications": [serialize_application(row) for row in recruitment.applications],
         "messages": [
@@ -67,17 +76,38 @@ def serialize_recruitment(recruitment: GameRecruitment, current_user: User) -> d
 
 @router.get("")
 def list_recruitments(
-    limit: int = Query(default=50, ge=1, le=100),
+    page: int | None = Query(default=None, ge=1),
+    page_size: int | None = Query(default=None, ge=1, le=MAX_PAGE_SIZE),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    rows = db.query(GameRecruitment).options(
+    query = db.query(GameRecruitment).options(
         joinedload(GameRecruitment.author),
         joinedload(GameRecruitment.applications).joinedload(GameApplication.user),
         joinedload(GameRecruitment.applications).joinedload(GameApplication.character),
         joinedload(GameRecruitment.messages),
-    ).order_by(GameRecruitment.real_date.asc(), GameRecruitment.start_time.asc()).limit(limit).all()
-    return [serialize_recruitment(row, current_user) for row in rows]
+    ).order_by(
+        case((GameRecruitment.status == "upcoming", 0), else_=1),
+        GameRecruitment.real_date.asc(),
+        GameRecruitment.start_time.asc(),
+        GameRecruitment.id.asc(),
+    )
+    if page is None and page_size is None:
+        return [serialize_recruitment(row, current_user) for row in query.all()]
+
+    resolved_page = page or 1
+    resolved_page_size = page_size or DEFAULT_PAGE_SIZE
+    total = query.count()
+    rows = query.offset((resolved_page - 1) * resolved_page_size).limit(
+        resolved_page_size
+    ).all()
+    return {
+        "items": [serialize_recruitment(row, current_user) for row in rows],
+        "page": resolved_page,
+        "page_size": resolved_page_size,
+        "total": total,
+        "pages": (total + resolved_page_size - 1) // resolved_page_size,
+    }
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
@@ -103,6 +133,40 @@ def create_recruitment(
     return serialize_recruitment(require_recruitment(db, recruitment.id), current_user)
 
 
+@router.patch("/{recruitment_id}/status")
+def update_recruitment_status(
+    recruitment_id: int,
+    data: RecruitmentStatusUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    recruitment = require_recruitment(db, recruitment_id)
+    if recruitment.author_id != current_user.id and not current_user.is_admin:
+        raise HTTPException(
+            status_code=403,
+            detail="Only the recruitment author or an administrator can change status",
+        )
+    recruitment.status = data.status
+    db.commit()
+    return serialize_recruitment(require_recruitment(db, recruitment.id), current_user)
+
+
+@router.delete("/{recruitment_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_recruitment(
+    recruitment_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    recruitment = require_recruitment(db, recruitment_id)
+    if recruitment.author_id != current_user.id and not current_user.is_admin:
+        raise HTTPException(
+            status_code=403,
+            detail="Only the recruitment author or an administrator can delete it",
+        )
+    db.delete(recruitment)
+    db.commit()
+
+
 @router.post("/{recruitment_id}/applications", status_code=status.HTTP_201_CREATED)
 def apply_to_recruitment(
     recruitment_id: int,
@@ -111,6 +175,8 @@ def apply_to_recruitment(
     current_user: User = Depends(get_current_user),
 ):
     recruitment = require_recruitment(db, recruitment_id)
+    if recruitment.status == "completed":
+        raise HTTPException(status_code=409, detail="This game has already been completed")
     character = db.query(Character).filter(Character.id == data.character_id).first()
     if not character:
         raise HTTPException(status_code=404, detail="Character not found")

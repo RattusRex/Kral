@@ -1629,6 +1629,7 @@ function LeaderboardPage() {
 }
 
 const CHAT_PAGE_SIZE = 50;
+const RECRUITMENT_PAGE_SIZE_OPTIONS = [5, 10, 20, 50];
 
 const blankRecruitment = {
   real_date: "",
@@ -1650,17 +1651,23 @@ function GameRecruitmentsPage() {
   const [showForm, setShowForm] = useState(false);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+  const [total, setTotal] = useState(0);
+  const [pages, setPages] = useState(0);
 
   async function load() {
     setError("");
     try {
       const [recruitmentsResponse, charactersResponse] = await Promise.all([
-        api.get<GameRecruitment[]>("/game-recruitments"),
+        api.get<PaginatedResponse<GameRecruitment>>("/game-recruitments", { params: { page, page_size: pageSize } }),
         api.get<Character[]>("/characters")
       ]);
-      setRecruitments(recruitmentsResponse.data);
+      setRecruitments(recruitmentsResponse.data.items);
+      setTotal(recruitmentsResponse.data.total);
+      setPages(recruitmentsResponse.data.pages);
       setCharacters(charactersResponse.data.filter((character) => !character.is_dead));
-      setSelectedApplications(Object.fromEntries(recruitmentsResponse.data.map((row) => [
+      setSelectedApplications(Object.fromEntries(recruitmentsResponse.data.items.map((row) => [
         row.id,
         row.applications.filter((application) => application.status === "selected").map((application) => application.id)
       ])));
@@ -1669,7 +1676,7 @@ function GameRecruitmentsPage() {
     }
   }
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => { load(); }, [page, pageSize]);
 
   async function createRecruitment(event: FormEvent) {
     event.preventDefault();
@@ -1725,6 +1732,36 @@ function GameRecruitmentsPage() {
     }
   }
 
+  async function changeRecruitmentStatus(recruitment: GameRecruitment) {
+    setBusy(true);
+    setError("");
+    try {
+      await api.patch(`/game-recruitments/${recruitment.id}/status`, {
+        status: recruitment.status === "upcoming" ? "completed" : "upcoming"
+      });
+      await load();
+    } catch (statusError) {
+      setError(apiErrorDetail(statusError, "Не удалось изменить статус публикации"));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function deleteRecruitment(recruitmentId: number) {
+    if (!window.confirm("Удалить публикацию и все записи участников?")) return;
+    setBusy(true);
+    setError("");
+    try {
+      await api.delete(`/game-recruitments/${recruitmentId}`);
+      if (recruitments.length === 1 && page > 1) setPage(page - 1);
+      else await load();
+    } catch (deleteError) {
+      setError(apiErrorDetail(deleteError, "Не удалось удалить публикацию"));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   const statusLabels = {
     not_applied: "Не записан",
     applied: "Записан",
@@ -1761,7 +1798,12 @@ function GameRecruitmentsPage() {
           <div className="border-b border-white/10 bg-black/20 p-5">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div><p className="text-xs uppercase tracking-widest text-white/45">Мастер #{recruitment.author_username}</p><h2 className="mt-1 text-xl font-bold text-ember">{recruitment.quest}</h2></div>
-              <span className={recruitment.application_status === "selected" ? "rounded-full bg-green-500/20 px-3 py-1 text-sm text-green-200" : "rounded-full bg-white/10 px-3 py-1 text-sm"}>{statusLabels[recruitment.application_status]}</span>
+              <div className="flex flex-wrap items-center gap-2">
+                <span className={recruitment.status === "upcoming" ? "rounded-full bg-amber-500/20 px-3 py-1 text-sm text-amber-200" : "rounded-full bg-white/10 px-3 py-1 text-sm text-white/65"}>{recruitment.status === "upcoming" ? "Будет проведена" : "Проведена"}</span>
+                <span className={recruitment.application_status === "selected" ? "rounded-full bg-green-500/20 px-3 py-1 text-sm text-green-200" : "rounded-full bg-white/10 px-3 py-1 text-sm"}>{statusLabels[recruitment.application_status]}</span>
+                {recruitment.can_manage && <button className="btn-secondary" disabled={busy} onClick={() => changeRecruitmentStatus(recruitment)}>{recruitment.status === "upcoming" ? "Отметить проведённой" : "Вернуть в предстоящие"}</button>}
+                {recruitment.can_manage && <button className="btn-secondary text-red-200" disabled={busy} onClick={() => deleteRecruitment(recruitment.id)}><Trash2 size={16} />Удалить</button>}
+              </div>
             </div>
             <div className="mt-4 grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-4">
               <div><span className="text-white/45">Дата</span><p>{formatGameDate(recruitment.real_date)}</p></div>
@@ -1786,7 +1828,7 @@ function GameRecruitmentsPage() {
               </div>
               {recruitment.can_manage ? (
                 <button className="btn mt-3" disabled={busy || !(selectedApplications[recruitment.id] ?? []).length} onClick={() => publishParticipants(recruitment.id)}><Check size={16} />Выдать выбранных игроков</button>
-              ) : recruitment.application_status === "not_applied" ? (
+              ) : recruitment.status === "upcoming" && recruitment.application_status === "not_applied" ? (
                 <div className="mt-3 flex flex-wrap gap-2"><select className="field max-w-sm" value={selectedCharacters[recruitment.id] ?? ""} onChange={(event) => setSelectedCharacters({ ...selectedCharacters, [recruitment.id]: event.target.value })}><option value="">Выберите персонажа</option>{characters.map((character) => <option key={character.id} value={character.id}>{character.name} · {character.class_name} · ур. {character.level}</option>)}</select><button className="btn" disabled={busy || !selectedCharacters[recruitment.id]} onClick={() => apply(recruitment.id)}>Записаться</button></div>
               ) : null}
             </section>
@@ -1801,6 +1843,13 @@ function GameRecruitmentsPage() {
         </article>
       ))}
       {!recruitments.length && <section className="panel p-8 text-center text-white/55">Опубликованных игр пока нет.</section>}
+      <section className="panel p-4">
+        <div className="flex flex-wrap items-center justify-between gap-3 text-sm text-white/65">
+          <span>Всего публикаций: {total}</span>
+          <label className="flex items-center gap-2"><span>На странице</span><select className="field w-auto min-w-20" aria-label="Количество публикаций на странице" value={pageSize} onChange={(event) => { setPageSize(Number(event.target.value)); setPage(1); }}>{RECRUITMENT_PAGE_SIZE_OPTIONS.map((option) => <option value={option} key={option}>{option}</option>)}</select></label>
+          <div className="flex items-center gap-2"><button className="btn-secondary" disabled={page <= 1} onClick={() => setPage(page - 1)}>Назад</button><span>Страница {page} из {Math.max(pages, 1)}</span><button className="btn-secondary" disabled={page >= pages} onClick={() => setPage(page + 1)}>Вперёд</button></div>
+        </div>
+      </section>
     </div>
   );
 }

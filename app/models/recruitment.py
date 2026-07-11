@@ -23,6 +23,9 @@ class GameRecruitment(Base):
     location: Mapped[str] = mapped_column(String(300))
     quest: Mapped[str] = mapped_column(Text)
     notes: Mapped[str] = mapped_column(Text, default="")
+    status: Mapped[str] = mapped_column(
+        String(20), default="upcoming", server_default="upcoming"
+    )
 
     author = relationship("User")
     applications = relationship(
