@@ -256,6 +256,7 @@ class DowntimeEntryResponse(BaseModel):
     id: int
     character_id: int
     start_date: date
+    end_date: date
     days: int
     reason: str
     source: str

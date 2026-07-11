@@ -124,6 +124,7 @@ export interface DowntimeEntry {
   id: number;
   character_id: number;
   start_date: string;
+  end_date: string;
   days: number;
   reason: string;
   source: string;
