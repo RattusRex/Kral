@@ -240,7 +240,7 @@ function Shell({ children, user }: { children: React.ReactNode; user: User | nul
     <div className="min-h-screen bg-[#101217] text-parchment">
       <header className="sticky top-0 z-10 border-b border-white/10 bg-[#101217]/95 backdrop-blur">
         <nav className="mx-auto flex max-w-7xl items-center justify-between px-4 py-3">
-          <Link to="/characters" className="text-lg font-bold text-ember">Эпоха Катастроф</Link>
+          <Link to="/characters" className="project-title text-lg font-bold text-ember">Эпоха Катастроф</Link>
           <div className="flex flex-wrap items-center gap-2">
             {projects.length > 0 && <select aria-label="Проект" className="field max-w-52" value={project?.id ?? ""} onChange={(event) => selectProject(Number(event.target.value))}>{projects.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select>}
             <Link className="btn-secondary" to="/"><UsersRound size={16} />Меню</Link>
