@@ -350,7 +350,8 @@ def test_registration_rejects_obvious_compromised_passwords(password):
 
         assert response.status_code == 422
         assert response.json()["detail"] == (
-            "Choose a less common password that has not appeared in known breaches"
+            "Выберите менее распространённый пароль, который не встречался "
+            "в известных утечках данных"
         )
 
 
@@ -373,6 +374,10 @@ def test_registration_enforces_password_length_and_complexity(password):
         })
 
         assert response.status_code == 422
+        assert response.json()["detail"] == (
+            "Пароль должен содержать не менее 12 символов, включая заглавную "
+            "и строчную буквы, цифру и специальный символ"
+        )
 
 
 def test_registration_accepts_strong_password_at_bcrypt_byte_limit():
@@ -536,10 +541,15 @@ def test_registration_rejects_oversized_password_before_hashing(monkeypatch):
         response = client.post("/api/users", json={
             "username": "oversized-password",
             "email": "oversized-password@example.com",
-            "password": "x" * 129,
+            # 37 Cyrillic characters fit the schema's character limit but use
+            # 74 UTF-8 bytes, exercising the application's bcrypt-byte check.
+            "password": "я" * 37,
         })
 
         assert response.status_code == 422
+        assert response.json()["detail"] == (
+            "Пароль должен содержать не более 72 байт в кодировке UTF-8"
+        )
 
 
 def test_login_rejects_oversized_password_before_bcrypt(monkeypatch):

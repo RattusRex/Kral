@@ -597,7 +597,7 @@ function Login() {
 
   return <AuthPanel title="Вход" error={error} onSubmit={submit}>
     <input className="field" placeholder="email" value={email} onChange={(event) => setEmail(event.target.value)} />
-    <input className="field" placeholder="password" type="password" value={password} onChange={(event) => setPassword(event.target.value)} />
+    <input className="field" placeholder="Пароль" type="password" value={password} onChange={(event) => setPassword(event.target.value)} />
     <button className="btn" type="submit">Войти</button>
     {unverifiedEmail && <button className="btn-secondary" type="button" onClick={resend}>Отправить письмо повторно</button>}
     {notice && <p className="text-sm text-amber-200">{notice}</p>}
@@ -631,7 +631,7 @@ function Register() {
     <input className="field" placeholder="email" value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} />
     <input
       className="field"
-      placeholder="password"
+      placeholder="Пароль"
       type="password"
       minLength={12}
       maxLength={72}
