@@ -23,8 +23,10 @@ from app.db.database import Base, SessionLocal, engine
 from app.main import app
 from app.api.admin import apply_xp_delta
 from app.api.inventory import consume_quote_for_inventory
-from app.models.character import Character
-from app.models.inventory import ShopQuote
+from app.models.character import CalendarAuditLog, Character
+from app.models.chat import ChatMessage
+from app.models.inventory import ShopQuote, ShopTransactionLog, TransferLog
+from app.models.recruitment import GameApplication, GameRecruitment, RecruitmentMessage
 from app.models.user import User
 from app.models.project import DEFAULT_PROJECT_NAME, Project, ProjectMembership
 
@@ -76,6 +78,76 @@ def register_verified_user(client: TestClient, username: str, role: str = "playe
         user.role = role
         db.commit()
         return user.id
+
+
+def test_only_owner_can_delete_user_and_related_rows_without_orphans():
+    with TestClient(app) as client:
+        owner_headers = {"Authorization": f"Bearer {login(client, 'admin', 'admin123')}"}
+        target_id = register_verified_user(client, "delete-target")
+        admin_id = register_verified_user(client, "delete-admin", "admin")
+
+        with SessionLocal() as db:
+            project = db.query(Project).filter(Project.name == DEFAULT_PROJECT_NAME).one()
+            db.query(ProjectMembership).filter_by(user_id=admin_id).update({
+                ProjectMembership.role: "admin",
+            })
+            character = Character(
+                name="Disposable Hero", class_name="Wizard",
+                class_levels=[{"class_name": "Wizard", "level": 1}],
+                level=1, route="Arcane", user_id=target_id, project_id=project.id,
+            )
+            db.add(character)
+            db.flush()
+            recruitment = GameRecruitment(
+                author_id=admin_id, project_id=project.id,
+                real_date=date.today(), game_date=date.today(),
+                start_time=datetime.now().time(), duration="4h", location="Hall", quest="Test",
+            )
+            db.add(recruitment)
+            db.flush()
+            db.add_all([
+                ChatMessage(user_id=target_id, project_id=project.id, username="delete-target", content="Bye"),
+                GameApplication(recruitment_id=recruitment.id, user_id=target_id, character_id=character.id),
+                RecruitmentMessage(recruitment_id=recruitment.id, user_id=target_id, username="delete-target", content="Bye"),
+                CalendarAuditLog(
+                    user_id=target_id, username="delete-target", role="player",
+                    character_id=character.id, character_name=character.name,
+                    action="create", entry_id=1, details="Test",
+                ),
+                TransferLog(
+                    user_id=target_id, username="delete-target",
+                    sender_character_id=character.id, sender_character_name=character.name,
+                    recipient_character_id=character.id, recipient_character_name=character.name,
+                    transfer_type="gold", gold=1,
+                ),
+            ])
+            db.commit()
+
+        admin_headers = {
+            "Authorization": f"Bearer {login(client, 'delete-admin', 'Cobalt!River7Lantern')}"
+        }
+        assert client.delete(f"/api/admin/users/{target_id}", headers=admin_headers).status_code == 403
+        assert client.delete(f"/api/admin/users/{target_id}", headers=owner_headers).status_code == 200
+
+        with SessionLocal() as db:
+            assert db.get(User, target_id) is None
+            assert db.query(Character).filter_by(user_id=target_id).count() == 0
+            assert db.query(ProjectMembership).filter_by(user_id=target_id).count() == 0
+            assert db.query(ChatMessage).filter_by(user_id=target_id).count() == 0
+            assert db.query(GameApplication).filter_by(user_id=target_id).count() == 0
+            assert db.query(RecruitmentMessage).filter_by(user_id=target_id).count() == 0
+            assert db.query(CalendarAuditLog).filter_by(user_id=target_id).count() == 0
+            assert db.query(TransferLog).filter_by(user_id=target_id).count() == 0
+
+
+def test_owner_cannot_delete_self_or_the_last_owner():
+    with TestClient(app) as client:
+        owner_headers = {"Authorization": f"Bearer {login(client, 'admin', 'admin123')}"}
+        with SessionLocal() as db:
+            owner_id = db.query(User.id).filter(User.username == "admin").scalar()
+        response = client.delete(f"/api/admin/users/{owner_id}", headers=owner_headers)
+        assert response.status_code == 400
+        assert response.json()["detail"] == "Нельзя удалить собственную учётную запись"
 
 
 def test_project_admin_cannot_list_or_modify_another_projects_character():

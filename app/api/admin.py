@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from app.api.inventory import add_currency, get_character_inventory, validate_rarity
 from app.api.users import get_current_user, get_db
 from app.models.character import CalendarAuditLog, Character
+from app.models.chat import ChatMessage
 from app.models.inventory import AdminGrantLog, InventoryItem, KarmaPurchase, MarketSaleLog, ShopTransactionLog, TransferLog
 from app.models.user import User
 from app.schemas.character import (
@@ -31,6 +32,7 @@ from app.core.roles import Role, VALID_ROLES, normalize_role, can_manage_roles
 from app.api.projects import require_feature, require_project_admin as require_selected_project_admin
 from app.core.projects import get_admin_character_or_404
 from app.models.project import DEFAULT_PROJECT_NAME, Project, ProjectMembership
+from app.models.recruitment import GameApplication, GameRecruitment, RecruitmentMessage
 
 
 router = APIRouter(prefix="/admin")
@@ -879,6 +881,61 @@ def change_user_role(
     db.commit()
     db.refresh(user)
     return serialize_user(user)
+
+
+@router.delete("/users/{user_id}")
+def delete_user_account(
+    user_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_owner),
+):
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    if user.id == current_user.id:
+        raise HTTPException(
+            status_code=400,
+            detail="Нельзя удалить собственную учётную запись",
+        )
+    if user.is_owner and db.query(User).filter(User.role == Role.OWNER).count() <= 1:
+        raise HTTPException(
+            status_code=409,
+            detail="В системе должен остаться хотя бы один владелец",
+        )
+    if db.query(Project).filter(Project.owner_id == user.id).first():
+        raise HTTPException(
+            status_code=409,
+            detail="Перед удалением передайте принадлежащие пользователю проекты другому владельцу",
+        )
+
+    character_ids = [row[0] for row in db.query(Character.id).filter(Character.user_id == user.id)]
+    characters = []
+    if character_ids:
+        db.query(CalendarAuditLog).filter(
+            CalendarAuditLog.character_id.in_(character_ids)
+        ).delete(synchronize_session=False)
+        db.query(ShopTransactionLog).filter(
+            ShopTransactionLog.character_id.in_(character_ids)
+        ).delete(synchronize_session=False)
+        characters = db.query(Character).filter(Character.id.in_(character_ids)).all()
+
+    authored_recruitments = db.query(GameRecruitment).filter(
+        GameRecruitment.author_id == user.id
+    ).all()
+    for recruitment in authored_recruitments:
+        db.delete(recruitment)
+    db.query(GameApplication).filter(GameApplication.user_id == user.id).delete(synchronize_session=False)
+    db.query(RecruitmentMessage).filter(RecruitmentMessage.user_id == user.id).delete(synchronize_session=False)
+    db.query(ChatMessage).filter(ChatMessage.user_id == user.id).delete(synchronize_session=False)
+    db.query(CalendarAuditLog).filter(CalendarAuditLog.user_id == user.id).delete(synchronize_session=False)
+    db.query(ShopTransactionLog).filter(ShopTransactionLog.user_id == user.id).delete(synchronize_session=False)
+    db.query(TransferLog).filter(TransferLog.user_id == user.id).delete(synchronize_session=False)
+    db.query(ProjectMembership).filter(ProjectMembership.user_id == user.id).delete(synchronize_session=False)
+    for character in characters:
+        db.delete(character)
+    db.delete(user)
+    db.commit()
+    return {"deleted": True, "id": user_id}
 
 
 @router.post("/users/{user_id}/karma")
