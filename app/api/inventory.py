@@ -7,7 +7,7 @@ from sqlalchemy import update
 from sqlalchemy.orm import Session
 from app.db.database import SessionLocal
 from app.models.character import Character
-from app.models.inventory import Inventory, InventoryItem, ShopQuote, ShopTransactionLog, TransferLog
+from app.models.inventory import Inventory, InventoryItem, MarketSaleLog, ShopQuote, ShopTransactionLog, TransferLog
 from app.models.user import User
 from app.api.calendar import charge_character_downtime
 from app.api.users import get_current_user
@@ -19,6 +19,8 @@ from app.schemas.inventory import (
     InventoryResponse,
     InventoryNotesUpdateRequest,
     ItemTransferRequest,
+    MarketSaleRequest,
+    MarketSaleResponse,
     MagicItemResponse,
     ShopConfirmRequest,
     ShopResult,
@@ -853,6 +855,35 @@ def update_inventory_notes(
     db.refresh(inventory)
 
     return inventory
+
+
+@router.post(
+    "/characters/{character_id}/market/sales",
+    response_model=MarketSaleResponse,
+    status_code=201,
+)
+def create_market_sale(
+    character_id: int,
+    sale_data: MarketSaleRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    character = get_character_for_current_user(character_id, current_user, db)
+    inventory = get_character_inventory(character_id, current_user, db)
+    sale = MarketSaleLog(
+        user_id=current_user.id,
+        username=current_user.username,
+        character_id=character.id,
+        character_name=character.name,
+        item_name=sale_data.item_name.strip(),
+        gold=sale_data.gold,
+    )
+    add_currency(inventory, gold=sale_data.gold)
+    db.add(sale)
+    db.commit()
+    db.refresh(sale)
+    db.refresh(inventory)
+    return {"sale": sale, "inventory": inventory}
 
 
 @router.delete("/characters/{character_id}/inventory/items/{item_id}", response_model=InventoryResponse)

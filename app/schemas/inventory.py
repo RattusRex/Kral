@@ -139,6 +139,29 @@ class ShopTransactionLogResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class MarketSaleRequest(BaseModel):
+    item_name: str = Field(min_length=1, max_length=255, pattern=r".*\S.*")
+    gold: int = Field(gt=0)
+
+
+class MarketSaleLogResponse(BaseModel):
+    id: int
+    created_at: datetime
+    user_id: int
+    username: str
+    character_id: int
+    character_name: str
+    item_name: str
+    gold: int
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class MarketSaleResponse(BaseModel):
+    sale: MarketSaleLogResponse
+    inventory: InventoryResponse
+
+
 class TransferLogResponse(BaseModel):
     id: int
     created_at: datetime

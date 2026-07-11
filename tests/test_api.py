@@ -1418,6 +1418,101 @@ def test_shop_buy_and_sell_confirmations_create_filterable_persistent_logs():
         assert sell_logs[0]["total_amount"] == sell_payload["item_price"] - sell_payload["hireling_cost"]
 
 
+def test_market_sale_credits_owned_character_and_creates_admin_audit_log():
+    with TestClient(app) as client:
+        headers = {"Authorization": f"Bearer {login(client, 'admin', 'admin123')}"}
+        created = client.post("/api/characters", headers=headers, json={
+            "name": "Торговец", "class_name": "Воин", "level": 1, "route": "Рынок"
+        })
+        assert created.status_code == 200, created.text
+        character_id = created.json()["id"]
+
+        sold = client.post(
+            f"/api/characters/{character_id}/market/sales",
+            headers=headers,
+            json={"item_name": "  Длинный меч  ", "gold": 7},
+        )
+        assert sold.status_code == 201, sold.text
+        payload = sold.json()
+        assert payload["sale"]["username"] == "admin"
+        assert payload["sale"]["character_name"] == "Торговец"
+        assert payload["sale"]["item_name"] == "Длинный меч"
+        assert payload["sale"]["gold"] == 7
+        assert payload["inventory"]["gold"] == 7
+
+        logs = client.get("/api/admin/market-sales", headers=headers)
+        assert logs.status_code == 200, logs.text
+        assert len(logs.json()) == 1
+        assert logs.json()[0] == payload["sale"]
+
+
+def test_market_sale_validates_input_and_character_ownership():
+    with TestClient(app) as client:
+        owner_headers = {"Authorization": f"Bearer {login(client, 'admin', 'admin123')}"}
+        created = client.post("/api/characters", headers=owner_headers, json={
+            "name": "Чужой", "class_name": "Плут", "level": 1, "route": "Рынок"
+        }).json()
+        client.post("/api/users", json={
+            "username": "market-player", "email": "market-player@example.com",
+            "password": "secret123",
+        })
+        player_headers = {
+            "Authorization": f"Bearer {login(client, 'market-player', 'secret123')}"
+        }
+
+        forbidden = client.post(
+            f"/api/characters/{created['id']}/market/sales",
+            headers=player_headers,
+            json={"item_name": "Щит", "gold": 5},
+        )
+        assert forbidden.status_code == 404
+
+        for body in (
+            {"item_name": "   ", "gold": 5},
+            {"item_name": "Верёвка", "gold": 0},
+            {"item_name": "Верёвка", "gold": -1},
+        ):
+            invalid = client.post(
+                f"/api/characters/{created['id']}/market/sales",
+                headers=owner_headers,
+                json=body,
+            )
+            assert invalid.status_code == 422, invalid.text
+
+        inventory = client.get(
+            f"/api/characters/{created['id']}/inventory", headers=owner_headers
+        )
+        assert inventory.json()["gold"] == 0
+        assert client.get("/api/admin/market-sales", headers=owner_headers).json() == []
+
+
+def test_market_sales_log_is_admin_only_and_filterable():
+    with TestClient(app) as client:
+        owner_headers = {"Authorization": f"Bearer {login(client, 'admin', 'admin123')}"}
+        created = client.post("/api/characters", headers=owner_headers, json={
+            "name": "Фильтр", "class_name": "Бард", "level": 1, "route": "Рынок"
+        }).json()
+        client.post(
+            f"/api/characters/{created['id']}/market/sales", headers=owner_headers,
+            json={"item_name": "Кнут", "gold": 2},
+        )
+        client.post("/api/users", json={
+            "username": "market-auditee", "email": "market-auditee@example.com",
+            "password": "secret123",
+        })
+        player_headers = {
+            "Authorization": f"Bearer {login(client, 'market-auditee', 'secret123')}"
+        }
+
+        assert client.get("/api/admin/market-sales", headers=player_headers).status_code == 403
+        filtered = client.get(
+            "/api/admin/market-sales", headers=owner_headers,
+            params={"character_id": created["id"], "date": date.today().isoformat()},
+        )
+        assert filtered.status_code == 200, filtered.text
+        assert [entry["item_name"] for entry in filtered.json()] == ["Кнут"]
+
+
 def test_owner_delete_character_requires_confirmation_and_cascades_inventory():
     with TestClient(app) as client:
         admin_token = login(client, "admin", "admin123")
