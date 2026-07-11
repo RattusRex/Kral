@@ -245,10 +245,6 @@ function Shell({ children, user }: { children: React.ReactNode; user: User | nul
             {projects.length > 0 && <select aria-label="Проект" className="field max-w-52" value={project?.id ?? ""} onChange={(event) => selectProject(Number(event.target.value))}>{projects.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select>}
             <Link className="btn-secondary" to="/"><UsersRound size={16} />Меню</Link>
             <Link className="btn-secondary" to="/characters"><UsersRound size={16} />Персонажи</Link>
-            {project?.features.shop !== false && <Link className="btn-secondary" to="/shop"><ShoppingBag size={16} />Магический магазин</Link>}
-            {project?.features.market !== false && <Link className="btn-secondary" to="/market"><Coins size={16} />Рынок</Link>}
-            {project?.features.karma !== false && project?.features.karma_shop !== false && <Link className="btn-secondary" to="/karma-shop"><ShoppingBag size={16} />Карма</Link>}
-            {project?.features.leaderboard !== false && <Link className="btn-secondary" to="/leaderboard"><Trophy size={16} />Лидеры</Link>}
             <Link className="btn-secondary" to="/chat"><MessageSquare size={16} />Чат</Link>
             {project?.features.recruitments !== false && <Link className="btn-secondary" to="/game-recruitments"><CalendarDays size={16} />Набор на игры</Link>}
             <Link className="btn-secondary" to="/profile"><UserRound size={16} />Профиль</Link>
