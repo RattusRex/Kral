@@ -65,7 +65,8 @@ test("example environment satisfies the required email backend setting", () => {
   for (const variable of [
     "SMTP_HOST",
     "SMTP_PORT",
-    "SMTP_USE_TLS",
+    "SMTP_SECURITY",
+    "SMTP_TIMEOUT_SECONDS",
     "SMTP_USERNAME",
     "SMTP_PASSWORD",
     "SMTP_FROM_EMAIL"

@@ -28,7 +28,7 @@ Prototype web application for D&D 2014 open-table bookkeeping: characters, inven
    - `ADMIN_PASSWORD` — password for the default `admin` owner account.
    - `ALLOWED_ORIGINS` — comma-separated list of allowed CORS origins (e.g. `https://yourdomain.com`).
    - `FRONTEND_URL` — public frontend origin placed in confirmation links.
-   - `EMAIL_BACKEND` — use `console` locally or `smtp` with the SMTP variables from `.env.example` in production. `console` only logs confirmation links and does not deliver mail; the backend validates SMTP settings at startup.
+   - `EMAIL_BACKEND` — use `console` locally or `smtp` with the SMTP variables from `.env.example` in production. `console` only logs confirmation links and does not deliver mail; the backend validates SMTP settings at startup. Use `SMTP_SECURITY=starttls` for the usual port 587 or `SMTP_SECURITY=ssl` for implicit TLS on port 465.
 5. Run FastAPI (development):
    ```bash
    uvicorn app.main:app --reload
@@ -199,7 +199,9 @@ sends a 24-hour, single-use link; requesting a new message invalidates the old
 link. The application stores only a SHA-256 hash of each random token. For local
 development, `EMAIL_BACKEND=console` writes the link to the backend log. Set
 `EMAIL_BACKEND=smtp`, `SMTP_HOST`, `SMTP_FROM_EMAIL`, and any provider-specific
-SMTP credentials for real delivery. Administrators can see each user's status
+SMTP credentials for real delivery. Configure `SMTP_SECURITY` as `starttls`,
+`ssl`, or `none`; outbound connections use the bounded `SMTP_TIMEOUT_SECONDS`
+(10 seconds by default). Administrators can see each user's status
 and manually confirm an address in the admin panel. Accounts that existed before
 this feature are migrated as already verified.
 

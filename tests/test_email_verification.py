@@ -52,7 +52,7 @@ def test_registration_creates_inactive_user_and_sends_confirmation(monkeypatch):
         response = register(client)
         assert response.status_code == 200, response.text
         assert response.json()["email_verified"] is False
-        assert response.json()["message"] == "Verification email sent"
+        assert response.json()["message"] == "Письмо подтверждения отправлено"
         assert len(delivered) == 1
 
         login = client.post(
@@ -67,8 +67,9 @@ def test_smtp_delivery_is_attempted_with_configured_sender(monkeypatch):
     sent_messages = []
 
     class FakeSmtp:
-        def __init__(self, host, port):
+        def __init__(self, host, port, *, timeout):
             assert (host, port) == ("smtp.example.com", 2525)
+            assert timeout == 10
 
         def __enter__(self):
             return self
@@ -76,7 +77,8 @@ def test_smtp_delivery_is_attempted_with_configured_sender(monkeypatch):
         def __exit__(self, *_args):
             return None
 
-        def starttls(self):
+        def starttls(self, *, context):
+            assert context is not None
             pass
 
         def login(self, username, password):
@@ -88,7 +90,7 @@ def test_smtp_delivery_is_attempted_with_configured_sender(monkeypatch):
     monkeypatch.setenv("EMAIL_BACKEND", "smtp")
     monkeypatch.setenv("SMTP_HOST", "smtp.example.com")
     monkeypatch.setenv("SMTP_PORT", "2525")
-    monkeypatch.setenv("SMTP_USE_TLS", "true")
+    monkeypatch.setenv("SMTP_SECURITY", "starttls")
     monkeypatch.setenv("SMTP_USERNAME", "smtp-user")
     monkeypatch.setenv("SMTP_PASSWORD", "smtp-password")
     monkeypatch.setenv("SMTP_FROM_EMAIL", "Kral <no-reply@example.com>")
@@ -106,6 +108,43 @@ def test_smtp_delivery_is_attempted_with_configured_sender(monkeypatch):
     assert "https://kral.example.com/verify-email?token=" in message.get_content()
 
 
+def test_smtp_ssl_delivery_uses_implicit_tls_and_timeout(monkeypatch):
+    connections = []
+
+    class FakeSmtpSsl:
+        def __init__(self, host, port, *, timeout):
+            connections.append((host, port, timeout))
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def login(self, username, password):
+            assert (username, password) == ("smtp-user", "smtp-password")
+
+        def send_message(self, _message):
+            pass
+
+    monkeypatch.setenv("EMAIL_BACKEND", "smtp")
+    monkeypatch.setenv("SMTP_HOST", "smtp.example.com")
+    monkeypatch.setenv("SMTP_PORT", "465")
+    monkeypatch.setenv("SMTP_SECURITY", "ssl")
+    monkeypatch.setenv("SMTP_TIMEOUT_SECONDS", "12")
+    monkeypatch.setenv("SMTP_USERNAME", "smtp-user")
+    monkeypatch.setenv("SMTP_PASSWORD", "smtp-password")
+    monkeypatch.setenv("SMTP_FROM_EMAIL", "no-reply@example.com")
+    monkeypatch.setattr("app.core.email_verification.smtplib.SMTP_SSL", FakeSmtpSsl)
+    monkeypatch.setattr("app.core.email_verification.ssl.create_default_context", lambda: object())
+
+    with TestClient(app) as client:
+        response = register(client)
+
+    assert response.status_code == 200, response.text
+    assert connections == [("smtp.example.com", 465, 12.0)]
+
+
 def test_smtp_configuration_is_validated_before_registration():
     from app.core.email_verification import validate_email_configuration
 
@@ -117,6 +156,57 @@ def test_smtp_configuration_is_validated_before_registration():
             assert "SMTP_FROM_EMAIL" in str(error)
         else:
             raise AssertionError("Incomplete SMTP settings must fail validation")
+
+
+def test_smtp_configuration_rejects_partial_credentials(monkeypatch):
+    from app.core.email_verification import validate_email_configuration
+
+    monkeypatch.setenv("EMAIL_BACKEND", "smtp")
+    monkeypatch.setenv("SMTP_HOST", "smtp.example.com")
+    monkeypatch.setenv("SMTP_FROM_EMAIL", "no-reply@example.com")
+    monkeypatch.setenv("SMTP_USERNAME", "smtp-user")
+    monkeypatch.delenv("SMTP_PASSWORD", raising=False)
+
+    try:
+        validate_email_configuration()
+    except RuntimeError as error:
+        assert "SMTP_PASSWORD" in str(error)
+    else:
+        raise AssertionError("Partial SMTP credentials must fail validation")
+
+
+def test_registration_delivery_failure_is_localized_and_resend_recovers(monkeypatch, caplog):
+    delivery_attempts = 0
+
+    def deliver(*_args):
+        nonlocal delivery_attempts
+        delivery_attempts += 1
+        if delivery_attempts == 1:
+            raise OSError("SMTP unavailable")
+
+    monkeypatch.setattr("app.api.users.send_verification_email", deliver)
+
+    with TestClient(app) as client:
+        with caplog.at_level("ERROR", logger="app.api.users"):
+            response = register(client)
+        assert response.status_code == 503
+        assert response.json()["detail"] == {
+            "code": "verification_email_delivery_failed",
+            "message": (
+                "Аккаунт создан, но не удалось отправить письмо подтверждения. "
+                "Попробуйте позже или запросите повторную отправку письма."
+            ),
+            "email": "new@example.com",
+        }
+        assert "Failed to send verification email" in caplog.text
+        assert "SMTP unavailable" in caplog.text
+
+        resent = client.post("/api/email/resend", json={"email": "new@example.com"})
+        assert resent.status_code == 200, resent.text
+        assert resent.json()["message"] == (
+            "Если аккаунт ожидает подтверждения, новое письмо отправлено."
+        )
+        assert delivery_attempts == 2
 
 
 def test_confirmation_token_is_single_use(monkeypatch):
@@ -134,7 +224,7 @@ def test_confirmation_token_is_single_use(monkeypatch):
 
         replay = client.post("/api/email/verify", json={"token": tokens[0]})
         assert replay.status_code == 400
-        assert replay.json()["detail"] == "Invalid or expired verification token"
+        assert replay.json()["detail"] == "Ссылка подтверждения недействительна или истекла"
 
         login = client.post(
             "/api/login",

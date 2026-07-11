@@ -35,6 +35,10 @@ from app.core.security import (
 )
 
 logger = logging.getLogger(__name__)
+VERIFICATION_DELIVERY_ERROR = (
+    "Аккаунт создан, но не удалось отправить письмо подтверждения. "
+    "Попробуйте позже или запросите повторную отправку письма."
+)
 
 router = APIRouter()
 VERIFICATION_TOKEN_LIFETIME = timedelta(hours=24)
@@ -79,7 +83,7 @@ def create_user(
         logger.warning("Registration conflict: username %r already exists", user_data.username)
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="Username already taken"
+            detail="Имя пользователя уже занято"
         )
 
     existing_email = db.query(User).filter(
@@ -89,7 +93,7 @@ def create_user(
         logger.warning("Registration conflict: email %r already exists", normalized_email)
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="Email already registered"
+            detail="Этот адрес электронной почты уже зарегистрирован"
         )
 
     user = User(
@@ -112,7 +116,7 @@ def create_user(
         )
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="Username or email already exists"
+            detail="Имя пользователя или адрес электронной почты уже зарегистрированы"
         )
     db.refresh(user)
 
@@ -131,10 +135,18 @@ def create_user(
     try:
         send_verification_email(user.email, user.username, token)
     except Exception:
-        logger.exception("Failed to send verification email to %s", user.email)
+        logger.exception(
+            "Failed to send verification email after registration: user_id=%s email=%s",
+            user.id,
+            user.email,
+        )
         raise HTTPException(
             status_code=503,
-            detail="Account created, but verification email could not be sent",
+            detail={
+                "code": "verification_email_delivery_failed",
+                "message": VERIFICATION_DELIVERY_ERROR,
+                "email": user.email,
+            },
         )
 
     return {
@@ -143,7 +155,7 @@ def create_user(
         "email": user.email,
         "karma": user.karma,
         "email_verified": user.email_verified,
-        "message": "Verification email sent",
+        "message": "Письмо подтверждения отправлено",
     }
 
 
@@ -155,26 +167,28 @@ def verify_email(data: EmailVerificationRequest, db: Session = Depends(get_db)):
     ).first()
     now = datetime.now(timezone.utc)
     if not user or not user.email_verification_expires_at:
-        raise HTTPException(status_code=400, detail="Invalid or expired verification token")
+        raise HTTPException(status_code=400, detail="Ссылка подтверждения недействительна или истекла")
     expires_at = user.email_verification_expires_at
     if expires_at.tzinfo is None:
         expires_at = expires_at.replace(tzinfo=timezone.utc)
     if expires_at <= now:
-        raise HTTPException(status_code=400, detail="Invalid or expired verification token")
+        raise HTTPException(status_code=400, detail="Ссылка подтверждения недействительна или истекла")
 
     user.email_verified = True
     user.email_verified_at = now
     user.email_verification_token_hash = None
     user.email_verification_expires_at = None
     db.commit()
-    return {"message": "Email verified", "email_verified": True}
+    return {"message": "Адрес электронной почты подтверждён", "email_verified": True}
 
 
 @router.post("/email/resend")
 def resend_verification_email(data: EmailResendRequest, db: Session = Depends(get_db)):
     normalized_email = data.email.lower()
     user = db.query(User).filter(func.lower(User.email) == normalized_email).first()
-    generic_response = {"message": "If the account is awaiting verification, a new email was sent"}
+    generic_response = {
+        "message": "Если аккаунт ожидает подтверждения, новое письмо отправлено."
+    }
     if not user or user.email_verified:
         return generic_response
 
@@ -183,8 +197,15 @@ def resend_verification_email(data: EmailResendRequest, db: Session = Depends(ge
     try:
         send_verification_email(user.email, user.username, token)
     except Exception:
-        logger.exception("Failed to resend verification email to %s", user.email)
-        raise HTTPException(status_code=503, detail="Verification email could not be sent")
+        logger.exception(
+            "Failed to resend verification email: user_id=%s email=%s",
+            user.id,
+            user.email,
+        )
+        raise HTTPException(
+            status_code=503,
+            detail="Не удалось отправить письмо подтверждения. Попробуйте позже.",
+        )
     return generic_response
 
 
@@ -206,7 +227,7 @@ def login(
         record_failed_login(request, form_data.username)
         raise HTTPException(
             status_code=401,
-            detail="Invalid credentials"
+            detail="Неверное имя пользователя, адрес электронной почты или пароль"
         )
 
     if not verify_password(
@@ -216,7 +237,7 @@ def login(
         record_failed_login(request, form_data.username)
         raise HTTPException(
             status_code=401,
-            detail="Invalid credentials"
+            detail="Неверное имя пользователя, адрес электронной почты или пароль"
         )
 
     if not user.email_verified:
@@ -253,7 +274,7 @@ def get_current_user(
     if not user:
         raise HTTPException(
             status_code=401,
-            detail="User not found"
+            detail="Пользователь не найден"
         )
 
     return user
