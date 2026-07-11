@@ -516,8 +516,8 @@ function Register() {
     try {
       await api.post("/users", form);
       setRegisteredEmail(form.email);
-    } catch {
-      setError("Не удалось создать аккаунт");
+    } catch (requestError: any) {
+      setError(requestError.response?.data?.detail ?? "Не удалось создать аккаунт");
     }
   }
 
@@ -529,7 +529,19 @@ function Register() {
   return <AuthPanel title="Регистрация" error={error} onSubmit={submit}>
     <input className="field" placeholder="username" value={form.username} onChange={(event) => setForm({ ...form, username: event.target.value })} />
     <input className="field" placeholder="email" value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} />
-    <input className="field" placeholder="password" type="password" value={form.password} onChange={(event) => setForm({ ...form, password: event.target.value })} />
+    <input
+      className="field"
+      placeholder="password"
+      type="password"
+      minLength={12}
+      maxLength={72}
+      autoComplete="new-password"
+      value={form.password}
+      onChange={(event) => setForm({ ...form, password: event.target.value })}
+    />
+    <p className="text-xs text-parchment/70">
+      Пароль должен содержать не менее 12 символов: заглавную и строчную буквы, цифру и специальный символ.
+    </p>
     <button className="btn" type="submit">Создать аккаунт</button>
     <Link className="btn-secondary" to="/login">Войти</Link>
   </AuthPanel>;

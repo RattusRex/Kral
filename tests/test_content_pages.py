@@ -4,11 +4,14 @@ os.environ["DATABASE_URL"] = "sqlite://"
 os.environ.setdefault("SECRET_KEY", "test-secret-key-for-pytest-only")
 os.environ.setdefault("ADMIN_PASSWORD", "admin123")
 
+TEST_USER_PASSWORD = "Strong-Test-Pass-47!"
+
 from fastapi.testclient import TestClient
 
 from app.core.auth_abuse import reset_auth_abuse_state
-from app.db.database import Base, engine
+from app.db.database import Base, SessionLocal, engine
 from app.main import app
+from app.models.user import User
 
 
 def setup_function():
@@ -27,10 +30,14 @@ def create_player(client: TestClient) -> dict[str, str]:
     response = client.post("/api/users", json={
         "username": "reader",
         "email": "reader@example.com",
-        "password": "secret123",
+        "password": TEST_USER_PASSWORD,
     })
     assert response.status_code == 200, response.text
-    return login(client, "reader", "secret123")
+    with SessionLocal() as db:
+        user = db.query(User).filter(User.username == "reader").one()
+        user.email_verified = True
+        db.commit()
+    return login(client, "reader", TEST_USER_PASSWORD)
 
 
 def test_content_pages_require_login_and_allow_players_to_read():
