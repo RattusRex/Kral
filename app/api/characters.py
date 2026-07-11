@@ -17,7 +17,7 @@ from app.schemas.character import (
     SkillRollResponse,
 )
 from app.api.users import get_db
-from app.api.projects import get_current_project_access
+from app.core.projects import require_project_access
 from app.models.project import Project
 
 ABILITY_FIELDS = {
@@ -80,11 +80,17 @@ def create_character(
     character_data: CharacterCreate,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-    access: tuple[Project, str] = Depends(get_current_project_access),
 ):
+    project_id = character_data.project_id
+    if project_id is None:
+        from app.api.projects import get_current_project_access
+        # Header-less legacy clients are resolved by the same default/single
+        # membership rules as other selected-project endpoints.
+        project_id = get_current_project_access(None, current_user, db)[0].id
+    require_project_access(db, current_user, project_id)
     character_count = db.query(Character).filter(
         Character.user_id == current_user.id,
-        Character.project_id == access[0].id,
+        Character.project_id == project_id,
     ).count()
     if character_count >= MAX_CHARACTERS_PER_USER:
         raise HTTPException(
@@ -126,7 +132,7 @@ def create_character(
         level=character_data.level,
         route=character_data.route,
         user_id=current_user.id,
-        project_id=access[0].id,
+        project_id=project_id,
     )
 
     db.add(character)
@@ -137,6 +143,7 @@ def create_character(
 
     return {
         "id": character.id,
+        "project_id": character.project_id,
         "name": character.name,
         "class_name": character.class_name,
         "class_levels": character.class_levels,
@@ -174,12 +181,10 @@ def create_character(
 @router.get("/characters")
 def get_characters(
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-    access: tuple[Project, str] = Depends(get_current_project_access),
+    current_user: User = Depends(get_current_user)
 ):
     characters = db.query(Character).filter(
-        Character.user_id == current_user.id,
-        Character.project_id == access[0].id,
+        Character.user_id == current_user.id
     ).all()
 
     return characters
@@ -188,16 +193,22 @@ def get_characters(
 @router.get("/characters/transfer-targets")
 def get_transfer_targets(
     db: Session = Depends(get_db),
-    _: User = Depends(get_current_user),
-    access: tuple[Project, str] = Depends(get_current_project_access),
+    current_user: User = Depends(get_current_user)
 ):
+    project_ids = [row.project_id for row in current_user.project_memberships]
+    if current_user.is_owner:
+        query = db.query(Character)
+    elif not project_ids:
+        return []
+    else:
+        query = db.query(Character).filter(Character.project_id.in_(project_ids))
     return [{
         "id": character.id,
         "name": character.name,
         "class_name": character.class_name,
         "level": character.level,
         "owner_username": character.owner.username
-    } for character in db.query(Character).filter(Character.project_id == access[0].id).all()]
+    } for character in query.all()]
 
 
 @router.patch("/characters/{character_id}")

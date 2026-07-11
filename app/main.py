@@ -8,7 +8,6 @@ import uvicorn
 from app.api.users import router as users_router
 from app.db.database import Base, engine, SessionLocal
 from app.models.user import User
-from app.models.project import DEFAULT_FEATURES, Project, ProjectMembership
 from app.models.character import (
     CalendarAuditLog,
     Character,
@@ -25,10 +24,11 @@ from app.api.chat import router as chat_router
 from app.api.karma_shop import router as karma_shop_router
 from app.api.recruitments import router as recruitments_router
 from app.api.content import router as content_router
-from app.api.projects import router as projects_router
 from app.models.chat import ChatMessage
 from app.models.recruitment import GameApplication, GameRecruitment, RecruitmentMessage
 from app.models.content import ContentBlock
+from app.models.project import DEFAULT_FEATURES, DEFAULT_PROJECT_NAME, Project, ProjectMembership
+from app.api.projects import router as projects_router
 from app.core.calendar import GAME_EPOCH
 from app.core.security import hash_password
 from app.core.roles import Role
@@ -67,22 +67,27 @@ def seed_admin(db: Session) -> None:
 
 
 def seed_default_project(db: Session) -> None:
-    project = db.query(Project).filter(Project.is_default.is_(True)).first()
+    owner = db.query(User).filter(User.role == Role.OWNER).order_by(User.id).first()
+    if not owner:
+        return
+    project = db.query(Project).filter(Project.name == DEFAULT_PROJECT_NAME).first()
     if not project:
         project = Project(
-            name="Эпоха Катастроф",
+            name=DEFAULT_PROJECT_NAME,
             slug="epoch-of-catastrophe",
             is_default=True,
+            owner_id=owner.id,
+            settings={},
             features=dict(DEFAULT_FEATURES),
         )
         db.add(project)
         db.flush()
     for user in db.query(User).all():
         if not db.query(ProjectMembership).filter_by(project_id=project.id, user_id=user.id).first():
-            role = Role.PROJECT_OWNER if user.is_owner else (
-                user.role if user.role in (Role.HEAD_ADMIN, Role.ADMIN) else Role.PLAYER
-            )
-            db.add(ProjectMembership(project_id=project.id, user_id=user.id, role=role))
+            db.add(ProjectMembership(
+                project_id=project.id, user_id=user.id,
+                role="admin" if user.is_admin else "player",
+            ))
     db.commit()
 
 
@@ -142,7 +147,27 @@ def migrate_email_verification() -> None:
 
 
 def ensure_schema_columns() -> None:
-    ensure_column("characters", "project_id", "INTEGER")
+    # Projects created before feature flags were introduced only have the
+    # upstream ecosystem columns. Add the optional metadata in place.
+    ensure_column("projects", "slug", "VARCHAR(100)")
+    ensure_column("projects", "is_default", "BOOLEAN NOT NULL DEFAULT FALSE")
+    ensure_column("projects", "features", "JSON NOT NULL DEFAULT '{}'")
+    # Existing installations predate projects; all legacy characters belong to
+    # the campaign's original ecosystem.
+    with SessionLocal() as db:
+        seed_default_project(db)
+        default_project_id = db.query(Project.id).filter(
+            Project.name == DEFAULT_PROJECT_NAME
+        ).scalar()
+    ensure_column(
+        "characters", "project_id",
+        f"INTEGER REFERENCES projects(id) DEFAULT {default_project_id}"
+    )
+    for table_name in ("chat_messages", "content_blocks", "game_recruitments"):
+        ensure_column(
+            table_name, "project_id",
+            f"INTEGER REFERENCES projects(id) DEFAULT {default_project_id}"
+        )
     ensure_column("characters", "temp_hp", "INTEGER NOT NULL DEFAULT 0")
     ensure_column("characters", "speed", "INTEGER NOT NULL DEFAULT 30")
     ensure_column("characters", "skill_proficiencies", "JSON NOT NULL DEFAULT '[]'")
@@ -211,6 +236,22 @@ def ensure_schema_columns() -> None:
     migrate_user_roles()
     migrate_email_verification()
     with engine.begin() as connection:
+        connection.execute(
+            text(
+                "UPDATE projects SET is_default = TRUE "
+                "WHERE name = :name AND NOT EXISTS "
+                "(SELECT 1 FROM projects WHERE is_default = TRUE)"
+            ),
+            {"name": DEFAULT_PROJECT_NAME},
+        )
+        connection.execute(
+            text("UPDATE characters SET project_id = :project_id WHERE project_id IS NULL"),
+            {"project_id": default_project_id},
+        )
+        for table_name in ("chat_messages", "content_blocks", "game_recruitments"):
+            connection.execute(text(
+                f"UPDATE {table_name} SET project_id = :project_id WHERE project_id IS NULL"
+            ), {"project_id": default_project_id})
         rows = connection.execute(text(
             "SELECT id, class_name, level, class_levels FROM characters"
         )).mappings()
@@ -237,13 +278,6 @@ async def lifespan(app: FastAPI):
     try:
         seed_admin(db)
         seed_default_project(db)
-        default_project = db.query(Project).filter(Project.is_default.is_(True)).first()
-        if default_project:
-            db.query(Character).filter(Character.project_id.is_(None)).update(
-                {Character.project_id: default_project.id},
-                synchronize_session=False,
-            )
-            db.commit()
     finally:
         db.close()
     yield

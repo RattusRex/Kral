@@ -150,13 +150,16 @@ class Character(Base):
     user_id: Mapped[int] = mapped_column(
         ForeignKey("users.id")
     )
-    project_id: Mapped[int | None] = mapped_column(
-        ForeignKey("projects.id"),
-        nullable=True,
+    project_id: Mapped[int] = mapped_column(
+        ForeignKey("projects.id")
     )
     owner = relationship(
         "User",
         back_populates="characters"
+    )
+    project = relationship(
+        "Project",
+        back_populates="characters",
     )
 
     inventory = relationship(

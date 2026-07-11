@@ -14,7 +14,7 @@ from app.core.auth_abuse import (
 )
 from app.db.database import SessionLocal
 from app.models.user import User
-from app.models.project import Project, ProjectMembership
+from app.models.project import DEFAULT_PROJECT_NAME, Project, ProjectMembership
 from app.core.passwords import new_password_policy_error
 from app.schemas.user import EmailResendRequest, EmailVerificationRequest, UserCreate
 from app.core.email_verification import (
@@ -116,9 +116,16 @@ def create_user(
         )
     db.refresh(user)
 
-    default_project = db.query(Project).filter(Project.is_default.is_(True)).first()
+    # Registration starts with an explicit ecosystem choice in the UI. Until
+    # that choice is submitted, retain compatibility by granting access to the
+    # original public campaign; owners may later add/remove project access.
+    default_project = db.query(Project).filter(Project.name == DEFAULT_PROJECT_NAME).first()
     if default_project:
-        db.add(ProjectMembership(project_id=default_project.id, user_id=user.id, role="player"))
+        db.add(ProjectMembership(
+            project_id=default_project.id,
+            user_id=user.id,
+            role="player",
+        ))
         db.commit()
 
     try:

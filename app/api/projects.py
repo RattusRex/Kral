@@ -54,6 +54,13 @@ def get_current_project_access(
     db: Session = Depends(get_db),
 ) -> tuple[Project, str]:
     if x_project_id is None:
+        if not current_user.is_owner:
+            memberships = db.query(ProjectMembership).filter(
+                ProjectMembership.user_id == current_user.id
+            ).order_by(ProjectMembership.id).all()
+            non_default = [item for item in memberships if not item.project.is_default]
+            if len(non_default) == 1:
+                return non_default[0].project, non_default[0].role
         project = db.query(Project).filter(Project.is_default.is_(True)).first()
         if not project:
             raise HTTPException(status_code=400, detail="X-Project-ID header is required")
@@ -99,7 +106,16 @@ def list_projects(current_user: User = Depends(get_current_user), db: Session = 
 def create_project(data: ProjectCreate, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     if not current_user.is_owner:
         raise HTTPException(status_code=403, detail="Owner permissions required")
-    project = Project(name=data.name.strip(), slug=data.slug, features=dict(DEFAULT_FEATURES))
+    slug = data.slug or "-".join(data.name.strip().lower().split())
+    if db.query(Project).filter(Project.slug == slug).first():
+        raise HTTPException(status_code=409, detail="Project slug already exists")
+    project = Project(
+        name=data.name.strip(),
+        slug=slug,
+        owner_id=current_user.id,
+        features=dict(DEFAULT_FEATURES),
+        settings={},
+    )
     db.add(project)
     db.commit()
     db.refresh(project)
