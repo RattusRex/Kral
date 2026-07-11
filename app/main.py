@@ -21,8 +21,10 @@ from app.api.attacks import router as attacks_router
 from app.api.chat import router as chat_router
 from app.api.karma_shop import router as karma_shop_router
 from app.api.recruitments import router as recruitments_router
+from app.api.content import router as content_router
 from app.models.chat import ChatMessage
 from app.models.recruitment import GameApplication, GameRecruitment, RecruitmentMessage
+from app.models.content import ContentBlock
 from app.core.calendar import GAME_EPOCH
 from app.core.security import hash_password
 from app.core.roles import Role
@@ -197,6 +199,7 @@ app.include_router(attacks_router, prefix="/api")
 app.include_router(chat_router, prefix="/api")
 app.include_router(karma_shop_router, prefix="/api")
 app.include_router(recruitments_router, prefix="/api")
+app.include_router(content_router, prefix="/api")
 app.include_router(users_router, prefix="/api")
 
 @app.get("/")

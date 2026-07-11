@@ -23,6 +23,16 @@ export interface User {
   is_head_admin?: boolean;
 }
 
+export interface ContentBlock {
+  id: number;
+  page_slug: "server-rules" | "approved-homebrew";
+  title: string;
+  content: string;
+  position: number;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface Character {
   id: number;
   name: string;

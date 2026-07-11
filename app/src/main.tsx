@@ -1,8 +1,8 @@
 import { Component, FormEvent, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { Link, Navigate, Route, BrowserRouter as Router, Routes, useNavigate, useParams } from "react-router-dom";
-import { CalendarDays, Check, Dice5, LogOut, MapPin, MessageSquare, Pencil, Plus, RefreshCw, Save, ScrollText, Search, Send, Shield, ShoppingBag, Swords, Trash2, Trophy, UserRound, UsersRound, X } from "lucide-react";
-import { AbilityRoll, AdminGrantLog, AdminUser, api, AttackRoll, CalendarSummary, Character, CharacterAttack, ChatMessage, DamageRoll, GameRecruitment, Inventory, InventoryItem, KarmaPurchase, KarmaPurchaseResult, LeaderboardEntry, MagicItem, PaginatedResponse, ROLE_LABELS, SavingThrowRoll, ShopResult, ShopTransactionLog, SkillRoll, TOKEN_KEY, TransferLog, TransferTarget, User, UserRole } from "./api";
+import { ArrowDown, ArrowUp, BookOpen, CalendarDays, Check, ChevronDown, ChevronUp, Dice5, LogOut, MapPin, MessageSquare, Pencil, Plus, RefreshCw, Save, ScrollText, Search, Send, Shield, ShoppingBag, Swords, Trash2, Trophy, UserRound, UsersRound, X } from "lucide-react";
+import { AbilityRoll, AdminGrantLog, AdminUser, api, AttackRoll, CalendarSummary, Character, CharacterAttack, ChatMessage, ContentBlock, DamageRoll, GameRecruitment, Inventory, InventoryItem, KarmaPurchase, KarmaPurchaseResult, LeaderboardEntry, MagicItem, PaginatedResponse, ROLE_LABELS, SavingThrowRoll, ShopResult, ShopTransactionLog, SkillRoll, TOKEN_KEY, TransferLog, TransferTarget, User, UserRole } from "./api";
 import "./styles.css";
 
 const rarities = ["Обычный", "Необычный", "Редкий"];
@@ -241,6 +241,8 @@ function HomePage() {
           <Link className="btn" to="/leaderboard"><Trophy size={18} />Таблица лидеров</Link>
           <Link className="btn" to="/chat"><MessageSquare size={18} />Чат</Link>
           <Link className="btn" to="/game-recruitments"><CalendarDays size={18} />Набор на игры</Link>
+          <Link className="btn" to="/server-rules"><BookOpen size={18} />Правила сервера</Link>
+          <Link className="btn" to="/approved-homebrew"><ScrollText size={18} />Одобренное ХБ</Link>
         </div>
       </section>
       <aside className="panel p-5">
@@ -250,6 +252,136 @@ function HomePage() {
         <p className="mt-4 text-xl font-semibold">Карма: {user.karma}</p>
       </aside>
     </div>
+  );
+}
+
+type ContentPageSlug = "server-rules" | "approved-homebrew";
+
+function ContentPage({ pageSlug, title }: { pageSlug: ContentPageSlug; title: string }) {
+  const { user, loading: userLoading } = useAuth();
+  const [blocks, setBlocks] = useState<ContentBlock[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [editingId, setEditingId] = useState<number | "new" | null>(null);
+  const [form, setForm] = useState({ title: "", content: "" });
+
+  function load() {
+    setLoading(true);
+    setError("");
+    api.get<ContentBlock[]>(`/content-pages/${pageSlug}`)
+      .then((response) => setBlocks(response.data))
+      .catch((requestError) => setError(apiErrorDetail(requestError, "Не удалось загрузить страницу")))
+      .finally(() => setLoading(false));
+  }
+
+  useEffect(load, [pageSlug]);
+
+  function startCreate() {
+    setEditingId("new");
+    setForm({ title: "", content: "" });
+  }
+
+  function startEdit(block: ContentBlock) {
+    setEditingId(block.id);
+    setForm({ title: block.title, content: block.content });
+  }
+
+  async function save(event: FormEvent) {
+    event.preventDefault();
+    setError("");
+    try {
+      if (editingId === "new") {
+        await api.post(`/content-pages/${pageSlug}`, form);
+      } else {
+        await api.patch(`/content-pages/${pageSlug}/${editingId}`, form);
+      }
+      setEditingId(null);
+      load();
+    } catch (requestError) {
+      setError(apiErrorDetail(requestError, "Не удалось сохранить блок"));
+    }
+  }
+
+  async function remove(block: ContentBlock) {
+    if (!window.confirm(`Удалить блок «${block.title}»?`)) return;
+    try {
+      await api.delete(`/content-pages/${pageSlug}/${block.id}`);
+      if (editingId === block.id) setEditingId(null);
+      load();
+    } catch (requestError) {
+      setError(apiErrorDetail(requestError, "Не удалось удалить блок"));
+    }
+  }
+
+  async function move(index: number, offset: -1 | 1) {
+    const target = index + offset;
+    if (target < 0 || target >= blocks.length) return;
+    const reordered = [...blocks];
+    [reordered[index], reordered[target]] = [reordered[target], reordered[index]];
+    setBlocks(reordered);
+    try {
+      const response = await api.put<ContentBlock[]>(`/content-pages/${pageSlug}/order`, {
+        block_ids: reordered.map((block) => block.id)
+      });
+      setBlocks(response.data);
+    } catch (requestError) {
+      setError(apiErrorDetail(requestError, "Не удалось изменить порядок"));
+      load();
+    }
+  }
+
+  if (loading || userLoading) return <p>Загрузка...</p>;
+
+  return (
+    <div className="mx-auto max-w-4xl space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-bold text-ember">{title}</h1>
+          <p className="mt-1 text-sm text-white/60">Информационные разделы кампании</p>
+        </div>
+        {user?.is_admin && editingId !== "new" && <button className="btn" onClick={startCreate}><Plus size={16} />Создать блок</button>}
+      </div>
+      {error && <p className="rounded-md border border-red-400/30 bg-red-950/30 p-3 text-sm text-red-200">{error}</p>}
+      {editingId === "new" && (
+        <ContentBlockForm form={form} setForm={setForm} onSubmit={save} onCancel={() => setEditingId(null)} />
+      )}
+      {!blocks.length && editingId !== "new" && (
+        <section className="panel p-8 text-center text-white/60">Разделы пока не добавлены.</section>
+      )}
+      {blocks.map((block, index) => editingId === block.id ? (
+        <ContentBlockForm key={block.id} form={form} setForm={setForm} onSubmit={save} onCancel={() => setEditingId(null)} />
+      ) : (
+        <section className="panel p-5" key={block.id}>
+          <div className="flex items-start justify-between gap-4">
+            <h2 className="text-xl font-semibold text-ember">{block.title}</h2>
+            {user?.is_admin && (
+              <div className="flex flex-wrap justify-end gap-2">
+                <button className="btn-secondary p-2" aria-label="Переместить вверх" title="Переместить вверх" disabled={index === 0} onClick={() => move(index, -1)}><ArrowUp size={16} /></button>
+                <button className="btn-secondary p-2" aria-label="Переместить вниз" title="Переместить вниз" disabled={index === blocks.length - 1} onClick={() => move(index, 1)}><ArrowDown size={16} /></button>
+                <button className="btn-secondary" onClick={() => startEdit(block)}><Pencil size={16} />Редактировать</button>
+                <button className="btn-secondary" onClick={() => remove(block)}><Trash2 size={16} />Удалить</button>
+              </div>
+            )}
+          </div>
+          <p className="mt-4 whitespace-pre-wrap text-white/80">{block.content}</p>
+        </section>
+      ))}
+    </div>
+  );
+}
+
+function ContentBlockForm({ form, setForm, onSubmit, onCancel }: {
+  form: { title: string; content: string };
+  setForm: (form: { title: string; content: string }) => void;
+  onSubmit: (event: FormEvent) => void;
+  onCancel: () => void;
+}) {
+  return (
+    <form className="panel flex flex-col gap-3 p-5" onSubmit={onSubmit}>
+      <label className="field-label"><span>Название</span><input className="field" required maxLength={200} value={form.title} onChange={(event) => setForm({ ...form, title: event.target.value })} /></label>
+      <label className="field-label"><span>Текст</span><textarea className="field min-h-40" required maxLength={20000} value={form.content} onChange={(event) => setForm({ ...form, content: event.target.value })} /></label>
+      <div className="flex gap-2"><button className="btn" type="submit"><Save size={16} />Сохранить</button><button className="btn-secondary" type="button" onClick={onCancel}><X size={16} />Отмена</button></div>
+    </form>
   );
 }
 
@@ -2050,6 +2182,13 @@ function AdminPage() {
   const [userPageSize, setUserPageSize] = useState(20);
   const [userTotal, setUserTotal] = useState(0);
   const [userPages, setUserPages] = useState(0);
+  const [collapsed, setCollapsed] = useState<Record<"master" | "character" | "karma" | "interface", boolean>>(() => {
+    try {
+      return { master: false, character: false, karma: false, interface: false, ...JSON.parse(localStorage.getItem("admin-panel-state") ?? "{}") };
+    } catch {
+      return { master: false, character: false, karma: false, interface: false };
+    }
+  });
 
   const selectedCharacter = useMemo(() => characters.find((character) => String(character.id) === selected), [characters, selected]);
   const selectedUser = useMemo(() => users.find((user) => String(user.id) === karmaUserId), [users, karmaUserId]);
@@ -2101,6 +2240,22 @@ function AdminPage() {
 
   const canManageRoles = Boolean(user?.is_owner || user?.is_head_admin);
 
+  function togglePanel(panel: "master" | "character" | "karma" | "interface") {
+    setCollapsed((current) => {
+      const next = { ...current, [panel]: !current[panel] };
+      localStorage.setItem("admin-panel-state", JSON.stringify(next));
+      return next;
+    });
+  }
+
+  function PanelToggle({ panel, label }: { panel: "master" | "character" | "karma" | "interface"; label: string }) {
+    return (
+      <button className="btn-secondary p-2" aria-label={`${collapsed[panel] ? "Развернуть" : "Свернуть"} панель «${label}»`} aria-expanded={!collapsed[panel]} onClick={() => togglePanel(panel)}>
+        {collapsed[panel] ? <ChevronDown size={18} /> : <ChevronUp size={18} />}
+      </button>
+    );
+  }
+
   // Head admins may not touch owners or other head admins, and they may never
   // grant the owner or head-admin roles. Owners have unrestricted control.
   function canEditRole(row: AdminUser): boolean {
@@ -2122,8 +2277,9 @@ function AdminPage() {
         <section className="panel flex flex-col gap-3 p-5">
           <div className="flex items-center justify-between gap-3">
             <h1 className="text-xl font-bold text-ember">Админка мастера</h1>
-            <Link className="btn-secondary" to="/admin/grant-logs"><ScrollText size={16} />Журнал выдач</Link>
+            <div className="flex gap-2"><Link className="btn-secondary" to="/admin/grant-logs"><ScrollText size={16} />Журнал выдач</Link><PanelToggle panel="master" label="Админка мастера" /></div>
           </div>
+          {!collapsed.master && <>
           <label className="field-label">
             <span>Персонаж</span>
             <select className="field" value={selected} onChange={(event) => setSelected(event.target.value)}>
@@ -2139,18 +2295,22 @@ function AdminPage() {
           <button className="btn" disabled={!selected || !reason.trim()} onClick={() => action("xp", { amount })}>Применить XP</button>
           <button className="btn" disabled={!selected || !reason.trim()} onClick={() => action("gold", { amount })}>Применить золото</button>
           <button className="btn-secondary" disabled={!selected} onClick={() => action("revive")}>Воскресить персонажа</button>
+          </>}
           <div className="mt-2 border-t border-white/10 pt-3">
-            <h2 className="text-lg font-semibold text-ember">{selectedCharacter?.name ?? "Персонаж"}</h2>
+            <div className="flex items-center justify-between gap-3"><h2 className="text-lg font-semibold text-ember">{selectedCharacter?.name ?? "Персонаж"}</h2><PanelToggle panel="character" label="Персонаж" /></div>
+            {!collapsed.character && (
             <div className="mt-3 flex flex-col gap-3">
               <input className="field" placeholder="название" value={item.name} onChange={(event) => setItem({ ...item, name: event.target.value })} />
               <select className="field" value={item.rarity} onChange={(event) => setItem({ ...item, rarity: event.target.value })}>{rarities.map((rarity) => <option key={rarity}>{rarity}</option>)}</select>
               <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={item.is_consumable} onChange={(event) => setItem({ ...item, is_consumable: event.target.checked })} />Расходуемый</label>
               <button className="btn" disabled={!selected || !reason.trim()} onClick={() => action("item", item)}>Выдать предмет</button>
             </div>
+            )}
           </div>
         </section>
         <section className="panel flex flex-col gap-3 p-5">
-          <h2 className="text-lg font-semibold text-ember">Карма игроков</h2>
+          <div className="flex items-center justify-between gap-3"><h2 className="text-lg font-semibold text-ember">Карма игроков</h2><PanelToggle panel="karma" label="Карма игроков" /></div>
+          {!collapsed.karma && <>
           <label className="field-label">
             <span>Игрок</span>
             <select className="field" value={karmaUserId} onChange={(event) => setKarmaUserId(event.target.value)}>
@@ -2165,13 +2325,16 @@ function AdminPage() {
           <p className="text-sm text-white/65">{selectedUser?.username ?? "Игрок"}: {selectedUser?.karma ?? 0}</p>
           <label className="field-label"><span>Причина выдачи</span><textarea className="field" required value={reason} onChange={(event) => setReason(event.target.value)} /></label>
           <button className="btn" disabled={!karmaUserId || !reason.trim()} onClick={applyKarma}>Применить</button>
+          </>}
         </section>
         {canManageRoles && (
           <section className="panel flex flex-col gap-3 p-5">
-            <div className="flex items-center gap-2">
-              <Shield size={18} className="text-ember" />
-              <h2 className="text-lg font-semibold text-ember">Роли пользователей</h2>
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2"><Shield size={18} className="text-ember" /><h2 className="text-lg font-semibold text-ember">Интерфейс</h2></div>
+              <PanelToggle panel="interface" label="Интерфейс" />
             </div>
+            {!collapsed.interface && <>
+            <h3 className="font-semibold text-ember">Роли пользователей</h3>
             <p className="text-sm text-white/55">
               {user?.is_owner
                 ? "Назначайте роли. Доступно только владельцу и главному администратору."
@@ -2203,6 +2366,7 @@ function AdminPage() {
               onPageSizeChange={(value) => { setUserPageSize(value); setUserPage(1); }}
             />
             {roleError && <p className="text-sm text-red-300">{roleError}</p>}
+            </>}
           </section>
         )}
       </div>
@@ -2874,6 +3038,8 @@ function App() {
         <Route path="/leaderboard" element={<Protected><LeaderboardPage /></Protected>} />
         <Route path="/chat" element={<Protected><ChatPage /></Protected>} />
         <Route path="/game-recruitments" element={<Protected><GameRecruitmentsPage /></Protected>} />
+        <Route path="/server-rules" element={<Protected><ContentPage pageSlug="server-rules" title="Правила сервера" /></Protected>} />
+        <Route path="/approved-homebrew" element={<Protected><ContentPage pageSlug="approved-homebrew" title="Одобренное ХБ" /></Protected>} />
         <Route path="/profile" element={<Protected><ProfilePage /></Protected>} />
         <Route path="/admin/shop-logs" element={<Protected><ShopLogsPage /></Protected>} />
         <Route path="/admin/karma-shop-logs" element={<Protected><KarmaShopLogsPage /></Protected>} />
