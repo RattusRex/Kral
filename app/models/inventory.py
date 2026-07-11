@@ -215,6 +215,21 @@ class ShopTransactionLog(Base):
     )
 
 
+class MarketSaleLog(Base):
+    __tablename__ = "market_sale_logs"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+    # IDs and names are immutable audit snapshots. They deliberately are not
+    # foreign keys, so deleting a user or character cannot erase sale history.
+    user_id: Mapped[int] = mapped_column(Integer)
+    username: Mapped[str] = mapped_column(String(50))
+    character_id: Mapped[int] = mapped_column(Integer)
+    character_name: Mapped[str] = mapped_column(String(255))
+    item_name: Mapped[str] = mapped_column(String(255))
+    gold: Mapped[int] = mapped_column(Integer)
+
+
 class TransferLog(Base):
     __tablename__ = "transfer_logs"
 

@@ -313,6 +313,22 @@ export interface ShopTransactionLog {
   total_copper?: number | null;
 }
 
+export interface MarketSaleLog {
+  id: number;
+  created_at: string;
+  user_id: number;
+  username: string;
+  character_id: number;
+  character_name: string;
+  item_name: string;
+  gold: number;
+}
+
+export interface MarketSaleResult {
+  sale: MarketSaleLog;
+  inventory: Inventory;
+}
+
 export interface TransferLog {
   id: number;
   created_at: string;
