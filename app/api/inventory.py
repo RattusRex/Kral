@@ -771,6 +771,8 @@ def record_shop_transaction(
     db.add(ShopTransactionLog(
         user_id=user.id,
         username=user.username,
+        actor_id=user.id,
+        actor_username=user.username,
         character_id=character.id,
         character_name=character.name,
         inventory_id=inventory.id,
@@ -876,6 +878,8 @@ def create_market_sale(
     sale = MarketSaleLog(
         user_id=current_user.id,
         username=current_user.username,
+        actor_id=current_user.id,
+        actor_username=current_user.username,
         character_id=character.id,
         character_name=character.name,
         item_name=sale_data.item_name.strip(),

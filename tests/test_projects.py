@@ -11,7 +11,9 @@ from app.core.auth_abuse import reset_auth_abuse_state
 from app.db.database import Base, SessionLocal, engine
 from app.core.security import hash_password
 from app.main import app, ensure_schema_columns
-from app.models.project import DEFAULT_PROJECT_NAME, Project
+from app.models.character import Character
+from app.models.project import DEFAULT_PROJECT_NAME, Project, ProjectAuditLog
+from app.models.recruitment import GameRecruitment, RecruitmentMessage
 from app.models.user import User
 
 
@@ -201,3 +203,62 @@ def test_disabled_project_feature_is_hidden_in_context_and_rejected_by_backend()
         assert context.status_code == 200
         assert context.json()["features"]["shop"] is False
         assert client.get("/api/shop/magic-items", headers=player).status_code == 403
+
+
+def test_only_global_owner_can_delete_project_and_other_projects_are_untouched():
+    with TestClient(app) as client:
+        owner = login(client, "admin", "admin123")
+        manager_id = register(client, "delete-project-manager")
+        first = client.post(
+            "/api/projects", headers=owner,
+            json={"name": "Disposable", "slug": "disposable"},
+        ).json()
+        second = client.post(
+            "/api/projects", headers=owner,
+            json={"name": "Preserved", "slug": "preserved"},
+        ).json()
+        client.put(
+            f"/api/projects/{first['id']}/members/{manager_id}", headers=owner,
+            json={"role": "project_owner"},
+        )
+        manager = login(client, "delete-project-manager", PASSWORD)
+        assert client.delete(f"/api/projects/{first['id']}", headers=manager).status_code == 403
+
+        with SessionLocal() as db:
+            first_character = Character(
+                name="Delete me", class_name="Fighter", route="Test", level=1,
+                user_id=manager_id, project_id=first["id"],
+            )
+            second_character = Character(
+                name="Keep me", class_name="Wizard", route="Test", level=1,
+                user_id=manager_id, project_id=second["id"],
+            )
+            db.add_all([first_character, second_character])
+            db.flush()
+            recruitment = GameRecruitment(
+                author_id=manager_id, project_id=first["id"], real_date="2026-08-01",
+                game_date="1492-01-01", start_time="18:00", duration="4 hours",
+                location="Test", quest="Delete me",
+            )
+            db.add(recruitment)
+            db.flush()
+            db.add(RecruitmentMessage(
+                recruitment_id=recruitment.id, user_id=manager_id,
+                username="delete-project-manager", content="Delete me",
+            ))
+            db.commit()
+            kept_character_id = second_character.id
+
+        deleted = client.delete(f"/api/projects/{first['id']}", headers=owner)
+        assert deleted.status_code == 204, deleted.text
+
+        with SessionLocal() as db:
+            assert db.get(Project, first["id"]) is None
+            assert db.get(Project, second["id"]) is not None
+            assert db.get(Character, kept_character_id) is not None
+            assert db.query(GameRecruitment).filter_by(project_id=first["id"]).count() == 0
+            audit = db.query(ProjectAuditLog).one()
+            assert audit.action == "delete"
+            assert audit.project_id == first["id"]
+            assert audit.project_name == "Disposable"
+            assert audit.admin_username == "admin"

@@ -45,6 +45,8 @@ def record_purchase(
     purchase = KarmaPurchase(
         user_id=user.id,
         username=user.username,
+        actor_id=user.id,
+        actor_username=user.username,
         character_id=character.id if character else None,
         character_name=character.name if character else None,
         character_level=character.level if character else None,
