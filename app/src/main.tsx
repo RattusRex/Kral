@@ -744,7 +744,7 @@ function CharactersPage() {
             <Stat label="Медь" value={inventories[character.id]?.copper ?? 0} />
           </dl>
           <p className="mt-3 text-sm text-white/60">{character.background || "Без предыстории"}</p>
-          <div className="mt-4 flex gap-2">
+          <div className="mt-4 flex flex-wrap gap-2">
             <Link className="btn" to={`/characters/${character.id}`}>Открыть персонажа</Link>
             <Link className="btn-secondary" to={`/characters/${character.id}/edit`}>Редактировать</Link>
             <Link className="btn-secondary" to={`/shop?character=${character.id}`}>Магический магазин</Link>
@@ -1357,12 +1357,12 @@ function SkillsPanel({ character, onChange }: { character: Character; onChange: 
           const score = character[skill.ability];
           const value = abilityModifier(score) + (expert ? bonus * 2 : proficient ? bonus : 0);
           return (
-            <div className="grid grid-cols-[minmax(0,1fr)_auto_auto_auto] items-center gap-3 rounded-md border border-white/10 px-3 py-2" key={skill.key}>
-              <button className="flex min-w-0 items-center justify-between gap-3 rounded-sm text-left transition hover:text-ember focus-visible:outline focus-visible:outline-2 focus-visible:outline-ember" type="button" onClick={() => rollSkill(skill.key)} aria-label={`Бросить навык ${skill.label} ${signed(value)}`}>
+            <div className="skill-row rounded-md border border-white/10 px-3 py-2" key={skill.key}>
+              <button className="skill-roll rounded-sm text-left transition hover:text-ember focus-visible:outline focus-visible:outline-2 focus-visible:outline-ember" type="button" onClick={() => rollSkill(skill.key)} aria-label={`Бросить навык ${skill.label} ${signed(value)}`}>
                 <span>{skill.label}</span>
                 <strong className="text-ember">{signed(value)}</strong>
               </button>
-              <label className="flex items-center gap-1 text-xs"><input type="checkbox" checked={proficient} onChange={(event) => {
+              <div className="skill-options"><label className="flex items-center gap-1 text-xs"><input type="checkbox" checked={proficient} onChange={(event) => {
                 const nextProficiencies = event.target.checked ? [...proficiencies, skill.key] : proficiencies.filter((key) => key !== skill.key);
                 const nextExpertise = event.target.checked ? expertise : expertise.filter((key) => key !== skill.key);
                 save(nextProficiencies, nextExpertise);
@@ -1370,7 +1370,7 @@ function SkillsPanel({ character, onChange }: { character: Character; onChange: 
               <label className="flex items-center gap-1 text-xs"><input type="checkbox" checked={expert} disabled={!proficient} onChange={(event) => {
                 const nextExpertise = event.target.checked ? [...expertise, skill.key] : expertise.filter((key) => key !== skill.key);
                 save(proficiencies, nextExpertise);
-              }} />Компетентность</label>
+              }} />Компетентность</label></div>
             </div>
           );
         })}
@@ -2092,7 +2092,7 @@ function LeaderboardPage() {
         <Trophy size={20} className="text-ember" />
         <h1 className="text-xl font-bold text-ember">Таблица лидеров</h1>
       </div>
-      <div className="overflow-x-auto">
+      <div className="responsive-table" role="region" aria-label="Таблица лидеров" tabIndex={0}>
         <table className="w-full min-w-[520px] text-left text-sm">
           <thead className="text-xs uppercase text-white/45">
             <tr>
@@ -2297,7 +2297,7 @@ function GameRecruitmentsPage() {
             <label className="field-label md:col-span-2"><span>Место действия</span><input required maxLength={300} className="field" value={form.location} onChange={(event) => setForm({ ...form, location: event.target.value })} /></label>
             <label className="field-label md:col-span-2"><span>Задание</span><textarea required maxLength={2000} className="field min-h-24" value={form.quest} onChange={(event) => setForm({ ...form, quest: event.target.value })} /></label>
             <label className="field-label md:col-span-2"><span>Примечания</span><textarea maxLength={2000} className="field min-h-20" value={form.notes} onChange={(event) => setForm({ ...form, notes: event.target.value })} /></label>
-            <div className="flex gap-2 md:col-span-2"><button className="btn" disabled={busy}><Send size={16} />Опубликовать</button><button type="button" className="btn-secondary" onClick={() => setShowForm(false)}>Отмена</button></div>
+            <div className="flex flex-wrap gap-2 md:col-span-2"><button className="btn" disabled={busy}><Send size={16} />Опубликовать</button><button type="button" className="btn-secondary" onClick={() => setShowForm(false)}>Отмена</button></div>
           </form>
         )}
         {error && <p className="mt-4 text-sm text-red-300">{error}</p>}
@@ -2348,7 +2348,7 @@ function GameRecruitmentsPage() {
                 {chatHasOlder[recruitment.id] && <p className="text-center text-xs text-white/40">Прокрутите вверх для старых сообщений</p>}
                 {chatMessages[recruitment.id].map((message) => <div className="rounded-md bg-black/25 p-3" key={message.id}><div className="flex items-start justify-between gap-2"><p className="text-xs text-white/45">{message.is_system ? "Система" : `#${message.username}`}</p>{!message.is_system && (message.user_id === user?.id || user?.is_admin) && <button aria-label="Удалить сообщение" className="text-red-300" onClick={() => deleteChatMessage(recruitment.id, message.id)}><Trash2 size={14} /></button>}</div><p className="mt-1 whitespace-pre-wrap text-sm text-white/80">{message.content}</p><p className="mt-2 text-xs text-white/35">{new Date(message.created_at).toLocaleString("ru-RU")}</p></div>)}
                 {!chatMessages[recruitment.id].length && <p className="text-sm text-white/50">Сообщений пока нет.</p>}
-              </div><div className="mt-2 flex gap-2"><input maxLength={2000} className="field flex-1" placeholder="Сообщение" value={chatDrafts[recruitment.id] ?? ""} onChange={(event) => setChatDrafts((current) => ({ ...current, [recruitment.id]: event.target.value }))} onKeyDown={(event) => { if (event.key === "Enter") sendChat(recruitment.id); }} /><button className="btn" onClick={() => sendChat(recruitment.id)}><Send size={16} /></button></div></>}
+              </div><div className="mt-2 flex flex-wrap gap-2"><input maxLength={2000} className="field min-w-0 flex-1" placeholder="Сообщение" value={chatDrafts[recruitment.id] ?? ""} onChange={(event) => setChatDrafts((current) => ({ ...current, [recruitment.id]: event.target.value }))} onKeyDown={(event) => { if (event.key === "Enter") sendChat(recruitment.id); }} /><button className="btn" onClick={() => sendChat(recruitment.id)}><Send size={16} /></button></div></>}
             </section>
           </div>
         </article>
@@ -2778,7 +2778,7 @@ function AdminPage() {
       </div>
       <section className="panel p-5">
         <h2 className="text-lg font-semibold text-ember">Все персонажи</h2>
-        <div className="mt-4 overflow-x-auto">
+        <div className="responsive-table mt-4" role="region" aria-label="Все персонажи" tabIndex={0}>
           <table className="w-full min-w-[960px] text-left text-sm">
             <thead className="text-xs uppercase text-white/45">
               <tr>
@@ -3119,7 +3119,7 @@ function GrantLogsPage() {
       </div>
       <button className="btn mt-3" onClick={() => loadLogs()}>Применить фильтры</button>
       {error && <p className="mt-3 text-sm text-red-300">{error}</p>}
-      <div className="mt-5 overflow-x-auto">
+      <div className="responsive-table mt-5" role="region" aria-label="Журнал выдач" tabIndex={0}>
         <table className="w-full min-w-[1040px] text-left text-sm">
           <thead className="text-xs uppercase text-white/45"><tr><th className="py-2 pr-3">Дата и время</th><th className="py-2 pr-3">Администратор</th><th className="py-2 pr-3">Игрок</th><th className="py-2 pr-3">Персонаж</th><th className="py-2 pr-3">Тип</th><th className="py-2 pr-3">Значение</th><th className="py-2 pr-3">Причина</th></tr></thead>
           <tbody>{logs.map((log) => <tr className="border-t border-white/10" key={log.id}><td className="py-3 pr-3">{new Date(log.created_at).toLocaleString("ru-RU")}</td><td className="py-3 pr-3">{log.admin_username}</td><td className="py-3 pr-3">{log.username}</td><td className="py-3 pr-3">{log.character_name ?? "-"}</td><td className="py-3 pr-3">{grantTypeLabels[log.operation_type]}</td><td className="py-3 pr-3">{log.value}</td><td className="py-3 pr-3 whitespace-pre-wrap">{log.reason}</td></tr>)}</tbody>
@@ -3211,7 +3211,7 @@ function ShopLogsPage() {
         <button className="btn-secondary" onClick={resetFilters}>Сбросить</button>
       </div>
       {error && <p className="mt-3 text-sm text-red-300">{error}</p>}
-      <div className="mt-5 overflow-x-auto">
+      <div className="responsive-table mt-5" role="region" aria-label="Логи магазина" tabIndex={0}>
         <table className="w-full min-w-[860px] text-left text-sm">
           <thead className="text-xs uppercase text-white/45">
             <tr>
@@ -3269,7 +3269,7 @@ function MarketSalesPage() {
       </div>
       <label className="field-label mt-5 max-w-xs"><span>Дата</span><input className="field" type="date" value={date} onChange={(event) => setDate(event.target.value)} /></label>
       {error && <p className="mt-3 text-sm text-red-300">{error}</p>}
-      <div className="mt-5 overflow-x-auto"><table className="w-full min-w-[700px] text-left text-sm"><thead className="text-xs uppercase text-white/45"><tr><th className="py-2 pr-3">Дата</th><th className="py-2 pr-3">Кто выполнил</th><th className="py-2 pr-3">Игрок</th><th className="py-2 pr-3">Персонаж</th><th className="py-2 pr-3">Предмет</th><th className="py-2 pr-3">Сумма</th></tr></thead><tbody>{logs.map((log) => <tr className="border-t border-white/10" key={log.id}><td className="py-3 pr-3">{new Date(log.created_at).toLocaleString("ru-RU")}</td><td className="py-3 pr-3">{log.actor_username ?? log.username}</td><td className="py-3 pr-3">{log.username}</td><td className="py-3 pr-3">{log.character_name}</td><td className="py-3 pr-3">{log.item_name}</td><td className="py-3 pr-3 font-semibold text-ember">+{log.gold} зм</td></tr>)}</tbody></table>{!logs.length && <p className="py-6 text-center text-white/55">Записей нет</p>}</div>
+      <div className="responsive-table mt-5"><table className="w-full min-w-[700px] text-left text-sm"><thead className="text-xs uppercase text-white/45"><tr><th className="py-2 pr-3">Дата</th><th className="py-2 pr-3">Кто выполнил</th><th className="py-2 pr-3">Игрок</th><th className="py-2 pr-3">Персонаж</th><th className="py-2 pr-3">Предмет</th><th className="py-2 pr-3">Сумма</th></tr></thead><tbody>{logs.map((log) => <tr className="border-t border-white/10" key={log.id}><td className="py-3 pr-3">{new Date(log.created_at).toLocaleString("ru-RU")}</td><td className="py-3 pr-3">{log.actor_username ?? log.username}</td><td className="py-3 pr-3">{log.username}</td><td className="py-3 pr-3">{log.character_name}</td><td className="py-3 pr-3">{log.item_name}</td><td className="py-3 pr-3 font-semibold text-ember">+{log.gold} зм</td></tr>)}</tbody></table>{!logs.length && <p className="py-6 text-center text-white/55">Записей нет</p>}</div>
     </section>
   );
 }
@@ -3289,7 +3289,7 @@ function KarmaShopLogsPage() {
       .then((response) => setLogs(response.data))
       .catch((loadError) => setError(apiErrorDetail(loadError, "Не удалось загрузить логи")));
   }, []);
-  return <section className="panel p-5"><div className="flex flex-wrap items-center justify-between gap-3"><div><h1 className="text-2xl font-bold text-ember">Логи магазина кармы</h1><p className="text-sm text-white/55">История всех покупок за карму</p></div><Link className="btn-secondary" to="/admin">Назад</Link></div>{error && <p className="mt-3 text-red-300">{error}</p>}<div className="mt-5 overflow-x-auto"><table className="w-full min-w-[850px] text-left text-sm"><thead className="text-xs uppercase text-white/45"><tr><th className="py-2 pr-3">Дата</th><th className="py-2 pr-3">Кто выполнил</th><th className="py-2 pr-3">Игрок</th><th className="py-2 pr-3">Персонаж</th><th className="py-2 pr-3">Тип</th><th className="py-2 pr-3">Наименование</th><th className="py-2 pr-3">Стоимость</th><th className="py-2 pr-3">Уровень</th></tr></thead><tbody>{logs.map((log) => <tr className="border-t border-white/10" key={log.id}><td className="py-3 pr-3">{new Date(log.created_at).toLocaleString("ru-RU")}</td><td className="py-3 pr-3">{log.actor_username ?? log.username}</td><td className="py-3 pr-3">{log.username}</td><td className="py-3 pr-3">{log.character_name ?? "-"}</td><td className="py-3 pr-3">{karmaPurchaseLabels[log.purchase_type]}</td><td className="py-3 pr-3">{log.name}</td><td className="py-3 pr-3">{log.cost} кармы</td><td className="py-3 pr-3">{log.character_level ?? "-"}</td></tr>)}</tbody></table>{!logs.length && <p className="py-6 text-center text-white/55">Записей нет</p>}</div></section>;
+  return <section className="panel p-5"><div className="flex flex-wrap items-center justify-between gap-3"><div><h1 className="text-2xl font-bold text-ember">Логи магазина кармы</h1><p className="text-sm text-white/55">История всех покупок за карму</p></div><Link className="btn-secondary" to="/admin">Назад</Link></div>{error && <p className="mt-3 text-red-300">{error}</p>}<div className="responsive-table mt-5"><table className="w-full min-w-[850px] text-left text-sm"><thead className="text-xs uppercase text-white/45"><tr><th className="py-2 pr-3">Дата</th><th className="py-2 pr-3">Кто выполнил</th><th className="py-2 pr-3">Игрок</th><th className="py-2 pr-3">Персонаж</th><th className="py-2 pr-3">Тип</th><th className="py-2 pr-3">Наименование</th><th className="py-2 pr-3">Стоимость</th><th className="py-2 pr-3">Уровень</th></tr></thead><tbody>{logs.map((log) => <tr className="border-t border-white/10" key={log.id}><td className="py-3 pr-3">{new Date(log.created_at).toLocaleString("ru-RU")}</td><td className="py-3 pr-3">{log.actor_username ?? log.username}</td><td className="py-3 pr-3">{log.username}</td><td className="py-3 pr-3">{log.character_name ?? "-"}</td><td className="py-3 pr-3">{karmaPurchaseLabels[log.purchase_type]}</td><td className="py-3 pr-3">{log.name}</td><td className="py-3 pr-3">{log.cost} кармы</td><td className="py-3 pr-3">{log.character_level ?? "-"}</td></tr>)}</tbody></table>{!logs.length && <p className="py-6 text-center text-white/55">Записей нет</p>}</div></section>;
 }
 
 function TransferLogsPage() {
@@ -3372,7 +3372,7 @@ function TransferLogsPage() {
         <button className="btn-secondary" onClick={resetFilters}>Сбросить</button>
       </div>
       {error && <p className="mt-3 text-sm text-red-300">{error}</p>}
-      <div className="mt-5 overflow-x-auto">
+      <div className="responsive-table mt-5">
         <table className="w-full min-w-[920px] text-left text-sm">
           <thead className="text-xs uppercase text-white/45">
             <tr>
