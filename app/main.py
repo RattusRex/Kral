@@ -1,4 +1,5 @@
 import os
+import json
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
@@ -101,6 +102,7 @@ def ensure_schema_columns() -> None:
     ensure_column("characters", "temp_hp", "INTEGER NOT NULL DEFAULT 0")
     ensure_column("characters", "speed", "INTEGER NOT NULL DEFAULT 30")
     ensure_column("characters", "skill_proficiencies", "JSON NOT NULL DEFAULT '[]'")
+    ensure_column("characters", "class_levels", "JSON NOT NULL DEFAULT '[]'")
     ensure_column("characters", "skill_expertise", "JSON NOT NULL DEFAULT '[]'")
     ensure_column(
         "characters",
@@ -163,6 +165,23 @@ def ensure_schema_columns() -> None:
         "VARCHAR(20) NOT NULL DEFAULT 'upcoming'",
     )
     migrate_user_roles()
+    with engine.begin() as connection:
+        rows = connection.execute(text(
+            "SELECT id, class_name, level, class_levels FROM characters"
+        )).mappings()
+        for row in rows:
+            if row["class_levels"] not in (None, [], "[]"):
+                continue
+            connection.execute(
+                text("UPDATE characters SET class_levels = :levels WHERE id = :id"),
+                {
+                    "id": row["id"],
+                    "levels": json.dumps([{
+                        "class_name": row["class_name"],
+                        "level": row["level"],
+                    }]),
+                },
+            )
 
 
 @asynccontextmanager

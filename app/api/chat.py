@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from app.api.users import get_current_user, get_db
 from app.models.chat import ChatMessage
 from app.models.user import User
+from app.core.roles import is_admin_role
 from app.schemas.chat import (
     ChatMessageCreate,
     ChatMessageResponse,
@@ -156,6 +157,21 @@ def create_chat_message(
     db.commit()
     db.refresh(message)
     return message
+
+
+@router.delete("/chat/messages/{message_id}", status_code=204)
+def delete_chat_message(
+    message_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    if not is_admin_role(current_user.role):
+        raise HTTPException(status_code=403, detail="Admin permissions required")
+    message = db.query(ChatMessage).filter(ChatMessage.id == message_id).first()
+    if not message:
+        raise HTTPException(status_code=404, detail="Message not found")
+    db.delete(message)
+    db.commit()
 
 
 @router.post("/dice/roll", response_model=ChatMessageResponse)

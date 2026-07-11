@@ -37,6 +37,7 @@ export interface Character {
   id: number;
   name: string;
   class_name: string;
+  class_levels: CharacterClassLevel[];
   subclass: string;
   race: string;
   background: string;
@@ -77,6 +78,11 @@ export interface Character {
   owner_username?: string;
   owner_email?: string;
   is_dead?: boolean;
+}
+
+export interface CharacterClassLevel {
+  class_name: string;
+  level: number;
 }
 
 export interface DowntimeEntry {
