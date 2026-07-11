@@ -14,6 +14,12 @@ DEFAULT_FEATURES = {
     "recruitments": True,
     "personal_hirelings": True,
     "simulacrums": True,
+    "leaderboard": True,
+    "karma": True,
+    "karma_logs": True,
+    "character_transfers": True,
+    "market_logs": True,
+    "logs": True,
 }
 DEFAULT_PROJECT_NAME = "Эпоха Катастроф"
 PROJECT_ADMIN = Role.ADMIN

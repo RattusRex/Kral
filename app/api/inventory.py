@@ -996,10 +996,13 @@ def transfer_inventory_currency(
     character_id: int,
     transfer_data: CurrencyTransferRequest,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
+    project: Project = Depends(require_feature("character_transfers")),
 ):
     require_positive_currency(transfer_data)
     sender = get_character_for_current_user(character_id, current_user, db)
+    if sender.project_id != project.id:
+        raise HTTPException(status_code=404, detail="Character not found")
     if sender.id == transfer_data.recipient_character_id:
         raise HTTPException(
             status_code=400,
@@ -1014,6 +1017,8 @@ def transfer_inventory_currency(
             status_code=404,
             detail="Recipient character not found"
         )
+    if recipient.project_id != project.id:
+        raise HTTPException(status_code=404, detail="Recipient character not found")
 
     sender_inventory = get_or_create_inventory_for_character(sender, db)
     recipient_inventory = get_or_create_inventory_for_character(recipient, db)
@@ -1036,9 +1041,12 @@ def transfer_inventory_item(
     character_id: int,
     transfer_data: ItemTransferRequest,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
+    project: Project = Depends(require_feature("character_transfers")),
 ):
     sender = get_character_for_current_user(character_id, current_user, db)
+    if sender.project_id != project.id:
+        raise HTTPException(status_code=404, detail="Character not found")
     if sender.id == transfer_data.recipient_character_id:
         raise HTTPException(
             status_code=400,
@@ -1053,6 +1061,8 @@ def transfer_inventory_item(
             status_code=404,
             detail="Recipient character not found"
         )
+    if recipient.project_id != project.id:
+        raise HTTPException(status_code=404, detail="Recipient character not found")
 
     sender_inventory = get_or_create_inventory_for_character(sender, db)
     recipient_inventory = get_or_create_inventory_for_character(recipient, db)

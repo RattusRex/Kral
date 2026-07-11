@@ -22,6 +22,12 @@ export interface ProjectFeatures {
   recruitments: boolean;
   personal_hirelings: boolean;
   simulacrums: boolean;
+  leaderboard: boolean;
+  karma: boolean;
+  karma_logs: boolean;
+  character_transfers: boolean;
+  market_logs: boolean;
+  logs: boolean;
 }
 
 export interface ProjectContext {

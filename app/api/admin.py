@@ -28,7 +28,7 @@ from app.schemas.karma_shop import KarmaPurchaseResponse
 from app.core import calendar as game_calendar
 from app.core.calendar import GAME_EPOCH
 from app.core.roles import Role, VALID_ROLES, normalize_role, can_manage_roles
-from app.api.projects import require_project_admin as require_selected_project_admin
+from app.api.projects import require_feature, require_project_admin as require_selected_project_admin
 from app.core.projects import get_admin_character_or_404
 from app.models.project import DEFAULT_PROJECT_NAME, Project, ProjectMembership
 
@@ -67,6 +67,7 @@ def require_admin(
 def list_karma_shop_logs(
     db: Session = Depends(get_db),
     _: User = Depends(require_admin),
+    __: Project = Depends(require_feature("karma_logs")),
 ):
     return db.query(KarmaPurchase).order_by(
         KarmaPurchase.created_at.desc(), KarmaPurchase.id.desc()
@@ -498,7 +499,8 @@ def list_shop_logs(
     date_from: date | None = None,
     date_to: date | None = None,
     db: Session = Depends(get_db),
-    _: User = Depends(require_admin)
+    _: User = Depends(require_admin),
+    __: Project = Depends(require_feature("logs")),
 ):
     query = db.query(ShopTransactionLog)
 
@@ -545,6 +547,7 @@ def list_market_sales(
     date_to: date | None = None,
     db: Session = Depends(get_db),
     _: User = Depends(require_admin),
+    __: Project = Depends(require_feature("market_logs")),
 ):
     query = db.query(MarketSaleLog)
     if character_id is not None:
@@ -579,7 +582,8 @@ def list_transfer_logs(
     date_from: date | None = None,
     date_to: date | None = None,
     db: Session = Depends(get_db),
-    _: User = Depends(require_admin)
+    _: User = Depends(require_admin),
+    __: Project = Depends(require_feature("logs")),
 ):
     query = db.query(TransferLog)
 
@@ -629,7 +633,8 @@ def list_calendar_logs(
     date_from: date | None = None,
     date_to: date | None = None,
     db: Session = Depends(get_db),
-    _: User = Depends(require_admin)
+    _: User = Depends(require_admin),
+    __: Project = Depends(require_feature("logs")),
 ):
     """Return the audit trail of administrative calendar changes."""
     query = db.query(CalendarAuditLog)
@@ -679,6 +684,7 @@ def list_grant_logs(
     date_to: date | None = None,
     db: Session = Depends(get_db),
     _: User = Depends(require_admin),
+    __: Project = Depends(require_feature("logs")),
 ):
     query = db.query(AdminGrantLog)
     if character_id is not None:
@@ -880,7 +886,8 @@ def change_user_karma(
     user_id: int,
     karma_data: AdminResourceUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin)
+    current_user: User = Depends(require_admin),
+    _: Project = Depends(require_feature("karma")),
 ):
     return update_user_karma(user_id, karma_data.amount, karma_data.reason, current_user, db)
 
@@ -890,7 +897,8 @@ def add_user_karma(
     user_id: int,
     karma_data: AdminResourceUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin)
+    current_user: User = Depends(require_admin),
+    _: Project = Depends(require_feature("karma")),
 ):
     return update_user_karma(user_id, karma_data.amount, karma_data.reason, current_user, db)
 
@@ -900,7 +908,8 @@ def subtract_user_karma(
     user_id: int,
     karma_data: AdminResourceUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin)
+    current_user: User = Depends(require_admin),
+    _: Project = Depends(require_feature("karma")),
 ):
     if karma_data.amount < 0:
         return update_user_karma(user_id, karma_data.amount, karma_data.reason, current_user, db)
