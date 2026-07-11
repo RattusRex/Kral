@@ -261,11 +261,10 @@ function HomePage() {
       <section className="panel p-5">
         <h1 className="text-2xl font-bold text-ember">Главное меню</h1>
         <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          <Link className="btn" to="/shop"><ShoppingBag size={18} />Shop</Link>
+          <Link className="btn" to="/shop"><ShoppingBag size={18} />Магазин</Link>
           <Link className="btn" to="/market"><Coins size={18} />Рынок</Link>
           <Link className="btn" to="/karma-shop"><ShoppingBag size={18} />Магазин Кармы</Link>
-          <Link className="btn" to="/characters"><UsersRound size={18} />My Characters</Link>
-          <Link className="btn" to="/characters/new"><Plus size={18} />Create Character</Link>
+          <Link className="btn" to="/characters"><UsersRound size={18} />Мои персонажи</Link>
           <Link className="btn" to="/leaderboard"><Trophy size={18} />Таблица лидеров</Link>
           <Link className="btn" to="/chat"><MessageSquare size={18} />Чат</Link>
           <Link className="btn" to="/game-recruitments"><CalendarDays size={18} />Набор на игры</Link>
