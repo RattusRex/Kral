@@ -1,15 +1,20 @@
 """Global and project-scoped role definitions and helpers.
 
-The application recognises four roles, ordered from most to least privileged:
+The application recognises the following roles, ordered from most to least
+privileged:
 
 * ``owner``       - full control of the system. Only the owner may manage the
   ``head_admin`` role or touch other owners.
+* ``project_owner`` - full control within a project, but no global-owner
+  permissions.
 * ``head_admin``  - "Главный Администратор". A trusted deputy of the owner that
   wields every administrative power of the owner *except* the ability to manage
   the owner (changing, blocking, deleting or appointing owners) or to grant the
   ``head_admin``/``owner`` roles themselves.
 * ``admin``       - game master tools (karma, currency, items, logs) but no
   ability to manage users or roles.
+* ``technician``  - resource grants, logs, character editing and calendar
+  administration, but no role, project-settings or character-deletion powers.
 * ``player``      - default role, may only manage their own characters and
   participate in the chat.
 """
@@ -44,7 +49,7 @@ ROLE_RANK = {
 }
 
 # Roles that may use the game-master / administrative endpoints.
-ADMIN_ROLES = (Role.OWNER, Role.HEAD_ADMIN, Role.ADMIN)
+ADMIN_ROLES = (Role.OWNER, Role.HEAD_ADMIN, Role.ADMIN, Role.TECHNICIAN)
 
 # Roles that may manage other users' roles.
 ROLE_MANAGER_ROLES = (Role.OWNER, Role.HEAD_ADMIN)

@@ -25,7 +25,7 @@ from app.api.inventory import consume_quote_for_inventory
 from app.models.character import Character
 from app.models.inventory import ShopQuote
 from app.models.user import User
-from app.models.project import Project, ProjectMembership
+from app.models.project import DEFAULT_PROJECT_NAME, Project, ProjectMembership
 
 
 def setup_function():
@@ -3006,6 +3006,48 @@ def test_owner_can_assign_roles_and_promotion_grants_admin_tools():
         assert roles["admin"] == "owner"
 
 
+def test_owner_can_assign_technician_with_limited_admin_tools():
+    with TestClient(app) as client:
+        owner_headers = {
+            "Authorization": f"Bearer {login(client, 'admin', 'admin123')}"
+        }
+        technician_id = _register(client, "global-technician")
+        target_id = _register(client, "technician-target")
+
+        promoted = client.post(
+            f"/api/admin/users/{technician_id}/role",
+            headers=owner_headers,
+            json={"role": "technician"},
+        )
+        assert promoted.status_code == 200, promoted.text
+        assert promoted.json()["role"] == "technician"
+        assert promoted.json()["is_admin"] is True
+
+        with SessionLocal() as db:
+            default_project = db.query(Project).filter(
+                Project.name == DEFAULT_PROJECT_NAME
+            ).one()
+            membership = db.query(ProjectMembership).filter_by(
+                project_id=default_project.id,
+                user_id=technician_id,
+            ).one()
+            assert membership.role == "technician"
+
+        technician_headers = {
+            "Authorization": f"Bearer {login(client, 'global-technician', TEST_USER_PASSWORD)}"
+        }
+        assert client.post(
+            f"/api/admin/users/{target_id}/karma/add",
+            headers=technician_headers,
+            json={"amount": 2, "reason": "Technician grant"},
+        ).status_code == 200
+        assert client.post(
+            f"/api/admin/users/{target_id}/role",
+            headers=technician_headers,
+            json={"role": "player"},
+        ).status_code == 403
+
+
 def test_admin_role_cannot_manage_roles_only_owner_can():
     with TestClient(app) as client:
         owner_token = login(client, "admin", "admin123")
@@ -3137,6 +3179,28 @@ def test_head_admin_can_manage_admins_and_players():
         )
         assert demoted.status_code == 200, demoted.text
         assert demoted.json()["role"] == "player"
+
+
+def test_head_admin_can_assign_technician():
+    with TestClient(app) as client:
+        owner_headers = {
+            "Authorization": f"Bearer {login(client, 'admin', 'admin123')}"
+        }
+        head_id = _register(client, "technician-manager")
+        target_id = _register(client, "new-technician")
+        _promote(client, owner_headers, head_id, "head_admin")
+        head_headers = {
+            "Authorization": f"Bearer {login(client, 'technician-manager', TEST_USER_PASSWORD)}"
+        }
+
+        promoted = client.post(
+            f"/api/admin/users/{target_id}/role",
+            headers=head_headers,
+            json={"role": "technician"},
+        )
+        assert promoted.status_code == 200, promoted.text
+        assert promoted.json()["role"] == "technician"
+        assert promoted.json()["is_admin"] is True
 
 
 def test_head_admin_cannot_touch_owner_or_grant_privileged_roles():
