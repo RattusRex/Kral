@@ -5,8 +5,17 @@ import test from "node:test";
 const source = fs.readFileSync(new URL("../app/src/main.tsx", import.meta.url), "utf8");
 
 test("every numeric input keeps the user's raw value while editing", () => {
-  const numericInputs = [...source.matchAll(/<input\b[\s\S]*?type="number"[\s\S]*?\/>/g)]
-    .map((match) => match[0]);
+  const inputStarts = [...source.matchAll(/<input\b/g)].map((match) => match.index);
+  const numericInputs = inputStarts.map((start) => {
+    let end = start;
+    let braces = 0;
+    for (; end < source.length; end += 1) {
+      if (source[end] === "{") braces += 1;
+      if (source[end] === "}") braces -= 1;
+      if (source.startsWith("/>", end) && braces === 0) return source.slice(start, end + 2);
+    }
+    return "";
+  }).filter((input) => input.includes('type="number"'));
 
   assert.equal(numericInputs.length, 14, "update this coverage when adding numeric inputs");
   for (const input of numericInputs) {
