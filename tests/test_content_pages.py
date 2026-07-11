@@ -9,8 +9,9 @@ TEST_USER_PASSWORD = "Strong-Test-Pass-47!"
 from fastapi.testclient import TestClient
 
 from app.core.auth_abuse import reset_auth_abuse_state
-from app.db.database import Base, engine
+from app.db.database import Base, SessionLocal, engine
 from app.main import app
+from app.models.user import User
 
 
 def setup_function():
@@ -32,6 +33,10 @@ def create_player(client: TestClient) -> dict[str, str]:
         "password": TEST_USER_PASSWORD,
     })
     assert response.status_code == 200, response.text
+    with SessionLocal() as db:
+        user = db.query(User).filter(User.username == "reader").one()
+        user.email_verified = True
+        db.commit()
     return login(client, "reader", TEST_USER_PASSWORD)
 
 

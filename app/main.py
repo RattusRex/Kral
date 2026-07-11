@@ -1,5 +1,6 @@
 import os
 import json
+from datetime import datetime
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
@@ -56,7 +57,9 @@ def seed_admin(db: Session) -> None:
         username="admin",
         email="admin@example.com",
         hashed_password=hash_password(_ADMIN_PASSWORD),
-        role=Role.OWNER
+        role=Role.OWNER,
+        email_verified=True,
+        email_verified_at=datetime.now().astimezone(),
     ))
     db.commit()
 
@@ -96,6 +99,24 @@ def migrate_user_roles() -> None:
         connection.execute(text(
             "UPDATE users SET role = :player WHERE role IS NULL OR role = ''"
         ), {"player": Role.PLAYER})
+
+
+def migrate_email_verification() -> None:
+    """Keep existing accounts active; only registrations after this migration wait for email."""
+    boolean_default = "1" if engine.dialect.name == "sqlite" else "TRUE"
+    timestamp_type = "TIMESTAMP" if engine.dialect.name == "sqlite" else "TIMESTAMP WITH TIME ZONE"
+    ensure_column(
+        "users",
+        "email_verified",
+        f"BOOLEAN NOT NULL DEFAULT {boolean_default}",
+    )
+    ensure_column("users", "email_verified_at", timestamp_type)
+    ensure_column("users", "email_verification_token_hash", "VARCHAR(64)")
+    ensure_column("users", "email_verification_expires_at", timestamp_type)
+    with engine.begin() as connection:
+        connection.execute(text(
+            "UPDATE users SET email_verified = TRUE WHERE email_verified IS NULL"
+        ))
 
 
 def ensure_schema_columns() -> None:
@@ -165,6 +186,7 @@ def ensure_schema_columns() -> None:
         "VARCHAR(20) NOT NULL DEFAULT 'upcoming'",
     )
     migrate_user_roles()
+    migrate_email_verification()
     with engine.begin() as connection:
         rows = connection.execute(text(
             "SELECT id, class_name, level, class_levels FROM characters"

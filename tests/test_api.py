@@ -34,9 +34,17 @@ def setup_function():
 
 
 def login(client: TestClient, username: str, password: str) -> str:
+    verify_registered_users()
     response = client.post("/api/login", data={"username": username, "password": password})
     assert response.status_code == 200, response.text
     return response.json()["access_token"]
+
+
+def verify_registered_users() -> None:
+    """Keep legacy feature tests focused on their domain after registration."""
+    with SessionLocal() as db:
+        db.query(User).update({User.email_verified: True})
+        db.commit()
 
 
 def test_character_creation_rejects_levels_outside_campaign_bounds():

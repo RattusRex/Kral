@@ -13,6 +13,7 @@ from app.db.database import Base, SessionLocal, engine
 from app.main import app
 from app.models.character import Character
 from app.models.recruitment import GameApplication, GameRecruitment, RecruitmentMessage
+from app.models.user import User
 
 
 def setup_function():
@@ -32,6 +33,10 @@ def register(client, username):
         "username": username, "email": f"{username}@example.com", "password": TEST_USER_PASSWORD
     })
     assert response.status_code == 200, response.text
+    with SessionLocal() as db:
+        user = db.query(User).filter(User.username == username).one()
+        user.email_verified = True
+        db.commit()
     return login(client, username)
 
 
