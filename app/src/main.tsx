@@ -2700,6 +2700,17 @@ function AdminPage() {
     load();
   }
 
+  async function deleteUser(row: AdminUser) {
+    if (!window.confirm(`Удалить пользователя «${row.username}» и все связанные данные? Это действие нельзя отменить.`)) return;
+    setRoleError("");
+    try {
+      await api.delete(`/admin/users/${row.id}`);
+      load();
+    } catch (error) {
+      setRoleError(apiErrorDetail(error, "Не удалось удалить пользователя"));
+    }
+  }
+
   const canManageRoles = Boolean(user?.is_owner || user?.is_head_admin);
 
   function togglePanel(panel: "master" | "character" | "karma" | "interface") {
@@ -2821,6 +2832,9 @@ function AdminPage() {
                       <option value={role} key={role}>{ROLE_LABELS[role]}</option>
                     ))}
                   </select>
+                  {user?.is_owner && row.id !== user.id && (
+                    <button className="btn-secondary text-red-300" type="button" onClick={() => deleteUser(row)}>Удалить</button>
+                  )}
                 </div>
               ))}
             </div>
