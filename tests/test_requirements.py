@@ -28,3 +28,10 @@ def test_fastapi_stack_remains_compatible_without_fastapi_mail():
     assert requirements["pydantic"] == "2.12.5"
     assert requirements["httpx"] == "0.28.1"
     assert "fastapi-mail" not in requirements
+
+
+def test_http_email_backend_reuses_pinned_httpx_client():
+    requirements = _requirements()
+
+    assert requirements["httpx"] == "0.28.1"
+    assert "aiosmtplib" not in requirements

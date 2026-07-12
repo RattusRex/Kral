@@ -7,11 +7,15 @@ import secrets
 import smtplib
 import ssl
 from email.message import EmailMessage
+from email.utils import parseaddr
 from ipaddress import ip_address
 from urllib.parse import quote
 
+import httpx
+
 logger = logging.getLogger(__name__)
 SMTP_SECURITY_MODES = {"starttls", "ssl", "none"}
+BREVO_API_URL = "https://api.brevo.com/v3/smtp/email"
 
 
 def _validate_smtp_host(host: str) -> None:
@@ -38,8 +42,8 @@ def _validate_smtp_host(host: str) -> None:
 
 def validate_email_configuration() -> str:
     backend = os.getenv("EMAIL_BACKEND", "console").strip().lower()
-    if backend not in {"console", "smtp"}:
-        raise RuntimeError("EMAIL_BACKEND must be 'console' or 'smtp'")
+    if backend not in {"brevo", "console", "smtp"}:
+        raise RuntimeError("EMAIL_BACKEND must be 'brevo', 'console', or 'smtp'")
     if backend == "smtp":
         missing = [name for name in ("SMTP_HOST", "SMTP_FROM_EMAIL") if not os.getenv(name)]
         if missing:
@@ -69,6 +73,19 @@ def validate_email_configuration() -> str:
             raise RuntimeError(
                 f"SMTP authentication requires {missing_credential} when the other credential is set"
             )
+    if backend == "brevo":
+        missing = [name for name in ("BREVO_API_KEY", "EMAIL_FROM") if not os.getenv(name)]
+        if missing:
+            raise RuntimeError(
+                "Brevo email delivery requires: " + ", ".join(missing)
+            )
+        _email_sender()
+        try:
+            timeout = float(os.getenv("EMAIL_HTTP_TIMEOUT_SECONDS", "10"))
+        except ValueError as error:
+            raise RuntimeError("EMAIL_HTTP_TIMEOUT_SECONDS must be a number") from error
+        if timeout <= 0:
+            raise RuntimeError("EMAIL_HTTP_TIMEOUT_SECONDS must be greater than zero")
     return backend
 
 
@@ -78,6 +95,15 @@ def log_email_configuration() -> None:
     backend = validate_email_configuration()
     if backend == "console":
         logger.info("Email delivery configured: backend=console")
+        return
+    if backend == "brevo":
+        sender_name, sender_email = _email_sender()
+        logger.info(
+            "Email delivery configured: backend=brevo timeout=%s from_name=%r from=%s",
+            float(os.getenv("EMAIL_HTTP_TIMEOUT_SECONDS", "10")),
+            sender_name,
+            sender_email,
+        )
         return
     logger.info(
         "Email delivery configured: backend=smtp host=%s port=%s security=%s "
@@ -116,6 +142,70 @@ def _smtp_error_details(error: Exception, secrets_to_redact: tuple[str, ...]) ->
     return code, response
 
 
+def _email_sender() -> tuple[str, str]:
+    sender = os.getenv("EMAIL_FROM", "").strip()
+    name, address = parseaddr(sender)
+    if not address or "@" not in address:
+        raise RuntimeError("EMAIL_FROM must contain a valid email address")
+    return name, address
+
+
+def _redact(value: str, secrets_to_redact: tuple[str, ...]) -> str:
+    for secret in secrets_to_redact:
+        if secret:
+            value = value.replace(secret, "[REDACTED]")
+    return value
+
+
+def _send_with_brevo(
+    email: str,
+    username: str,
+    token: str,
+    subject: str,
+    body: str,
+) -> None:
+    api_key = os.environ["BREVO_API_KEY"]
+    sender_name, sender_email = _email_sender()
+    timeout = float(os.getenv("EMAIL_HTTP_TIMEOUT_SECONDS", "10"))
+    payload = {
+        "sender": {"name": sender_name, "email": sender_email},
+        "to": [{"email": email, "name": username}],
+        "subject": subject,
+        "textContent": body,
+    }
+    logger.info(
+        "Starting verification email delivery: provider=brevo recipient=%s",
+        email,
+    )
+    try:
+        with httpx.Client(timeout=timeout) as client:
+            response = client.post(
+                BREVO_API_URL,
+                headers={"api-key": api_key, "accept": "application/json"},
+                json=payload,
+            )
+            response.raise_for_status()
+        logger.info(
+            "Verification email accepted by provider: provider=brevo recipient=%s",
+            email,
+        )
+    except Exception as error:
+        response = getattr(error, "response", None)
+        status_code = getattr(response, "status_code", None)
+        response_body = getattr(response, "text", None)
+        if response_body:
+            response_body = _redact(response_body, (api_key, token))
+        logger.exception(
+            "Verification email delivery failed: provider=brevo stage=send "
+            "error_type=%s status_code=%r response=%r recipient=%s",
+            type(error).__name__,
+            status_code,
+            response_body,
+            email,
+        )
+        raise
+
+
 def send_verification_email(email: str, username: str, token: str) -> None:
     frontend_url = os.getenv("FRONTEND_URL", "http://localhost:5173").rstrip("/")
     verification_url = f"{frontend_url}/verify-email?token={quote(token, safe='')}"
@@ -130,6 +220,9 @@ def send_verification_email(email: str, username: str, token: str) -> None:
     backend = validate_email_configuration()
     if backend == "console":
         logger.info("Email verification link for %s: %s", email, verification_url)
+        return
+    if backend == "brevo":
+        _send_with_brevo(email, username, token, subject, body)
         return
     message = EmailMessage()
     message["Subject"] = subject

@@ -1,7 +1,10 @@
+import json
 import os
 import smtplib
 from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
+
+import httpx
 
 os.environ["DATABASE_URL"] = "sqlite://"
 os.environ.setdefault("SECRET_KEY", "test-secret-key-for-pytest-only")
@@ -107,6 +110,94 @@ def test_smtp_delivery_is_attempted_with_configured_sender(monkeypatch):
     assert message["From"] == "Kral <no-reply@example.com>"
     assert message["To"] == "new@example.com"
     assert "https://kral.example.com/verify-email?token=" in message.get_content()
+
+
+def test_brevo_delivery_uses_transactional_email_api(monkeypatch):
+    requests = []
+    httpx_client = httpx.Client
+
+    def deliver(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(201, json={"messageId": "message-123"})
+
+    monkeypatch.setenv("EMAIL_BACKEND", "brevo")
+    monkeypatch.setenv("BREVO_API_KEY", "brevo-secret")
+    monkeypatch.setenv("EMAIL_FROM", "Kral <no-reply@example.com>")
+    monkeypatch.setenv("EMAIL_HTTP_TIMEOUT_SECONDS", "7")
+    monkeypatch.setenv("FRONTEND_URL", "https://kral.example.com")
+    monkeypatch.setattr(
+        "app.core.email_verification.httpx.Client",
+        lambda **kwargs: httpx_client(
+            **kwargs, transport=httpx.MockTransport(deliver)
+        ),
+    )
+
+    with TestClient(app) as client:
+        response = register(client)
+
+    assert response.status_code == 200, response.text
+    assert len(requests) == 1
+    request = requests[0]
+    assert request.url == "https://api.brevo.com/v3/smtp/email"
+    assert request.headers["api-key"] == "brevo-secret"
+    payload = json.loads(request.content)
+    assert payload["sender"] == {
+        "name": "Kral",
+        "email": "no-reply@example.com",
+    }
+    assert payload["to"] == [{"email": "new@example.com", "name": "new-player"}]
+    assert "https://kral.example.com/verify-email?token=" in payload["textContent"]
+
+
+def test_brevo_delivery_failure_logs_safe_provider_details(monkeypatch, caplog):
+    httpx_client = httpx.Client
+
+    def reject(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            401,
+            json={"code": "unauthorized", "message": "bad brevo-secret secret-token"},
+        )
+
+    monkeypatch.setenv("EMAIL_BACKEND", "brevo")
+    monkeypatch.setenv("BREVO_API_KEY", "brevo-secret")
+    monkeypatch.setenv("EMAIL_FROM", "no-reply@example.com")
+    monkeypatch.setattr(
+        "app.core.email_verification.httpx.Client",
+        lambda **kwargs: httpx_client(
+            **kwargs, transport=httpx.MockTransport(reject)
+        ),
+    )
+
+    from app.core.email_verification import send_verification_email
+
+    with caplog.at_level("ERROR", logger="app.core.email_verification"):
+        try:
+            send_verification_email("recipient@example.com", "Player", "secret-token")
+        except httpx.HTTPStatusError:
+            pass
+        else:
+            raise AssertionError("Brevo HTTP failures must be propagated")
+
+    assert "provider=brevo" in caplog.text
+    assert "stage=send" in caplog.text
+    assert "status_code=401" in caplog.text
+    assert "unauthorized" in caplog.text
+    assert caplog.text.count("[REDACTED]") == 2
+    assert "brevo-secret" not in caplog.text
+    assert "secret-token" not in caplog.text
+
+
+def test_brevo_configuration_requires_api_key_and_sender():
+    from app.core.email_verification import validate_email_configuration
+
+    with patch.dict(os.environ, {"EMAIL_BACKEND": "brevo"}, clear=True):
+        try:
+            validate_email_configuration()
+        except RuntimeError as error:
+            assert "BREVO_API_KEY" in str(error)
+            assert "EMAIL_FROM" in str(error)
+        else:
+            raise AssertionError("Incomplete Brevo settings must fail validation")
 
 
 def test_smtp_delivery_logs_non_secret_configuration_and_each_completed_stage(

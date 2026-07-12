@@ -54,9 +54,20 @@ test("example environment satisfies the required email backend setting", () => {
 
   assert.match(
     backend,
-    /^      EMAIL_BACKEND: \$\{EMAIL_BACKEND:\?set EMAIL_BACKEND to console or smtp\}$/m,
+    /^      EMAIL_BACKEND: \$\{EMAIL_BACKEND:\?set EMAIL_BACKEND to console, smtp, or brevo\}$/m,
     "compose should fail with a useful message when EMAIL_BACKEND is missing"
   );
+  for (const variable of [
+    "EMAIL_FROM",
+    "EMAIL_HTTP_TIMEOUT_SECONDS",
+    "BREVO_API_KEY"
+  ]) {
+    assert.match(
+      exampleEnv,
+      new RegExp(`^# ${variable}=`, "m"),
+      `${variable} should be documented for HTTP email delivery`
+    );
+  }
   assert.match(
     exampleEnv,
     /^EMAIL_BACKEND=console$/m,
