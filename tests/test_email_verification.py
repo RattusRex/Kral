@@ -1,4 +1,5 @@
 import os
+import smtplib
 from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
 
@@ -153,6 +154,62 @@ def test_smtp_delivery_logs_non_secret_configuration_and_each_completed_stage(
     assert "recipient@example.com" in caplog.text
     assert "smtp-password" not in caplog.text
     assert "secret-token" not in caplog.text
+
+
+def test_smtp_delivery_failure_logs_stage_and_structured_smtp_details(
+    monkeypatch, caplog
+):
+    class FakeSmtp:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def starttls(self, *, context):
+            assert context is not None
+
+        def login(self, username, password):
+            assert username == "smtp-user"
+            assert password == "smtp-password"
+            error = smtplib.SMTPAuthenticationError(
+                535,
+                b"authentication failed for smtp-password with secret-token",
+            )
+            error.args = ()
+            raise error
+
+    monkeypatch.setenv("EMAIL_BACKEND", "smtp")
+    monkeypatch.setenv("SMTP_HOST", "smtp.example.com")
+    monkeypatch.setenv("SMTP_PORT", "587")
+    monkeypatch.setenv("SMTP_SECURITY", "starttls")
+    monkeypatch.setenv("SMTP_USERNAME", "smtp-user")
+    monkeypatch.setenv("SMTP_PASSWORD", "smtp-password")
+    monkeypatch.setenv("SMTP_FROM_EMAIL", "sender@example.com")
+    monkeypatch.setattr("app.core.email_verification.smtplib.SMTP", FakeSmtp)
+
+    from app.core.email_verification import send_verification_email
+
+    with caplog.at_level("ERROR", logger="app.core.email_verification"):
+        try:
+            send_verification_email(
+                "recipient@example.com", "Player", "secret-token"
+            )
+        except smtplib.SMTPAuthenticationError:
+            pass
+        else:
+            raise AssertionError("SMTP authentication failure must be propagated")
+
+    assert "stage=authentication" in caplog.text
+    assert "error_type=SMTPAuthenticationError" in caplog.text
+    assert "smtp_code=535" in caplog.text
+    assert "authentication failed" in caplog.text
+    assert caplog.text.count("[REDACTED]") == 2
+    assert "secret-token" not in caplog.text
+    assert "smtp-password" not in caplog.text
 
 
 def test_smtp_ssl_delivery_uses_implicit_tls_and_timeout(monkeypatch):
