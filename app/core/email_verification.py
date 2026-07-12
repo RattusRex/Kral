@@ -99,6 +99,23 @@ def hash_verification_token(token: str) -> str:
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
 
+def _smtp_error_details(error: Exception, secrets_to_redact: tuple[str, ...]) -> tuple[object, object]:
+    """Return SMTP response metadata even when an exception has no useful text."""
+
+    code = getattr(error, "smtp_code", None)
+    response = getattr(error, "smtp_error", None)
+    if isinstance(response, bytes):
+        response = response.decode("utf-8", errors="replace")
+    if response is None and isinstance(error, smtplib.SMTPRecipientsRefused):
+        response = error.recipients
+    if response is not None:
+        response = repr(response)
+        for secret in secrets_to_redact:
+            if secret:
+                response = response.replace(secret, "[REDACTED]")
+    return code, response
+
+
 def send_verification_email(email: str, username: str, token: str) -> None:
     frontend_url = os.getenv("FRONTEND_URL", "http://localhost:5173").rstrip("/")
     verification_url = f"{frontend_url}/verify-email?token={quote(token, safe='')}"
@@ -134,14 +151,38 @@ def send_verification_email(email: str, username: str, token: str) -> None:
         security,
         "enabled" if os.getenv("SMTP_USERNAME", "").strip() else "disabled",
     )
-    with smtp_class(host, port, timeout=timeout) as smtp:
-        logger.info("SMTP connection established: host=%s port=%s", host, port)
-        if security == "starttls":
-            smtp.starttls(context=ssl.create_default_context())
-            logger.info("SMTP STARTTLS completed: host=%s port=%s", host, port)
-        username_env = os.getenv("SMTP_USERNAME")
-        if username_env:
-            smtp.login(username_env, os.environ["SMTP_PASSWORD"])
-            logger.info("SMTP authentication completed: username=%s", username_env)
-        smtp.send_message(message)
-        logger.info("Verification email accepted by SMTP server: recipient=%s", email)
+    stage = "connection"
+    try:
+        with smtp_class(host, port, timeout=timeout) as smtp:
+            logger.info("SMTP connection established: host=%s port=%s", host, port)
+            if security == "starttls":
+                stage = "starttls"
+                smtp.starttls(context=ssl.create_default_context())
+                logger.info("SMTP STARTTLS completed: host=%s port=%s", host, port)
+            username_env = os.getenv("SMTP_USERNAME")
+            if username_env:
+                stage = "authentication"
+                smtp.login(username_env, os.environ["SMTP_PASSWORD"])
+                logger.info("SMTP authentication completed: username=%s", username_env)
+            stage = "send"
+            smtp.send_message(message)
+            logger.info("Verification email accepted by SMTP server: recipient=%s", email)
+    except Exception as error:
+        smtp_code, smtp_response = _smtp_error_details(
+            error,
+            (os.getenv("SMTP_PASSWORD", ""), token),
+        )
+        logger.exception(
+            "Verification email delivery failed: stage=%s error_type=%s "
+            "smtp_code=%r smtp_response=%r host=%s port=%s security=%s "
+            "recipient=%s",
+            stage,
+            type(error).__name__,
+            smtp_code,
+            smtp_response,
+            host,
+            port,
+            security,
+            email,
+        )
+        raise

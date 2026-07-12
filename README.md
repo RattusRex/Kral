@@ -213,8 +213,10 @@ timeout, authentication state, and sender are logged without the SMTP password.
 Each successful SMTP connection, STARTTLS negotiation, authentication, and
 server acceptance is logged as a separate stage, so the last completed stage
 identifies where a failed delivery stopped. Registration and resend failures log
-the full exception in backend logs while returning a safe localized message to
-the browser.
+the failed stage, exception class, SMTP response code and server response, plus
+the full traceback in backend logs while returning a safe localized message to
+the browser. These diagnostics are emitted even when the exception itself has
+no useful display text.
 
 Docker Compose reads `.env` while creating a container; changing `.env` does not
 modify an already-running container. Recreate the backend and verify its
