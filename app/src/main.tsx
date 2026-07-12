@@ -128,7 +128,20 @@ function normalizeNumberOnBlur(setValue: (value: number) => void, fallback = 0) 
 
 function apiErrorDetail(error: unknown, fallback: string) {
   const detail = (error as { response?: { data?: { detail?: unknown } } }).response?.data?.detail;
-  return typeof detail === "string" ? detail : fallback;
+  if (typeof detail === "string") return detail;
+  if (detail && typeof detail === "object" && "message" in detail && typeof detail.message === "string") {
+    return detail.message;
+  }
+  if (Array.isArray(detail) && detail.length > 0) {
+    const validationError = detail[0] as { loc?: unknown[]; type?: string };
+    const location = validationError.loc ?? [];
+    const field = location[location.length - 1];
+    if (field === "email") return "Введите корректный адрес электронной почты";
+    if (field === "password") return "Пароль не соответствует требованиям";
+    if (field === "username") return "Введите имя пользователя";
+    return "Проверьте правильность заполнения формы";
+  }
+  return fallback;
 }
 
 function formatGameDate(value: string | undefined) {
@@ -606,9 +619,7 @@ function Login() {
       if (detail?.code === "email_not_verified") {
         setError(detail.message);
         setUnverifiedEmail(detail.email ?? email);
-      } else {
-        setError("Не удалось войти");
-      }
+      } else setError(apiErrorDetail(error, "Не удалось войти"));
     }
   }
 
@@ -617,8 +628,8 @@ function Login() {
     try {
       await api.post("/email/resend", { email: unverifiedEmail });
       setNotice("Новое письмо отправлено. Проверьте почту.");
-    } catch {
-      setError("Не удалось повторно отправить письмо");
+    } catch (resendError) {
+      setError(apiErrorDetail(resendError, "Не удалось повторно отправить письмо"));
     }
   }
 
@@ -636,20 +647,43 @@ function Register() {
   const [form, setForm] = useState({ username: "", email: "", password: "" });
   const [error, setError] = useState("");
   const [registeredEmail, setRegisteredEmail] = useState("");
+  const [deliveryFailed, setDeliveryFailed] = useState(false);
+  const [notice, setNotice] = useState("");
 
   async function submit(event: FormEvent) {
     event.preventDefault();
     setError("");
+    setDeliveryFailed(false);
     try {
       await api.post("/users", form);
       setRegisteredEmail(form.email);
-    } catch (requestError: any) {
-      setError(requestError.response?.data?.detail ?? "Не удалось создать аккаунт");
+    } catch (requestError) {
+      const detail = axios.isAxiosError(requestError) ? requestError.response?.data?.detail : undefined;
+      if (detail?.code === "verification_email_delivery_failed") {
+        setRegisteredEmail(detail.email ?? form.email);
+        setDeliveryFailed(true);
+        setError(detail.message);
+      } else setError(apiErrorDetail(requestError, "Не удалось создать аккаунт"));
     }
   }
 
-  if (registeredEmail) return <AuthPanel title="Проверьте почту" error="" onSubmit={(event) => event.preventDefault()}>
-    <p className="text-sm text-white/75">Мы отправили ссылку подтверждения на {registeredEmail}. Она действует 24 часа.</p>
+  async function resend() {
+    setError("");
+    setNotice("");
+    try {
+      await api.post("/email/resend", { email: registeredEmail });
+      setDeliveryFailed(false);
+      setNotice("Новое письмо отправлено. Проверьте почту.");
+    } catch (resendError) {
+      setError(apiErrorDetail(resendError, "Не удалось повторно отправить письмо"));
+    }
+  }
+
+  if (registeredEmail) return <AuthPanel title={deliveryFailed ? "Аккаунт создан" : "Проверьте почту"} error={error} onSubmit={(event) => event.preventDefault()}>
+    {!deliveryFailed && <p className="text-sm text-white/75">Мы отправили ссылку подтверждения на {registeredEmail}. Она действует 24 часа.</p>}
+    {deliveryFailed && <p className="text-sm text-white/75">Аккаунт привязан к адресу {registeredEmail}. Запросите новое письмо, чтобы завершить регистрацию.</p>}
+    {notice && <p className="text-sm text-amber-200">{notice}</p>}
+    <button className="btn-secondary" type="button" onClick={resend}>Отправить письмо повторно</button>
     <Link className="btn" to="/login">Перейти ко входу</Link>
   </AuthPanel>;
 

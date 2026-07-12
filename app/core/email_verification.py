@@ -5,10 +5,12 @@ import logging
 import os
 import secrets
 import smtplib
+import ssl
 from email.message import EmailMessage
 from urllib.parse import quote
 
 logger = logging.getLogger(__name__)
+SMTP_SECURITY_MODES = {"starttls", "ssl", "none"}
 
 
 def validate_email_configuration() -> str:
@@ -27,6 +29,22 @@ def validate_email_configuration() -> str:
             raise RuntimeError("SMTP_PORT must be an integer") from error
         if not 1 <= port <= 65535:
             raise RuntimeError("SMTP_PORT must be between 1 and 65535")
+        security = os.getenv("SMTP_SECURITY", "starttls").strip().lower()
+        if security not in SMTP_SECURITY_MODES:
+            raise RuntimeError("SMTP_SECURITY must be 'starttls', 'ssl', or 'none'")
+        try:
+            timeout = float(os.getenv("SMTP_TIMEOUT_SECONDS", "10"))
+        except ValueError as error:
+            raise RuntimeError("SMTP_TIMEOUT_SECONDS must be a number") from error
+        if timeout <= 0:
+            raise RuntimeError("SMTP_TIMEOUT_SECONDS must be greater than zero")
+        username = os.getenv("SMTP_USERNAME", "").strip()
+        password = os.getenv("SMTP_PASSWORD", "")
+        if bool(username) != bool(password):
+            missing_credential = "SMTP_PASSWORD" if username else "SMTP_USERNAME"
+            raise RuntimeError(
+                f"SMTP authentication requires {missing_credential} when the other credential is set"
+            )
     return backend
 
 
@@ -61,11 +79,13 @@ def send_verification_email(email: str, username: str, token: str) -> None:
 
     host = os.environ["SMTP_HOST"]
     port = int(os.getenv("SMTP_PORT", "587"))
-    use_tls = os.getenv("SMTP_USE_TLS", "true").lower() == "true"
-    with smtplib.SMTP(host, port) as smtp:
-        if use_tls:
-            smtp.starttls()
+    security = os.getenv("SMTP_SECURITY", "starttls").strip().lower()
+    timeout = float(os.getenv("SMTP_TIMEOUT_SECONDS", "10"))
+    smtp_class = smtplib.SMTP_SSL if security == "ssl" else smtplib.SMTP
+    with smtp_class(host, port, timeout=timeout) as smtp:
+        if security == "starttls":
+            smtp.starttls(context=ssl.create_default_context())
         username_env = os.getenv("SMTP_USERNAME")
         if username_env:
-            smtp.login(username_env, os.getenv("SMTP_PASSWORD", ""))
+            smtp.login(username_env, os.environ["SMTP_PASSWORD"])
         smtp.send_message(message)

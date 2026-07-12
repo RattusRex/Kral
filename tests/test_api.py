@@ -408,7 +408,7 @@ def test_duplicate_username_returns_conflict():
             "password": TEST_USER_PASSWORD
         })
         assert duplicate.status_code == 409
-        assert duplicate.json()["detail"] == "Username already taken"
+        assert duplicate.json()["detail"] == "Имя пользователя уже занято"
 
 
 def test_duplicate_email_returns_conflict():
@@ -425,7 +425,7 @@ def test_duplicate_email_returns_conflict():
             "password": TEST_USER_PASSWORD
         })
         assert duplicate.status_code == 409
-        assert duplicate.json()["detail"] == "Email already registered"
+        assert duplicate.json()["detail"] == "Этот адрес электронной почты уже зарегистрирован"
 
 
 def test_duplicate_email_case_insensitive_returns_conflict():
@@ -442,7 +442,7 @@ def test_duplicate_email_case_insensitive_returns_conflict():
             "password": TEST_USER_PASSWORD
         })
         assert duplicate.status_code == 409
-        assert duplicate.json()["detail"] == "Email already registered"
+        assert duplicate.json()["detail"] == "Этот адрес электронной почты уже зарегистрирован"
 
 
 def test_unique_user_registers_successfully():
