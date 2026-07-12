@@ -208,6 +208,28 @@ an email address is not a valid `SMTP_HOST`. Administrators can see each user's
 status and manually confirm an address in the admin panel. Accounts that existed
 before this feature are migrated as already verified.
 
+At backend startup, the effective email backend, SMTP host, port, security mode,
+timeout, authentication state, and sender are logged without the SMTP password.
+Each successful SMTP connection, STARTTLS negotiation, authentication, and
+server acceptance is logged as a separate stage, so the last completed stage
+identifies where a failed delivery stopped. Registration and resend failures log
+the full exception in backend logs while returning a safe localized message to
+the browser.
+
+Docker Compose reads `.env` while creating a container; changing `.env` does not
+modify an already-running container. Recreate the backend and verify its
+effective non-secret settings after any SMTP change:
+
+```bash
+docker compose up -d --force-recreate backend
+docker compose exec backend env | grep -E '^(EMAIL_BACKEND|SMTP_HOST|SMTP_PORT|SMTP_SECURITY|SMTP_TIMEOUT_SECONDS|SMTP_USERNAME|SMTP_FROM_EMAIL)='
+docker compose logs backend
+```
+
+Do not print `SMTP_PASSWORD`. For Gmail, SMTP authentication requires a Google
+app password when two-step verification is enabled; the normal account password
+is not accepted.
+
 ## Persisted Text and Request Limits
 
 The backend rejects request bodies larger than 1 MiB, including requests sent

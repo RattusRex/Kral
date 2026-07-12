@@ -204,7 +204,11 @@ def resend_verification_email(data: EmailResendRequest, db: Session = Depends(ge
         )
         raise HTTPException(
             status_code=503,
-            detail="Не удалось отправить письмо подтверждения. Попробуйте позже.",
+            detail={
+                "code": "verification_email_delivery_failed",
+                "message": "Не удалось отправить письмо подтверждения. Попробуйте позже.",
+                "email": user.email,
+            },
         )
     return generic_response
 

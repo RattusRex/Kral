@@ -108,6 +108,53 @@ def test_smtp_delivery_is_attempted_with_configured_sender(monkeypatch):
     assert "https://kral.example.com/verify-email?token=" in message.get_content()
 
 
+def test_smtp_delivery_logs_non_secret_configuration_and_each_completed_stage(
+    monkeypatch, caplog
+):
+    class FakeSmtp:
+        def __init__(self, host, port, *, timeout):
+            assert (host, port, timeout) == ("smtp.example.com", 587, 10)
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def starttls(self, *, context):
+            assert context is not None
+
+        def login(self, username, password):
+            assert (username, password) == ("smtp-user", "smtp-password")
+
+        def send_message(self, message):
+            assert message["To"] == "recipient@example.com"
+
+    monkeypatch.setenv("EMAIL_BACKEND", "smtp")
+    monkeypatch.setenv("SMTP_HOST", "smtp.example.com")
+    monkeypatch.setenv("SMTP_PORT", "587")
+    monkeypatch.setenv("SMTP_SECURITY", "starttls")
+    monkeypatch.setenv("SMTP_USERNAME", "smtp-user")
+    monkeypatch.setenv("SMTP_PASSWORD", "smtp-password")
+    monkeypatch.setenv("SMTP_FROM_EMAIL", "sender@example.com")
+    monkeypatch.setattr("app.core.email_verification.smtplib.SMTP", FakeSmtp)
+
+    with caplog.at_level("INFO", logger="app.core.email_verification"):
+        from app.core.email_verification import send_verification_email
+
+        send_verification_email("recipient@example.com", "Player", "secret-token")
+
+    assert "host=smtp.example.com port=587 security=starttls" in caplog.text
+    assert "authentication=enabled" in caplog.text
+    assert "SMTP connection established" in caplog.text
+    assert "SMTP STARTTLS completed" in caplog.text
+    assert "SMTP authentication completed" in caplog.text
+    assert "Verification email accepted by SMTP server" in caplog.text
+    assert "recipient@example.com" in caplog.text
+    assert "smtp-password" not in caplog.text
+    assert "secret-token" not in caplog.text
+
+
 def test_smtp_ssl_delivery_uses_implicit_tls_and_timeout(monkeypatch):
     connections = []
 
@@ -233,6 +280,33 @@ def test_registration_delivery_failure_is_localized_and_resend_recovers(monkeypa
             "Если аккаунт ожидает подтверждения, новое письмо отправлено."
         )
         assert delivery_attempts == 2
+
+
+def test_resend_delivery_failure_returns_structured_detail_and_logs_cause(
+    monkeypatch, caplog
+):
+    monkeypatch.setattr("app.api.users.send_verification_email", lambda *_args: None)
+
+    with TestClient(app) as client:
+        response = register(client, email="recipient@example.com")
+        assert response.status_code == 200, response.text
+
+        def reject_recipient(*_args):
+            raise OSError("recipient rejected by SMTP server")
+
+        monkeypatch.setattr("app.api.users.send_verification_email", reject_recipient)
+        with caplog.at_level("ERROR", logger="app.api.users"):
+            resent = client.post(
+                "/api/email/resend", json={"email": "recipient@example.com"}
+            )
+
+    assert resent.status_code == 503
+    assert resent.json()["detail"] == {
+        "code": "verification_email_delivery_failed",
+        "message": "Не удалось отправить письмо подтверждения. Попробуйте позже.",
+        "email": "recipient@example.com",
+    }
+    assert "recipient rejected by SMTP server" in caplog.text
 
 
 def test_confirmation_token_is_single_use(monkeypatch):
