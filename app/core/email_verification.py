@@ -72,6 +72,25 @@ def validate_email_configuration() -> str:
     return backend
 
 
+def log_email_configuration() -> None:
+    """Log effective delivery settings without exposing credentials."""
+
+    backend = validate_email_configuration()
+    if backend == "console":
+        logger.info("Email delivery configured: backend=console")
+        return
+    logger.info(
+        "Email delivery configured: backend=smtp host=%s port=%s security=%s "
+        "timeout=%s authentication=%s from=%s",
+        os.environ["SMTP_HOST"].strip(),
+        int(os.getenv("SMTP_PORT", "587")),
+        os.getenv("SMTP_SECURITY", "starttls").strip().lower(),
+        float(os.getenv("SMTP_TIMEOUT_SECONDS", "10")),
+        "enabled" if os.getenv("SMTP_USERNAME", "").strip() else "disabled",
+        os.environ["SMTP_FROM_EMAIL"].strip(),
+    )
+
+
 def generate_verification_token() -> str:
     return secrets.token_urlsafe(32)
 
@@ -106,10 +125,23 @@ def send_verification_email(email: str, username: str, token: str) -> None:
     security = os.getenv("SMTP_SECURITY", "starttls").strip().lower()
     timeout = float(os.getenv("SMTP_TIMEOUT_SECONDS", "10"))
     smtp_class = smtplib.SMTP_SSL if security == "ssl" else smtplib.SMTP
+    logger.info(
+        "Starting verification email delivery: recipient=%s host=%s port=%s "
+        "security=%s authentication=%s",
+        email,
+        host,
+        port,
+        security,
+        "enabled" if os.getenv("SMTP_USERNAME", "").strip() else "disabled",
+    )
     with smtp_class(host, port, timeout=timeout) as smtp:
+        logger.info("SMTP connection established: host=%s port=%s", host, port)
         if security == "starttls":
             smtp.starttls(context=ssl.create_default_context())
+            logger.info("SMTP STARTTLS completed: host=%s port=%s", host, port)
         username_env = os.getenv("SMTP_USERNAME")
         if username_env:
             smtp.login(username_env, os.environ["SMTP_PASSWORD"])
+            logger.info("SMTP authentication completed: username=%s", username_env)
         smtp.send_message(message)
+        logger.info("Verification email accepted by SMTP server: recipient=%s", email)

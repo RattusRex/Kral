@@ -33,7 +33,7 @@ from app.core.calendar import GAME_EPOCH
 from app.core.security import hash_password
 from app.core.roles import Role
 from app.core.env import load_env
-from app.core.email_verification import validate_email_configuration
+from app.core.email_verification import log_email_configuration
 from app.core.request_limits import RequestBodyLimitMiddleware
 from sqlalchemy import inspect, text
 from sqlalchemy.orm import Session
@@ -289,7 +289,7 @@ def ensure_schema_columns() -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    validate_email_configuration()
+    log_email_configuration()
     Base.metadata.create_all(bind=engine)
     ensure_schema_columns()
     db = SessionLocal()
