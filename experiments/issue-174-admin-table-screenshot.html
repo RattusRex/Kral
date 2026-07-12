@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Issue 174 admin table verification</title>
+    <style>
+      :root {
+        color: #e8dec8;
+        background: #101217;
+        font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+      }
+      body { margin: 0; padding: 1rem; }
+      .panel {
+        min-width: 0;
+        border: 1px solid rgb(255 255 255 / 0.1);
+        border-radius: 0.5rem;
+        background: rgb(27 32 40 / 0.9);
+      }
+      .p-5 { padding: 1.25rem; }
+      .mt-4 { margin-top: 1rem; }
+      .py-2 { padding-block: 0.5rem; }
+      .py-3 { padding-block: 0.75rem; }
+      .pr-3 { padding-right: 0.75rem; }
+      .w-full { width: 100%; }
+      .min-w-\[960px\] { min-width: 960px; }
+      .text-left { text-align: left; }
+      .border-t { border-top-style: solid; border-top-width: 1px; }
+      .text-sm { font-size: 0.875rem; }
+      .text-xs { font-size: 0.75rem; }
+      .text-lg { font-size: 1.125rem; }
+      .font-semibold { font-weight: 600; }
+      .uppercase { text-transform: uppercase; }
+      .text-white\/45 { color: rgb(255 255 255 / 0.45); }
+      .border-white\/10 { border-color: rgb(255 255 255 / 0.1); }
+      .text-ember { color: #d6a858; }
+      .responsive-table {
+        max-width: 100%;
+        overflow-x: auto;
+        overscroll-behavior-inline: contain;
+        -webkit-overflow-scrolling: touch;
+      }
+      .responsive-table th {
+        white-space: nowrap;
+        overflow-wrap: normal;
+      }
+      .responsive-table td { overflow-wrap: break-word; }
+    </style>
+  </head>
+  <body>
+    <section class="panel p-5">
+      <h2 class="text-lg font-semibold text-ember">Все персонажи</h2>
+      <div class="responsive-table mt-4" role="region" aria-label="Все персонажи" tabindex="0">
+        <table class="w-full min-w-[960px] text-left text-sm">
+          <thead class="text-xs uppercase text-white/45">
+            <tr>
+              <th class="py-2 pr-3">Имя</th>
+              <th class="py-2 pr-3">Владелец</th>
+              <th class="py-2 pr-3">Уровень</th>
+              <th class="py-2 pr-3">Дата сбора</th>
+              <th class="py-2 pr-3">Свободные дни</th>
+              <th class="py-2 pr-3">Раса</th>
+              <th class="py-2 pr-3">Подкласс</th>
+              <th class="py-2 pr-3">Путь</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr class="border-t border-white/10">
+              <td class="py-3 pr-3 font-semibold text-ember">Альрик</td>
+              <td class="py-3 pr-3">ОченьДлинноеИмяВладельцаБезПробеловДляПроверки</td>
+              <td class="py-3 pr-3">12</td>
+              <td class="py-3 pr-3">11.07.2026</td>
+              <td class="py-3 pr-3">145</td>
+              <td class="py-3 pr-3">Человек</td>
+              <td class="py-3 pr-3">Мастер боевых искусств</td>
+              <td class="py-3 pr-3">Путь длинного клинка</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </body>
+</html>
