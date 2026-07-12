@@ -175,6 +175,32 @@ def test_smtp_configuration_rejects_partial_credentials(monkeypatch):
         raise AssertionError("Partial SMTP credentials must fail validation")
 
 
+def test_smtp_configuration_rejects_email_address_as_host(monkeypatch):
+    from app.core.email_verification import validate_email_configuration
+
+    monkeypatch.setenv("EMAIL_BACKEND", "smtp")
+    monkeypatch.setenv("SMTP_HOST", "epohakostyastrof@gmail.com")
+    monkeypatch.setenv("SMTP_FROM_EMAIL", "epohakostyastrof@gmail.com")
+
+    try:
+        validate_email_configuration()
+    except RuntimeError as error:
+        assert "SMTP_HOST" in str(error)
+        assert "server hostname" in str(error)
+    else:
+        raise AssertionError("An email address cannot be used as an SMTP host")
+
+
+def test_smtp_configuration_accepts_hostname_and_ip_address(monkeypatch):
+    from app.core.email_verification import validate_email_configuration
+
+    monkeypatch.setenv("EMAIL_BACKEND", "smtp")
+    monkeypatch.setenv("SMTP_FROM_EMAIL", "mailer@example.com")
+    for host in ("smtp.gmail.com", "mail-server.local", "127.0.0.1", "::1"):
+        monkeypatch.setenv("SMTP_HOST", host)
+        assert validate_email_configuration() == "smtp"
+
+
 def test_registration_delivery_failure_is_localized_and_resend_recovers(monkeypatch, caplog):
     delivery_attempts = 0
 

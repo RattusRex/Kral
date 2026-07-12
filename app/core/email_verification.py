@@ -7,10 +7,33 @@ import secrets
 import smtplib
 import ssl
 from email.message import EmailMessage
+from ipaddress import ip_address
 from urllib.parse import quote
 
 logger = logging.getLogger(__name__)
 SMTP_SECURITY_MODES = {"starttls", "ssl", "none"}
+
+
+def _validate_smtp_host(host: str) -> None:
+    if "@" in host or "://" in host or any(character.isspace() for character in host):
+        raise RuntimeError(
+            "SMTP_HOST must be a server hostname such as smtp.gmail.com, not an email address or URL"
+        )
+    try:
+        ip_address(host)
+        return
+    except ValueError:
+        pass
+    labels = host.rstrip(".").split(".")
+    if not host or any(
+        not label
+        or len(label) > 63
+        or label.startswith("-")
+        or label.endswith("-")
+        or not all(character.isalnum() or character == "-" for character in label)
+        for label in labels
+    ):
+        raise RuntimeError("SMTP_HOST must be a valid server hostname or IP address")
 
 
 def validate_email_configuration() -> str:
@@ -23,6 +46,7 @@ def validate_email_configuration() -> str:
             raise RuntimeError(
                 "SMTP email delivery requires: " + ", ".join(missing)
             )
+        _validate_smtp_host(os.environ["SMTP_HOST"].strip())
         try:
             port = int(os.getenv("SMTP_PORT", "587"))
         except ValueError as error:
