@@ -2775,14 +2775,12 @@ function AdminPage() {
       <section className="panel p-5">
         <h2 className="text-lg font-semibold text-ember">Все персонажи</h2>
         <div className="responsive-table mt-4" role="region" aria-label="Все персонажи" tabIndex={0}>
-          <table className="w-full min-w-[960px] text-left text-sm">
+          <table className="w-full min-w-[720px] text-left text-sm">
             <thead className="text-xs uppercase text-white/45">
               <tr>
                 <th className="py-2 pr-3">Имя</th>
                 <th className="py-2 pr-3">Владелец</th>
                 <th className="py-2 pr-3">Уровень</th>
-                <th className="py-2 pr-3">Дата сбора</th>
-                <th className="py-2 pr-3">Свободные дни</th>
                 <th className="py-2 pr-3">Раса</th>
                 <th className="py-2 pr-3">Подкласс</th>
                 <th className="py-2 pr-3">Путь</th>
@@ -2795,8 +2793,6 @@ function AdminPage() {
                   <td className="py-3 pr-3 font-semibold text-ember">{character.name}</td>
                   <td className="py-3 pr-3">{character.owner_username}</td>
                   <td className="py-3 pr-3">{character.level}</td>
-                  <td className="py-3 pr-3">{formatGameDate(character.game_created_at)}</td>
-                  <td className="py-3 pr-3">{character.free_days ?? "-"}</td>
                   <td className="py-3 pr-3">{character.race || "-"}</td>
                   <td className="py-3 pr-3">{character.subclass || "-"}</td>
                   <td className="py-3 pr-3">{character.route || "-"}</td>
