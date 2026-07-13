@@ -1489,12 +1489,15 @@ function CharacterFormPage({ edit = false }: { edit?: boolean }) {
       <h1 className="text-xl font-bold text-ember md:col-span-2">{edit ? "Редактировать персонажа" : "Создать персонажа"}</h1>
       <ClassLevelsEditor
         classLevels={form.class_levels}
-        onChange={(classLevels) => setForm({
-          ...form,
+        lockedTotalLevel={edit ? form.level : undefined}
+        onChange={(classLevels) => setForm((current) => ({
+          ...current,
           class_name: classLevels[0].class_name,
           class_levels: classLevels,
-          level: classLevels.reduce((total, entry) => total + entry.level, 0)
-        })}
+          level: edit
+            ? current.level
+            : classLevels.reduce((total, entry) => total + entry.level, 0)
+        }))}
       />
       <label className="field-label md:col-span-2">
         <span>📅 Дата создания персонажа</span>
@@ -1543,13 +1546,14 @@ function CharacterFormPage({ edit = false }: { edit?: boolean }) {
         ))}
       </div>
       {error && <p className="text-sm text-red-300 md:col-span-2">{error}</p>}
-      <button className="btn md:col-span-2" type="submit">Сохранить</button>
+      <button className="btn md:col-span-2" disabled={edit && form.class_levels.reduce((total, entry) => total + entry.level, 0) !== form.level} type="submit">Сохранить</button>
     </form>
   );
 }
 
-function ClassLevelsEditor({ classLevels, onChange }: {
+function ClassLevelsEditor({ classLevels, lockedTotalLevel, onChange }: {
   classLevels: Character["class_levels"];
+  lockedTotalLevel?: number;
   onChange: (classLevels: Character["class_levels"]) => void;
 }) {
   const [draftLevels, setDraftLevels] = useState<Array<{ class_name: string; level: NumericInputValue }>>(classLevels);
@@ -1557,10 +1561,12 @@ function ClassLevelsEditor({ classLevels, onChange }: {
   const levels = draftLevels.length ? draftLevels : [{ class_name: defaultCharacterClass, level: 1 }];
   const commitLevels = (next: typeof levels) => onChange(next.map((entry) => ({ ...entry, level: normalizeNumber(entry.level, 1) })));
   const totalLevel = levels.reduce((total, entry) => total + normalizeNumber(entry.level), 0);
+  const invalidTotal = lockedTotalLevel !== undefined && totalLevel !== lockedTotalLevel;
   return (
     <fieldset className="md:col-span-2 rounded-md border border-white/10 p-3">
       <legend className="px-2 text-sm font-semibold text-ember">Дополнительные классы</legend>
-      <p className="mb-3 text-sm text-white/55">Первый класс — основной. Общий уровень: {totalLevel}</p>
+      <p className="mb-3 text-sm text-white/55">Первый класс — основной. Общий уровень: {lockedTotalLevel ?? totalLevel}</p>
+      {invalidTotal && <p className="mb-3 text-sm text-red-300">Сумма уровней классов должна быть равна общему уровню ({lockedTotalLevel}). Сейчас: {totalLevel}.</p>}
       <div className="space-y-2">
         {levels.map((entry, index) => (
           <div className="grid gap-2 sm:grid-cols-[1fr_120px_auto]" key={`${index}-${entry.class_name}`}>
