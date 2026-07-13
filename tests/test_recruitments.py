@@ -12,6 +12,7 @@ from app.core.auth_abuse import reset_auth_abuse_state
 from app.db.database import Base, SessionLocal, engine
 from app.main import app
 from app.models.character import Character
+from app.models.project import ProjectMembership
 from app.models.recruitment import GameApplication, GameRecruitment, RecruitmentMessage
 from app.models.user import User
 
@@ -90,11 +91,74 @@ def test_application_enforces_ownership_prevents_duplicates_and_persists_chat_me
         payload = applied.json()
         assert payload["application_status"] == "applied"
         assert payload["applications"][0]["username"] == "alice"
-        assert payload["messages"][0]["content"] == 'Игрок #alice записался на персонаже "Алиса".\n\nКласс: Волшебник\nУровень: 5'
+        messages = client.get(
+            f"/api/game-recruitments/{recruitment_id}/messages", headers=alice
+        ).json()
+        assert messages[0]["content"] == 'Игрок #alice записался на персонаже "Алиса".\n\nКласс: Волшебник\nУровень: 5'
 
         duplicate = client.post(f"/api/game-recruitments/{recruitment_id}/applications", headers=alice, json={"character_id": alice_character})
         assert duplicate.status_code == 409
-        assert len(client.get("/api/game-recruitments", headers=alice).json()[0]["messages"]) == 1
+        messages = client.get(
+            f"/api/game-recruitments/{recruitment_id}/messages", headers=alice
+        ).json()
+        assert len(messages) == 1
+
+
+def test_every_project_role_can_apply_with_an_owned_character():
+    with TestClient(app) as client:
+        owner = login(client, "admin", "admin123")
+        project_id = client.get("/api/projects/current", headers=owner).json()["id"]
+        recruitment_id = client.post(
+            "/api/game-recruitments", headers=owner, json=recruitment_payload()
+        ).json()["id"]
+        headers_by_role = {"owner": owner}
+        for role in ("project_owner", "head_admin", "admin", "technician", "player"):
+            username = f"apply-{role}"
+            headers_by_role[role] = register(client, username)
+            with SessionLocal() as db:
+                user = db.query(User).filter(User.username == username).one()
+                membership = db.query(ProjectMembership).filter_by(
+                    project_id=project_id, user_id=user.id
+                ).one()
+                membership.role = role
+                db.commit()
+
+        for role, headers in headers_by_role.items():
+            character_id = create_character(client, headers, f"Персонаж {role}")
+            response = client.post(
+                f"/api/game-recruitments/{recruitment_id}/applications",
+                headers=headers,
+                json={"character_id": character_id},
+            )
+            assert response.status_code == 201, f"{role}: {response.text}"
+
+
+def test_character_picker_and_application_are_isolated_to_selected_project():
+    with TestClient(app) as client:
+        owner = login(client, "admin", "admin123")
+        default_project = client.get("/api/projects/current", headers=owner).json()
+        other_project = client.post(
+            "/api/projects",
+            headers=owner,
+            json={"name": "Другой проект", "slug": "other-project"},
+        ).json()
+        default_headers = {**owner, "X-Project-ID": str(default_project["id"])}
+        other_headers = {**owner, "X-Project-ID": str(other_project["id"])}
+        default_character = create_character(client, default_headers, "Текущий")
+        other_character = create_character(client, other_headers, "Чужой проект")
+        recruitment_id = client.post(
+            "/api/game-recruitments", headers=default_headers, json=recruitment_payload()
+        ).json()["id"]
+
+        listed = client.get("/api/characters", headers=default_headers)
+        assert listed.status_code == 200, listed.text
+        assert [character["id"] for character in listed.json()] == [default_character]
+        forbidden = client.post(
+            f"/api/game-recruitments/{recruitment_id}/applications",
+            headers=default_headers,
+            json={"character_id": other_character},
+        )
+        assert forbidden.status_code == 403
 
 
 def test_only_author_selects_applicants_and_selection_is_announced():
@@ -110,7 +174,10 @@ def test_only_author_selects_applicants_and_selection_is_announced():
         assert selected.status_code == 200, selected.text
         payload = selected.json()
         assert payload["applications"][0]["status"] == "selected"
-        assert payload["messages"][-1]["content"] == 'Игроки выбраны:\n\n- #alice — "Лира", класс: Волшебник, уровень: 5'
+        messages = client.get(
+            f"/api/game-recruitments/{recruitment_id}/messages", headers=admin
+        ).json()
+        assert messages[-1]["content"] == 'Игроки выбраны:\n\n- #alice — "Лира", класс: Волшебник, уровень: 5'
 
         mine = client.get("/api/game-recruitments", headers=alice).json()[0]
         assert mine["application_status"] == "selected"
