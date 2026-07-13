@@ -2,6 +2,7 @@ import random
 
 from fastapi import APIRouter
 from fastapi import Depends
+from fastapi import Header
 from sqlalchemy.orm import Session
 from fastapi import HTTPException
 from app.core.calendar import GAME_EPOCH
@@ -17,7 +18,7 @@ from app.schemas.character import (
     SkillRollResponse,
 )
 from app.api.users import get_db
-from app.api.projects import require_feature
+from app.api.projects import get_current_project_access, require_feature
 from app.core.projects import require_project_access
 from app.models.project import Project
 
@@ -81,13 +82,13 @@ def create_character(
     character_data: CharacterCreate,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    x_project_id: int | None = Header(default=None, alias="X-Project-ID"),
 ):
     project_id = character_data.project_id
     if project_id is None:
-        from app.api.projects import get_current_project_access
         # Header-less legacy clients are resolved by the same default/single
         # membership rules as other selected-project endpoints.
-        project_id = get_current_project_access(None, current_user, db)[0].id
+        project_id = get_current_project_access(x_project_id, current_user, db)[0].id
     require_project_access(db, current_user, project_id)
     character_count = db.query(Character).filter(
         Character.user_id == current_user.id,
@@ -182,10 +183,13 @@ def create_character(
 @router.get("/characters")
 def get_characters(
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
+    x_project_id: int | None = Header(default=None, alias="X-Project-ID"),
 ):
+    project, _ = get_current_project_access(x_project_id, current_user, db)
     characters = db.query(Character).filter(
-        Character.user_id == current_user.id
+        Character.user_id == current_user.id,
+        Character.project_id == project.id,
     ).all()
 
     return characters

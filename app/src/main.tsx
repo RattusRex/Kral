@@ -2410,11 +2410,12 @@ function GameRecruitmentsPage() {
                 ))}
                 {!recruitment.applications.length && <p className="text-sm text-white/50">Пока никто не записался.</p>}
               </div>
-              {recruitment.can_manage ? (
+              {recruitment.can_manage && (
                 <button className="btn mt-3" disabled={busy || !(selectedApplications[recruitment.id] ?? []).length} onClick={() => publishParticipants(recruitment.id)}><Check size={16} />Выдать выбранных игроков</button>
-              ) : recruitment.status === "upcoming" && recruitment.application_status === "not_applied" ? (
+              )}
+              {recruitment.status === "upcoming" && recruitment.application_status === "not_applied" && (
                 <div className="mt-3 flex flex-wrap gap-2"><select className="field max-w-sm" value={selectedCharacters[recruitment.id] ?? ""} onChange={(event) => setSelectedCharacters({ ...selectedCharacters, [recruitment.id]: event.target.value })}><option value="">Выберите персонажа</option>{characters.map((character) => <option key={character.id} value={character.id}>{character.name} · {character.class_name} · ур. {character.level}</option>)}</select><button className="btn" disabled={busy || !selectedCharacters[recruitment.id]} onClick={() => apply(recruitment.id)}>Записаться</button></div>
-              ) : null}
+              )}
             </section>
             <section>
               <div className="flex items-center justify-between"><h3 className="font-semibold text-ember">Чат публикации</h3>{!chatMessages[recruitment.id] && <button className="btn-secondary" onClick={() => loadChat(recruitment.id)}>Открыть чат</button>}</div>
