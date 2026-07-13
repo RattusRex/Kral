@@ -262,10 +262,12 @@ def apply_xp_delta(character: Character, amount: int):
         character.level += 1
     gained_levels = character.level - previous_level
     if character.class_levels and gained_levels > 0:
-        character.class_levels[-1] = {
+        updated_class_levels = list(character.class_levels)
+        updated_class_levels[-1] = {
             **character.class_levels[-1],
             "level": character.class_levels[-1]["level"] + gained_levels,
         }
+        character.class_levels = updated_class_levels
 
 
 def validate_admin_character_update(update_data: dict) -> None:

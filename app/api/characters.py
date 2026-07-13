@@ -233,8 +233,12 @@ def update_character(
 
     if "class_levels" in update_data:
         class_levels = update_data["class_levels"]
+        if sum(entry["level"] for entry in class_levels) != character.level:
+            raise HTTPException(
+                status_code=422,
+                detail="Общий уровень должен равняться сумме уровней классов",
+            )
         update_data["class_name"] = class_levels[0]["class_name"]
-        update_data["level"] = sum(entry["level"] for entry in class_levels)
     elif "class_name" in update_data:
         current_levels = character.class_levels or [{
             "class_name": character.class_name,

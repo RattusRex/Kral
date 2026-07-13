@@ -800,6 +800,11 @@ def test_karma_shop_purchases_are_atomic_persistent_and_audited():
         assert xp_purchase.json()["remaining_karma"] == 30
         assert xp_purchase.json()["character_xp"] == 0
         assert xp_purchase.json()["character_level"] == 4
+        progressed = client.get("/api/characters", headers=player_headers).json()[0]
+        assert progressed["level"] == 4
+        assert progressed["class_levels"] == [
+            {"class_name": "Wizard", "level": 4}
+        ]
 
         item_purchase = client.post("/api/karma-shop/purchases", headers=player_headers, json={
             "purchase_type": "opener", "name": "Доступ в тайную библиотеку", "cost": 7,
@@ -2479,6 +2484,21 @@ def test_xp_progression_keeps_multiclass_total_in_sync():
     ]
 
 
+def test_xp_progression_keeps_single_class_level_in_sync():
+    character = Character(
+        level=3,
+        xp=0,
+        class_name="Воин",
+        class_levels=[{"class_name": "Воин", "level": 3}],
+    )
+
+    apply_xp_delta(character, 4)
+
+    assert character.level == 4
+    assert character.xp == 0
+    assert character.class_levels == [{"class_name": "Воин", "level": 4}]
+
+
 def test_admin_direct_level_edit_keeps_single_class_level_in_sync():
     with TestClient(app) as client:
         headers = {"Authorization": f"Bearer {login(client, 'admin', 'admin123')}"}
@@ -2563,6 +2583,95 @@ def test_owner_and_admin_can_edit_multiclass_but_other_player_cannot():
             json={"class_levels": class_levels},
         )
         assert forbidden.status_code == 404
+
+
+def test_player_can_only_redistribute_existing_class_levels():
+    with TestClient(app) as client:
+        client.post("/api/users", json={
+            "username": "level-redistributor",
+            "email": "level-redistributor@example.com",
+            "password": TEST_USER_PASSWORD,
+        })
+        headers = {
+            "Authorization": (
+                f"Bearer {login(client, 'level-redistributor', TEST_USER_PASSWORD)}"
+            )
+        }
+        created = client.post("/api/characters", headers=headers, json={
+            "name": "Мультикласс",
+            "class_name": "Бард",
+            "level": 7,
+            "route": "Open Table",
+            "class_levels": [
+                {"class_name": "Бард", "level": 3},
+                {"class_name": "Паладин", "level": 4},
+            ],
+        })
+        assert created.status_code == 200, created.text
+        character_id = created.json()["id"]
+
+        for invalid_levels in (
+            [
+                {"class_name": "Бард", "level": 5},
+                {"class_name": "Паладин", "level": 4},
+            ],
+            [
+                {"class_name": "Бард", "level": 2},
+                {"class_name": "Паладин", "level": 3},
+            ],
+        ):
+            rejected = client.patch(
+                f"/api/characters/{character_id}",
+                headers=headers,
+                json={"class_levels": invalid_levels},
+            )
+            assert rejected.status_code == 422, rejected.text
+
+        redistributed = client.patch(
+            f"/api/characters/{character_id}",
+            headers=headers,
+            json={"class_levels": [
+                {"class_name": "Бард", "level": 1},
+                {"class_name": "Паладин", "level": 6},
+            ]},
+        )
+        assert redistributed.status_code == 200, redistributed.text
+        assert redistributed.json()["level"] == 7
+        assert redistributed.json()["class_levels"] == [
+            {"class_name": "Бард", "level": 1},
+            {"class_name": "Паладин", "level": 6},
+        ]
+
+
+def test_player_cannot_change_single_class_level():
+    with TestClient(app) as client:
+        client.post("/api/users", json={
+            "username": "single-level-owner",
+            "email": "single-level-owner@example.com",
+            "password": TEST_USER_PASSWORD,
+        })
+        headers = {
+            "Authorization": (
+                f"Bearer {login(client, 'single-level-owner', TEST_USER_PASSWORD)}"
+            )
+        }
+        created = client.post("/api/characters", headers=headers, json={
+            "name": "Воитель",
+            "class_name": "Воин",
+            "level": 7,
+            "route": "Open Table",
+        })
+        character_id = created.json()["id"]
+
+        for requested_level in (6, 8):
+            rejected = client.patch(
+                f"/api/characters/{character_id}",
+                headers=headers,
+                json={"class_levels": [
+                    {"class_name": "Воин", "level": requested_level},
+                ]},
+            )
+            assert rejected.status_code == 422, rejected.text
 
 
 def test_persisted_text_fields_enforce_boundaries():
