@@ -8,10 +8,11 @@ import smtplib
 import ssl
 from email.message import EmailMessage
 from ipaddress import ip_address
-from urllib.parse import quote
+from urllib.parse import quote, urlparse
 
 logger = logging.getLogger(__name__)
 SMTP_SECURITY_MODES = {"starttls", "ssl", "none"}
+LOCAL_FRONTEND_HOSTS = {"localhost", "127.0.0.1", "::1"}
 
 
 def _validate_smtp_host(host: str) -> None:
@@ -36,16 +37,37 @@ def _validate_smtp_host(host: str) -> None:
         raise RuntimeError("SMTP_HOST must be a valid server hostname or IP address")
 
 
+def _validate_public_frontend_url(frontend_url: str) -> None:
+    parsed = urlparse(frontend_url)
+    if (
+        parsed.scheme != "https"
+        or not parsed.netloc
+        or parsed.hostname in LOCAL_FRONTEND_HOSTS
+        or parsed.path not in ("", "/")
+        or parsed.params
+        or parsed.query
+        or parsed.fragment
+    ):
+        raise RuntimeError(
+            "FRONTEND_URL must be the public HTTPS origin used by users, "
+            "such as https://epohakostyastrof.com"
+        )
+
+
 def validate_email_configuration() -> str:
     backend = os.getenv("EMAIL_BACKEND", "console").strip().lower()
     if backend not in {"console", "smtp"}:
         raise RuntimeError("EMAIL_BACKEND must be 'console' or 'smtp'")
     if backend == "smtp":
-        missing = [name for name in ("SMTP_HOST", "SMTP_FROM_EMAIL") if not os.getenv(name)]
+        missing = [
+            name for name in ("FRONTEND_URL", "SMTP_HOST", "SMTP_FROM_EMAIL")
+            if not os.getenv(name)
+        ]
         if missing:
             raise RuntimeError(
                 "SMTP email delivery requires: " + ", ".join(missing)
             )
+        _validate_public_frontend_url(os.environ["FRONTEND_URL"].strip())
         _validate_smtp_host(os.environ["SMTP_HOST"].strip())
         try:
             port = int(os.getenv("SMTP_PORT", "587"))
@@ -117,7 +139,7 @@ def _smtp_error_details(error: Exception, secrets_to_redact: tuple[str, ...]) ->
 
 
 def send_verification_email(email: str, username: str, token: str) -> None:
-    frontend_url = os.getenv("FRONTEND_URL", "http://localhost:5173").rstrip("/")
+    frontend_url = os.getenv("FRONTEND_URL", "http://localhost:5173").strip().rstrip("/")
     verification_url = f"{frontend_url}/verify-email?token={quote(token, safe='')}"
     subject = "Подтверждение электронной почты"
     body = (

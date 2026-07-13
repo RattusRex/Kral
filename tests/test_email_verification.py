@@ -1,7 +1,10 @@
 import os
 import smtplib
 from datetime import datetime, timedelta, timezone
+from email import policy
+from email.parser import BytesParser
 from unittest.mock import patch
+from urllib.parse import parse_qs, urlparse
 
 os.environ["DATABASE_URL"] = "sqlite://"
 os.environ.setdefault("SECRET_KEY", "test-secret-key-for-pytest-only")
@@ -138,6 +141,7 @@ def test_smtp_delivery_logs_non_secret_configuration_and_each_completed_stage(
     monkeypatch.setenv("SMTP_USERNAME", "smtp-user")
     monkeypatch.setenv("SMTP_PASSWORD", "smtp-password")
     monkeypatch.setenv("SMTP_FROM_EMAIL", "sender@example.com")
+    monkeypatch.setenv("FRONTEND_URL", "https://kral.example.com")
     monkeypatch.setattr("app.core.email_verification.smtplib.SMTP", FakeSmtp)
 
     with caplog.at_level("INFO", logger="app.core.email_verification"):
@@ -154,6 +158,82 @@ def test_smtp_delivery_logs_non_secret_configuration_and_each_completed_stage(
     assert "recipient@example.com" in caplog.text
     assert "smtp-password" not in caplog.text
     assert "secret-token" not in caplog.text
+
+
+def test_production_email_configuration_requires_public_https_frontend(monkeypatch):
+    from app.core.email_verification import validate_email_configuration
+
+    monkeypatch.setenv("EMAIL_BACKEND", "smtp")
+    monkeypatch.setenv("SMTP_HOST", "smtp.example.com")
+    monkeypatch.setenv("SMTP_FROM_EMAIL", "no-reply@example.com")
+
+    for frontend_url in ("", "http://localhost:8080", "http://127.0.0.1:8080"):
+        monkeypatch.setenv("FRONTEND_URL", frontend_url)
+        try:
+            validate_email_configuration()
+        except RuntimeError as error:
+            assert "FRONTEND_URL" in str(error)
+            assert (
+                "public HTTPS origin" in str(error)
+                or "SMTP email delivery requires" in str(error)
+            )
+        else:
+            raise AssertionError("SMTP delivery must reject a local frontend URL")
+
+    monkeypatch.setenv("FRONTEND_URL", "https://epohakostyastrof.com")
+    assert validate_email_configuration() == "smtp"
+
+
+def test_delivered_public_link_confirms_fresh_token(monkeypatch):
+    sent_messages = []
+
+    class FakeSmtp:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def starttls(self, *, context):
+            assert context is not None
+
+        def send_message(self, message):
+            sent_messages.append(message)
+
+    monkeypatch.setenv("EMAIL_BACKEND", "smtp")
+    monkeypatch.setenv("FRONTEND_URL", "https://epohakostyastrof.com")
+    monkeypatch.setenv("SMTP_HOST", "smtp.example.com")
+    monkeypatch.setenv("SMTP_PORT", "587")
+    monkeypatch.setenv("SMTP_SECURITY", "starttls")
+    monkeypatch.setenv("SMTP_FROM_EMAIL", "no-reply@example.com")
+    monkeypatch.delenv("SMTP_USERNAME", raising=False)
+    monkeypatch.delenv("SMTP_PASSWORD", raising=False)
+    monkeypatch.setattr("app.core.email_verification.smtplib.SMTP", FakeSmtp)
+
+    with TestClient(app) as client:
+        response = register(client)
+        assert response.status_code == 200, response.text
+        assert len(sent_messages) == 1
+
+        parsed_message = BytesParser(policy=policy.default).parsebytes(
+            sent_messages[0].as_bytes()
+        )
+        link = next(
+            line for line in parsed_message.get_content().splitlines()
+            if line.startswith("https://")
+        )
+        parsed_link = urlparse(link)
+        assert parsed_link.scheme == "https"
+        assert parsed_link.netloc == "epohakostyastrof.com"
+        assert parsed_link.path == "/verify-email"
+        token = parse_qs(parsed_link.query)["token"][0]
+
+        confirmed = client.post("/api/email/verify", json={"token": token})
+        assert confirmed.status_code == 200, confirmed.text
+        assert confirmed.json()["email_verified"] is True
 
 
 def test_smtp_delivery_failure_logs_stage_and_structured_smtp_details(
@@ -189,6 +269,7 @@ def test_smtp_delivery_failure_logs_stage_and_structured_smtp_details(
     monkeypatch.setenv("SMTP_USERNAME", "smtp-user")
     monkeypatch.setenv("SMTP_PASSWORD", "smtp-password")
     monkeypatch.setenv("SMTP_FROM_EMAIL", "sender@example.com")
+    monkeypatch.setenv("FRONTEND_URL", "https://kral.example.com")
     monkeypatch.setattr("app.core.email_verification.smtplib.SMTP", FakeSmtp)
 
     from app.core.email_verification import send_verification_email
@@ -239,6 +320,7 @@ def test_smtp_ssl_delivery_uses_implicit_tls_and_timeout(monkeypatch):
     monkeypatch.setenv("SMTP_USERNAME", "smtp-user")
     monkeypatch.setenv("SMTP_PASSWORD", "smtp-password")
     monkeypatch.setenv("SMTP_FROM_EMAIL", "no-reply@example.com")
+    monkeypatch.setenv("FRONTEND_URL", "https://kral.example.com")
     monkeypatch.setattr("app.core.email_verification.smtplib.SMTP_SSL", FakeSmtpSsl)
     monkeypatch.setattr("app.core.email_verification.ssl.create_default_context", lambda: object())
 
@@ -265,6 +347,7 @@ def test_smtp_configuration_is_validated_before_registration():
 def test_smtp_configuration_rejects_partial_credentials(monkeypatch):
     from app.core.email_verification import validate_email_configuration
 
+    monkeypatch.setenv("FRONTEND_URL", "https://kral.example.com")
     monkeypatch.setenv("EMAIL_BACKEND", "smtp")
     monkeypatch.setenv("SMTP_HOST", "smtp.example.com")
     monkeypatch.setenv("SMTP_FROM_EMAIL", "no-reply@example.com")
@@ -282,6 +365,7 @@ def test_smtp_configuration_rejects_partial_credentials(monkeypatch):
 def test_smtp_configuration_rejects_email_address_as_host(monkeypatch):
     from app.core.email_verification import validate_email_configuration
 
+    monkeypatch.setenv("FRONTEND_URL", "https://kral.example.com")
     monkeypatch.setenv("EMAIL_BACKEND", "smtp")
     monkeypatch.setenv("SMTP_HOST", "epohakostyastrof@gmail.com")
     monkeypatch.setenv("SMTP_FROM_EMAIL", "epohakostyastrof@gmail.com")
@@ -298,6 +382,7 @@ def test_smtp_configuration_rejects_email_address_as_host(monkeypatch):
 def test_smtp_configuration_accepts_hostname_and_ip_address(monkeypatch):
     from app.core.email_verification import validate_email_configuration
 
+    monkeypatch.setenv("FRONTEND_URL", "https://kral.example.com")
     monkeypatch.setenv("EMAIL_BACKEND", "smtp")
     monkeypatch.setenv("SMTP_FROM_EMAIL", "mailer@example.com")
     for host in ("smtp.gmail.com", "mail-server.local", "127.0.0.1", "::1"):
