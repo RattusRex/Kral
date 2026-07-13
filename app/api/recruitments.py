@@ -14,11 +14,16 @@ from app.schemas.recruitment import (
     RecruitmentMessageCreate,
     RecruitmentStatusUpdate,
 )
-from app.core.projects import accessible_project_ids, require_project_admin
-from app.models.project import DEFAULT_PROJECT_NAME, Project
+from app.core.projects import require_project_admin
+from app.api.projects import get_current_project_access
+from app.core.roles import Role, ROLE_RANK
 
 
-router = APIRouter(prefix="/game-recruitments", tags=["game recruitments"])
+router = APIRouter(
+    prefix="/game-recruitments",
+    tags=["game recruitments"],
+    dependencies=[Depends(get_current_project_access)],
+)
 DEFAULT_PAGE_SIZE = 10
 MAX_PAGE_SIZE = 100
 
@@ -34,10 +39,8 @@ def require_recruitment(
     ).filter(GameRecruitment.id == recruitment_id).first()
     if not recruitment:
         raise HTTPException(status_code=404, detail="Game recruitment not found")
-    if current_user is not None and not current_user.is_owner:
-        project_ids = accessible_project_ids(db, current_user)
-        if recruitment.project_id not in (project_ids or []):
-            raise HTTPException(status_code=404, detail="Game recruitment not found")
+    if current_user is not None and recruitment.project_id != current_user.active_project_id:
+        raise HTTPException(status_code=404, detail="Game recruitment not found")
     return recruitment
 
 
@@ -73,7 +76,9 @@ def serialize_recruitment(recruitment: GameRecruitment, current_user: User) -> d
         "quest": recruitment.quest,
         "notes": recruitment.notes,
         "status": recruitment.status,
-        "can_manage": recruitment.author_id == current_user.id or current_user.is_admin,
+        "can_manage": recruitment.author_id == current_user.id or ROLE_RANK.get(
+            getattr(current_user, "active_project_role", Role.PLAYER), 0
+        ) >= ROLE_RANK[Role.ADMIN],
         "application_status": own_application.status if own_application else "not_applied",
         "applications": [serialize_application(row) for row in recruitment.applications],
         "messages": [],
@@ -169,9 +174,7 @@ def list_recruitments(
         GameRecruitment.start_time.asc(),
         GameRecruitment.id.asc(),
     )
-    project_ids = accessible_project_ids(db, current_user)
-    if project_ids is not None:
-        query = query.filter(GameRecruitment.project_id.in_(project_ids))
+    query = query.filter(GameRecruitment.project_id == current_user.active_project_id)
     if page is None and page_size is None:
         return [serialize_recruitment(row, current_user) for row in query.all()]
 
@@ -196,9 +199,9 @@ def create_recruitment(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    project_id = data.project_id or db.query(Project.id).filter(
-        Project.name == DEFAULT_PROJECT_NAME
-    ).scalar()
+    project_id = data.project_id or current_user.active_project_id
+    if project_id != current_user.active_project_id:
+        raise HTTPException(status_code=403, detail="Selected project does not match recruitment project")
     require_project_admin(db, current_user, project_id)
     recruitment = GameRecruitment(
         author_id=current_user.id,

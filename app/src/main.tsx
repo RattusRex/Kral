@@ -230,9 +230,8 @@ function Shell({ children, user }: { children: React.ReactNode; user: User | nul
     api.get<ProjectContext[]>("/projects").then((response) => {
       setProjects(response.data);
       const stored = Number(localStorage.getItem(PROJECT_KEY));
-      const selected = response.data.find((item) => item.id === stored) ?? response.data[0];
+      const selected = response.data.find((item) => item.id === stored);
       if (selected) {
-        localStorage.setItem(PROJECT_KEY, String(selected.id));
         setProject(selected);
       }
     });
@@ -255,7 +254,7 @@ function Shell({ children, user }: { children: React.ReactNode; user: User | nul
         <nav className="mx-auto flex max-w-7xl items-center justify-between px-4 py-3">
           <Link to="/characters" className="project-title text-lg font-bold text-ember">Эпоха Катастроф</Link>
           <div className="flex flex-wrap items-center gap-2">
-            {projects.length > 0 && <select aria-label="Проект" className="field max-w-52" value={project?.id ?? ""} onChange={(event) => selectProject(Number(event.target.value))}>{projects.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select>}
+            {projects.length > 0 && <select aria-label="Проект" className="field max-w-52" value={project?.id ?? ""} onChange={(event) => selectProject(Number(event.target.value))}><option value="" disabled>Сменить проект</option>{projects.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select>}
             <Link className="btn-secondary" to="/"><UsersRound size={16} />Меню</Link>
             <Link className="btn-secondary" to="/characters"><UsersRound size={16} />Персонажи</Link>
             <Link className="btn-secondary" to="/chat"><MessageSquare size={16} />Чат</Link>
@@ -298,7 +297,7 @@ function HomePage() {
         <h2 className="text-lg font-semibold text-ember">{user.username}</h2>
         <p className="mt-2 text-white/70">{user.email}</p>
         <p className="mt-3 text-sm text-white/80">Роль: {ROLE_LABELS[user.role ?? "player"]}</p>
-        {project?.features.karma !== false && <p className="mt-4 text-xl font-semibold">Карма: {user.karma}</p>}
+        {project?.features.karma !== false && <p className="mt-4 text-xl font-semibold">Карма: {project?.karma ?? 0}</p>}
       </aside>
     </div>
   );
@@ -587,6 +586,7 @@ function AdminProtected({ children }: { children: React.ReactNode }) {
   }, []);
   if (loading) return <div className="p-6 text-parchment">Загрузка...</div>;
   if (!localStorage.getItem(TOKEN_KEY)) return <Navigate to="/login" replace />;
+  if (!localStorage.getItem(PROJECT_KEY)) return <Navigate to="/projects" replace />;
   if (!project) return <div className="p-6 text-parchment">Загрузка...</div>;
   if (!project.is_admin) return <Navigate to="/" replace />;
   return <Protected>{children}</Protected>;
@@ -613,7 +613,8 @@ function Login() {
     try {
       const response = await api.post("/login", body);
       localStorage.setItem(TOKEN_KEY, response.data.access_token);
-      navigate("/characters");
+      localStorage.removeItem(PROJECT_KEY);
+      navigate("/projects");
     } catch (error) {
       const detail = axios.isAxiosError(error) ? error.response?.data?.detail : undefined;
       if (detail?.code === "email_not_verified") {
@@ -641,6 +642,29 @@ function Login() {
     {notice && <p className="text-sm text-amber-200">{notice}</p>}
     <Link className="btn-secondary" to="/register">Перейти к регистрации</Link>
   </AuthPanel>;
+}
+
+function ProjectSelectionPage() {
+  const navigate = useNavigate();
+  const [projects, setProjects] = useState<ProjectContext[]>([]);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    localStorage.removeItem(PROJECT_KEY);
+    api.get<ProjectContext[]>("/projects")
+      .then((response) => setProjects(response.data))
+      .catch((requestError) => setError(apiErrorDetail(requestError, "Не удалось загрузить проекты")));
+  }, []);
+  function choose(project: ProjectContext) {
+    localStorage.setItem(PROJECT_KEY, String(project.id));
+    navigate("/");
+  }
+  return <div className="grid min-h-screen place-items-center bg-[#101217] px-4 text-parchment"><section className="panel w-full max-w-xl p-6"><h1 className="text-3xl font-bold text-ember">Выберите проект</h1><p className="mt-2 text-white/60">Все персонажи, роли и игровые данные изолированы внутри проекта.</p>{error && <p className="mt-4 text-red-300">{error}</p>}<div className="mt-6 grid gap-3">{projects.map((project) => <button className="btn justify-center py-4 text-lg" key={project.id} onClick={() => choose(project)}>{project.name}</button>)}</div>{!error && projects.length === 0 && <p className="mt-5 text-white/60">Нет доступных проектов. Обратитесь к владельцу.</p>}</section></div>;
+}
+
+function ProjectProtected({ children }: { children: React.ReactNode }) {
+  if (!localStorage.getItem(TOKEN_KEY)) return <Navigate to="/login" replace />;
+  if (!localStorage.getItem(PROJECT_KEY)) return <Navigate to="/projects" replace />;
+  return <Protected>{children}</Protected>;
 }
 
 function Register() {
@@ -2097,11 +2121,11 @@ function ProfilePage() {
     });
   }, [user]);
   if (loading || !user) return <p>Загрузка...</p>;
-  return <div className="grid gap-4 md:grid-cols-2"><section className="panel p-5"><h1 className="text-xl font-bold text-ember">{user.username}</h1><p>{user.email}</p>{project?.features.karma !== false && <p className="mt-2">Карма: {user.karma}</p>}</section>{project?.features.karma !== false && project?.features.karma_shop !== false && <section className="panel p-5"><h2 className="text-xl font-bold text-ember">Открывашки</h2><div className="mt-4 space-y-2">{purchases.map((purchase) => <div className="rounded-md bg-black/25 p-3" key={purchase.id}><p className="font-semibold">{purchase.name}</p><p className="text-sm text-white/55">{purchase.purchase_type === "opener" ? "Открывашка" : "Товар"} · {purchase.cost} кармы</p></div>)}{!purchases.length && <p className="text-white/55">Покупок пока нет</p>}</div></section>}</div>;
+  return <div className="grid gap-4 md:grid-cols-2"><section className="panel p-5"><h1 className="text-xl font-bold text-ember">{user.username}</h1><p>{user.email}</p>{project?.features.karma !== false && <p className="mt-2">Карма: {project?.karma ?? 0}</p>}</section>{project?.features.karma !== false && project?.features.karma_shop !== false && <section className="panel p-5"><h2 className="text-xl font-bold text-ember">Открывашки</h2><div className="mt-4 space-y-2">{purchases.map((purchase) => <div className="rounded-md bg-black/25 p-3" key={purchase.id}><p className="font-semibold">{purchase.name}</p><p className="text-sm text-white/55">{purchase.purchase_type === "opener" ? "Открывашка" : "Товар"} · {purchase.cost} кармы</p></div>)}{!purchases.length && <p className="text-white/55">Покупок пока нет</p>}</div></section>}</div>;
 }
 
 function KarmaShopPage() {
-  const { user, setUser } = useAuth();
+  const [karma, setKarma] = useState(0);
   const [characters, setCharacters] = useState<Character[]>([]);
   const [characterId, setCharacterId] = useState("");
   const [xpAmount, setXpAmount] = useState<NumericInputValue>(1);
@@ -2134,6 +2158,7 @@ function KarmaShopPage() {
     : selectedOpenerDefinition?.cost ?? 0;
 
   useEffect(() => {
+    api.get<ProjectContext>("/projects/current").then((response) => setKarma(response.data.karma));
     api.get<Character[]>("/characters").then((response) => {
       setCharacters(response.data);
       if (response.data[0]) setCharacterId(String(response.data[0].id));
@@ -2147,7 +2172,7 @@ function KarmaShopPage() {
     setError(""); setMessage("");
     try {
       const response = await api.post<KarmaPurchaseResult>(path, payload);
-      if (user) setUser({ ...user, karma: response.data.remaining_karma });
+      setKarma(response.data.remaining_karma);
       setMessage(success);
       const refreshed = await api.get<Character[]>("/characters");
       setCharacters(refreshed.data);
@@ -2731,7 +2756,7 @@ function AdminPage() {
     }
   }
 
-  const canManageRoles = Boolean(user?.is_owner || user?.is_head_admin);
+  const canManageRoles = Boolean(project?.can_manage_roles);
 
   function togglePanel(panel: "master" | "character" | "karma" | "interface") {
     setCollapsed((current) => {
@@ -2754,11 +2779,14 @@ function AdminPage() {
   function canEditRole(row: AdminUser): boolean {
     if (row.id === user?.id) return false;
     if (user?.is_owner) return true;
-    return !row.is_owner && !row.is_head_admin;
+    if (project?.role === "project_owner") return row.role !== "project_owner";
+    return !["owner", "project_owner", "head_admin"].includes(row.role ?? "player");
   }
 
   function roleOptionsFor(row: AdminUser): UserRole[] {
-    const assignable = user?.is_owner ? ROLE_OPTIONS : HEAD_ADMIN_ASSIGNABLE_ROLES;
+    const assignable = user?.is_owner || project?.role === "project_owner"
+      ? ROLE_OPTIONS.filter((role) => role !== "owner")
+      : HEAD_ADMIN_ASSIGNABLE_ROLES;
     // Always keep the row's current role visible in the dropdown, even when it
     // is one the current actor is not allowed to assign.
     return assignable.includes(row.role) ? assignable : [row.role, ...assignable];
@@ -3558,22 +3586,23 @@ function App() {
         <Route path="/login" element={<Login />} />
         <Route path="/register" element={<Register />} />
         <Route path="/verify-email" element={<VerifyEmail />} />
-        <Route path="/" element={<Protected><HomePage /></Protected>} />
-        <Route path="/characters" element={<Protected><CharactersPage /></Protected>} />
-        <Route path="/characters/new" element={<Protected><CharacterFormPage /></Protected>} />
-        <Route path="/characters/:id" element={<Protected><CharacterPage /></Protected>} />
-        <Route path="/characters/:id/edit" element={<Protected><CharacterFormPage edit /></Protected>} />
-        <Route path="/shop" element={<Protected><ShopPage /></Protected>} />
-        <Route path="/market" element={<Protected><MarketPage /></Protected>} />
-        <Route path="/karma-shop" element={<Protected><FeatureProtected feature="karma"><FeatureProtected feature="karma_shop"><KarmaShopPage /></FeatureProtected></FeatureProtected></Protected>} />
-        <Route path="/leaderboard" element={<Protected><FeatureProtected feature="leaderboard"><LeaderboardPage /></FeatureProtected></Protected>} />
-        <Route path="/chat" element={<Protected><ChatPage /></Protected>} />
-        <Route path="/game-recruitments" element={<Protected><GameRecruitmentsPage /></Protected>} />
-        <Route path="/server-rules" element={<Protected><ContentPage pageSlug="server-rules" title="Правила сервера" /></Protected>} />
-        <Route path="/approved-homebrew" element={<Protected><ContentPage pageSlug="approved-homebrew" title="Одобренное ХБ" /></Protected>} />
-        <Route path="/profile" element={<Protected><ProfilePage /></Protected>} />
-        <Route path="/project-settings" element={<Protected><ProjectSettingsPage /></Protected>} />
-        <Route path="/project-management" element={<Protected><ProjectManagementPage /></Protected>} />
+        <Route path="/projects" element={<Protected><ProjectSelectionPage /></Protected>} />
+        <Route path="/" element={<ProjectProtected><HomePage /></ProjectProtected>} />
+        <Route path="/characters" element={<ProjectProtected><CharactersPage /></ProjectProtected>} />
+        <Route path="/characters/new" element={<ProjectProtected><CharacterFormPage /></ProjectProtected>} />
+        <Route path="/characters/:id" element={<ProjectProtected><CharacterPage /></ProjectProtected>} />
+        <Route path="/characters/:id/edit" element={<ProjectProtected><CharacterFormPage edit /></ProjectProtected>} />
+        <Route path="/shop" element={<ProjectProtected><ShopPage /></ProjectProtected>} />
+        <Route path="/market" element={<ProjectProtected><MarketPage /></ProjectProtected>} />
+        <Route path="/karma-shop" element={<ProjectProtected><FeatureProtected feature="karma"><FeatureProtected feature="karma_shop"><KarmaShopPage /></FeatureProtected></FeatureProtected></ProjectProtected>} />
+        <Route path="/leaderboard" element={<ProjectProtected><FeatureProtected feature="leaderboard"><LeaderboardPage /></FeatureProtected></ProjectProtected>} />
+        <Route path="/chat" element={<ProjectProtected><ChatPage /></ProjectProtected>} />
+        <Route path="/game-recruitments" element={<ProjectProtected><GameRecruitmentsPage /></ProjectProtected>} />
+        <Route path="/server-rules" element={<ProjectProtected><ContentPage pageSlug="server-rules" title="Правила сервера" /></ProjectProtected>} />
+        <Route path="/approved-homebrew" element={<ProjectProtected><ContentPage pageSlug="approved-homebrew" title="Одобренное ХБ" /></ProjectProtected>} />
+        <Route path="/profile" element={<ProjectProtected><ProfilePage /></ProjectProtected>} />
+        <Route path="/project-settings" element={<ProjectProtected><ProjectSettingsPage /></ProjectProtected>} />
+        <Route path="/project-management" element={<ProjectProtected><ProjectManagementPage /></ProjectProtected>} />
         <Route path="/admin-menu" element={<AdminProtected><AdminMenuPage /></AdminProtected>} />
         <Route path="/admin/shop-logs" element={<AdminProtected><FeatureProtected feature="logs"><ShopLogsPage /></FeatureProtected></AdminProtected>} />
         <Route path="/admin/market-sales" element={<AdminProtected><FeatureProtected feature="market_logs"><MarketSalesPage /></FeatureProtected></AdminProtected>} />

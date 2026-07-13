@@ -102,10 +102,17 @@ they never consume character, personal-hireling, or simulacrum free days.
 
 The application supports independent projects. Every character belongs to one
 project and every non-owner permission is stored in a project membership. The
-frontend sends the selected project as `X-Project-ID`; backend authorization
-resolves membership for that exact project, so changing an ID cannot reuse
-permissions from another project. Existing installations are migrated into the
-default **Epoch of Catastrophe** project.
+user must choose a project after every login and may switch projects from the
+main navigation without signing in again. The frontend sends the selected
+project as `X-Project-ID`; gameplay endpoints reject requests without that
+header and backend authorization resolves membership for that exact project,
+so changing an ID cannot reuse permissions from another project. Existing
+installations are migrated into the default **Epoch of Catastrophe** project.
+
+Characters, inventories, currency, chat, recruitments, content, karma balances,
+Karma Shop purchases, project roles, settings, and operational logs are scoped
+to the selected project. The global owner may open every project, but still has
+a separate karma balance and audit history in each one.
 
 Project owners and head administrators can open **Project Settings** to enable
 or disable the shop, market, Karma Shop, game recruitment, personal hirelings,
