@@ -3,6 +3,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.api.users import get_current_user, get_db
+from app.api.projects import get_current_project_access, require_project_admin
 from app.models.content import ContentBlock
 from app.models.user import User
 from app.schemas.content import (
@@ -23,15 +24,10 @@ def validate_page_slug(page_slug: str) -> str:
     return page_slug
 
 
-def require_admin(current_user: User = Depends(get_current_user)) -> User:
-    if not current_user.is_admin:
-        raise HTTPException(status_code=403, detail="Admin permissions required")
-    return current_user
-
-
-def get_block_or_404(db: Session, page_slug: str, block_id: int) -> ContentBlock:
+def get_block_or_404(db: Session, project_id: int, page_slug: str, block_id: int) -> ContentBlock:
     block = db.query(ContentBlock).filter(
         ContentBlock.id == block_id,
+        ContentBlock.project_id == project_id,
         ContentBlock.page_slug == page_slug,
     ).first()
     if block is None:
@@ -39,8 +35,11 @@ def get_block_or_404(db: Session, page_slug: str, block_id: int) -> ContentBlock
     return block
 
 
-def ordered_blocks(db: Session, page_slug: str) -> list[ContentBlock]:
-    return db.query(ContentBlock).filter(ContentBlock.page_slug == page_slug).order_by(
+def ordered_blocks(db: Session, project_id: int, page_slug: str) -> list[ContentBlock]:
+    return db.query(ContentBlock).filter(
+        ContentBlock.project_id == project_id,
+        ContentBlock.page_slug == page_slug,
+    ).order_by(
         ContentBlock.position.asc(), ContentBlock.id.asc()
     ).all()
 
@@ -49,9 +48,9 @@ def ordered_blocks(db: Session, page_slug: str) -> list[ContentBlock]:
 def list_content_blocks(
     page_slug: str,
     db: Session = Depends(get_db),
-    _: User = Depends(get_current_user),
+    access=Depends(get_current_project_access),
 ):
-    return ordered_blocks(db, validate_page_slug(page_slug))
+    return ordered_blocks(db, access[0].id, validate_page_slug(page_slug))
 
 
 @router.post(
@@ -63,13 +62,15 @@ def create_content_block(
     page_slug: str,
     block_data: ContentBlockCreate,
     db: Session = Depends(get_db),
-    _: User = Depends(require_admin),
+    access=Depends(require_project_admin),
 ):
     page_slug = validate_page_slug(page_slug)
     last_position = db.query(func.max(ContentBlock.position)).filter(
-        ContentBlock.page_slug == page_slug
+        ContentBlock.project_id == access[0].id,
+        ContentBlock.page_slug == page_slug,
     ).scalar()
     block = ContentBlock(
+        project_id=access[0].id,
         page_slug=page_slug,
         title=block_data.title,
         content=block_data.content,
@@ -86,10 +87,10 @@ def reorder_content_blocks(
     page_slug: str,
     order_data: ContentBlockOrder,
     db: Session = Depends(get_db),
-    _: User = Depends(require_admin),
+    access=Depends(require_project_admin),
 ):
     page_slug = validate_page_slug(page_slug)
-    blocks = ordered_blocks(db, page_slug)
+    blocks = ordered_blocks(db, access[0].id, page_slug)
     current_ids = [block.id for block in blocks]
     if len(order_data.block_ids) != len(set(order_data.block_ids)) or set(order_data.block_ids) != set(current_ids):
         raise HTTPException(status_code=400, detail="Order must include every block exactly once")
@@ -101,7 +102,7 @@ def reorder_content_blocks(
     for position, block_id in enumerate(order_data.block_ids):
         blocks_by_id[block_id].position = position
     db.commit()
-    return ordered_blocks(db, page_slug)
+    return ordered_blocks(db, access[0].id, page_slug)
 
 
 @router.patch("/{page_slug}/{block_id}", response_model=ContentBlockResponse)
@@ -110,9 +111,9 @@ def update_content_block(
     block_id: int,
     block_data: ContentBlockUpdate,
     db: Session = Depends(get_db),
-    _: User = Depends(require_admin),
+    access=Depends(require_project_admin),
 ):
-    block = get_block_or_404(db, validate_page_slug(page_slug), block_id)
+    block = get_block_or_404(db, access[0].id, validate_page_slug(page_slug), block_id)
     for field, value in block_data.model_dump(exclude_unset=True).items():
         setattr(block, field, value)
     db.commit()
@@ -125,13 +126,13 @@ def delete_content_block(
     page_slug: str,
     block_id: int,
     db: Session = Depends(get_db),
-    _: User = Depends(require_admin),
+    access=Depends(require_project_admin),
 ):
     page_slug = validate_page_slug(page_slug)
-    block = get_block_or_404(db, page_slug, block_id)
+    block = get_block_or_404(db, access[0].id, page_slug, block_id)
     db.delete(block)
     db.flush()
-    remaining = ordered_blocks(db, page_slug)
+    remaining = ordered_blocks(db, access[0].id, page_slug)
     for position, row in enumerate(remaining):
         row.position = position
     db.commit()

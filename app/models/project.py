@@ -55,6 +55,7 @@ class ProjectMembership(Base):
     project_id: Mapped[int] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"))
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
     role: Mapped[str] = mapped_column(String(20), default=Role.PLAYER)
+    karma: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
 
     project = relationship("Project", back_populates="memberships")

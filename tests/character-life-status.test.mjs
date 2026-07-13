@@ -21,6 +21,6 @@ test("karma shop only offers eligible dead characters for resurrection", () => {
   assert.match(karmaShopPage, /resurrectionCharacters = characters\.filter/);
   assert.match(karmaShopPage, /character\.is_dead && character\.level <= 10/);
   assert.match(karmaShopPage, /resurrectionCost/);
-  assert.match(karmaShopPage, /user\?\.karma \?\? 0/);
+  assert.match(karmaShopPage, /karma >= resurrectionCost/);
   assert.match(karmaShopPage, /Недостаточно кармы для воскрешения/);
 });

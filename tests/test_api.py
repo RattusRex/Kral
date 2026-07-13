@@ -31,6 +31,26 @@ from app.models.user import User
 from app.models.project import DEFAULT_PROJECT_NAME, Project, ProjectMembership
 
 
+class ProjectAwareTestClient(TestClient):
+    """Select the legacy default project for pre-project feature tests."""
+
+    def request(self, method, url, **kwargs):
+        headers = dict(kwargs.pop("headers", {}) or {})
+        if url.startswith("/api/") and url not in (
+            "/api/login", "/api/users", "/api/projects"
+        ) and "X-Project-ID" not in headers:
+            with SessionLocal() as db:
+                project_id = db.query(Project.id).filter(
+                    Project.name == DEFAULT_PROJECT_NAME
+                ).scalar()
+            if project_id is not None:
+                headers["X-Project-ID"] = str(project_id)
+        return super().request(method, url, headers=headers, **kwargs)
+
+
+TestClient = ProjectAwareTestClient
+
+
 def setup_function():
     Base.metadata.drop_all(bind=engine)
     Base.metadata.create_all(bind=engine)
@@ -174,7 +194,10 @@ def test_project_admin_cannot_list_or_modify_another_projects_character():
             db.commit()
             foreign_id = foreign_character.id
 
-        headers = {"Authorization": f"Bearer {login(client, 'project-admin', 'Cobalt!River7Lantern')}"}
+        headers = {
+            "Authorization": f"Bearer {login(client, 'project-admin', 'Cobalt!River7Lantern')}",
+            "X-Project-ID": str(project_a),
+        }
         listed = client.get("/api/admin/characters", headers=headers)
         assert listed.status_code == 200, listed.text
         assert [row["name"] for row in listed.json()] == ["Visible Hero"]
@@ -196,7 +219,10 @@ def test_character_creation_requires_membership_in_selected_project():
         player_id = register_verified_user(client, "project-player")
         allowed_id = create_project_fixture("Allowed", owner_id, [(player_id, "player")])
         denied_id = create_project_fixture("Denied", owner_id, [])
-        headers = {"Authorization": f"Bearer {login(client, 'project-player', 'Cobalt!River7Lantern')}"}
+        headers = {
+            "Authorization": f"Bearer {login(client, 'project-player', 'Cobalt!River7Lantern')}",
+            "X-Project-ID": str(allowed_id),
+        }
         payload = {
             "name": "Scoped Hero", "class_name": "Fighter", "level": 1,
             "route": "Steel", "project_id": denied_id,
@@ -2257,7 +2283,7 @@ def test_chat_messages_and_dice_roll_commands_persist_to_channels():
         assert "1d37" in formulas
 
 
-@pytest.mark.parametrize("role", ["admin", "head_admin", "owner"])
+@pytest.mark.parametrize("role", ["admin", "head_admin", "project_owner"])
 def test_administrative_roles_can_delete_any_chat_message(role):
     with TestClient(app) as client:
         owner_headers = {

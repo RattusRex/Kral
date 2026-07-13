@@ -1,7 +1,7 @@
 import logging
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
 from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -16,6 +16,7 @@ from app.db.database import SessionLocal
 from app.models.user import User
 from app.models.project import DEFAULT_PROJECT_NAME, Project, ProjectMembership
 from app.core.passwords import new_password_policy_error
+from app.core.roles import Role, is_admin_role
 from app.schemas.user import EmailResendRequest, EmailVerificationRequest, UserCreate
 from app.core.email_verification import (
     generate_verification_token,
@@ -285,17 +286,28 @@ def get_current_user(
 
 @router.get("/me")
 def get_me(
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
+    x_project_id: int | None = Header(default=None, alias="X-Project-ID"),
+    db: Session = Depends(get_db),
 ):
+    membership = None
+    if x_project_id is not None:
+        membership = db.query(ProjectMembership).filter(
+            ProjectMembership.project_id == x_project_id,
+            ProjectMembership.user_id == current_user.id,
+        ).first()
+        if not current_user.is_owner and not membership:
+            raise HTTPException(status_code=403, detail="Project permissions required")
+    effective_role = Role.OWNER if current_user.is_owner else membership.role if membership else current_user.role
     return {
         "id": current_user.id,
         "username": current_user.username,
         "email": current_user.email,
-        "karma": current_user.karma,
-        "role": current_user.role,
-        "is_admin": current_user.is_admin,
+        "karma": membership.karma if membership else current_user.karma,
+        "role": effective_role,
+        "is_admin": is_admin_role(effective_role),
         "is_owner": current_user.is_owner,
-        "is_head_admin": current_user.is_head_admin,
+        "is_head_admin": effective_role == Role.HEAD_ADMIN,
         "email_verified": current_user.email_verified,
         "email_verified_at": current_user.email_verified_at,
     }

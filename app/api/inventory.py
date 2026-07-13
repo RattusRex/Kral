@@ -11,8 +11,9 @@ from app.models.inventory import Inventory, InventoryItem, MarketSaleLog, ShopQu
 from app.models.user import User
 from app.api.calendar import charge_character_downtime
 from app.api.users import get_current_user
-from app.api.projects import require_feature
+from app.api.projects import get_current_project_access, require_feature
 from app.models.project import Project
+from app.core.roles import Role, ROLE_RANK
 from app.schemas.inventory import (
     AddItemRequest,
     CurrencyTransferRequest,
@@ -31,7 +32,7 @@ from app.schemas.inventory import (
 import random
 
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(get_current_project_access)])
 
 RARITY_DATA = {
     "Обычный": {"dc": 5, "days_dice": 4, "base_price": 100},
@@ -178,14 +179,19 @@ def validate_rarity(rarity: str):
         )
 
 def require_inventory_grant_admin(current_user: User):
-    if not current_user.is_admin and not hasattr(current_user, "active_project_role"):
+    if ROLE_RANK.get(
+        getattr(current_user, "active_project_role", Role.PLAYER), 0
+    ) < ROLE_RANK[Role.TECHNICIAN]:
         raise HTTPException(
             status_code=403,
             detail="Admin permissions required"
         )
 
-def get_inventory_for_admin_grant(character_id: int, db: Session) -> Inventory:
-    character = db.query(Character).filter(Character.id == character_id).first()
+def get_inventory_for_admin_grant(character_id: int, current_user: User, db: Session) -> Inventory:
+    character = db.query(Character).filter(
+        Character.id == character_id,
+        Character.project_id == current_user.active_project_id,
+    ).first()
     if not character:
         raise HTTPException(
             status_code=404,
@@ -391,6 +397,7 @@ def record_currency_transfer(
     db: Session
 ):
     db.add(TransferLog(
+        project_id=sender.project_id,
         user_id=user.id,
         username=user.username,
         sender_character_id=sender.id,
@@ -411,6 +418,7 @@ def record_item_transfer(
     db: Session
 ):
     db.add(TransferLog(
+        project_id=sender.project_id,
         user_id=user.id,
         username=user.username,
         sender_character_id=sender.id,
@@ -589,8 +597,10 @@ def get_character_for_current_user(
     current_user: User,
     db: Session
 ) -> Character:
+    project_id = current_user.active_project_id
     character = db.query(Character).filter(
         Character.id == character_id,
+        Character.project_id == project_id,
         Character.user_id == current_user.id
     ).first()
 
@@ -769,6 +779,7 @@ def record_shop_transaction(
         total_amount = quote.item_price - quote.hireling_cost
 
     db.add(ShopTransactionLog(
+        project_id=character.project_id,
         user_id=user.id,
         username=user.username,
         actor_id=user.id,
@@ -832,7 +843,7 @@ def add_item(
 ):
     require_inventory_grant_admin(current_user)
     validate_rarity(item_data.rarity)
-    inventory = get_inventory_for_admin_grant(character_id, db)
+    inventory = get_inventory_for_admin_grant(character_id, current_user, db)
 
     item = InventoryItem(
         name=item_data.name,
@@ -876,6 +887,7 @@ def create_market_sale(
     character = get_character_for_current_user(character_id, current_user, db)
     inventory = get_character_inventory(character_id, current_user, db)
     sale = MarketSaleLog(
+        project_id=character.project_id,
         user_id=current_user.id,
         username=current_user.username,
         actor_id=current_user.id,
@@ -934,7 +946,7 @@ def add_gold(
             detail="Amount must be positive"
         )
 
-    inventory = get_inventory_for_admin_grant(character_id, db)
+    inventory = get_inventory_for_admin_grant(character_id, current_user, db)
 
     inventory.gold += gold_data.amount
     db.commit()
@@ -979,7 +991,7 @@ def add_inventory_currency(
 ):
     require_inventory_grant_admin(current_user)
     require_non_negative_currency(currency_data)
-    inventory = get_inventory_for_admin_grant(character_id, db)
+    inventory = get_inventory_for_admin_grant(character_id, current_user, db)
     add_currency(
         inventory,
         currency_data.gold,

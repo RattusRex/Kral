@@ -276,6 +276,7 @@ class CalendarAuditLog(Base):
     user_id: Mapped[int] = mapped_column(
         ForeignKey("users.id")
     )
+    project_id: Mapped[int | None] = mapped_column(ForeignKey("projects.id"), nullable=True)
 
     username: Mapped[str] = mapped_column(
         String(50)

@@ -10,6 +10,7 @@ from app.api.chat import (
     create_roll_chat_message,
 )
 from app.api.users import get_current_user, get_db
+from app.api.projects import get_current_project_access
 from app.models.character import Character, CharacterAttack
 from app.models.user import User
 from app.schemas.character import (
@@ -26,7 +27,7 @@ DAMAGE_PATTERN = re.compile(
 )
 
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(get_current_project_access)])
 
 
 def get_character_for_current_user(
@@ -34,8 +35,10 @@ def get_character_for_current_user(
     current_user: User,
     db: Session
 ) -> Character:
+    project_id = current_user.active_project_id
     character = db.query(Character).filter(
         Character.id == character_id,
+        Character.project_id == project_id,
         Character.user_id == current_user.id
     ).first()
 
@@ -201,7 +204,8 @@ def roll_attack(
         content=(
             f"{current_user.username}: {character.name} атакует {attack.name}. "
             f"Бросок: {attack_roll}. Бонус: {bonus_text}. Итог: {total}."
-        )
+        ),
+        project_id=character.project_id,
     )
     db.commit()
 
@@ -246,7 +250,8 @@ def roll_damage(
         content=(
             f"{current_user.username}: {character.name} — урон {attack.name}. "
             f"Кубики: {rolls}. Модификатор: {mod_text}. Итог: {total}."
-        )
+        ),
+        project_id=character.project_id,
     )
     db.commit()
 

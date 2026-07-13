@@ -6,7 +6,8 @@ from app.api.projects import require_feature
 from app.api.users import get_current_user, get_db
 from app.models.character import Character
 from app.models.inventory import KarmaPurchase
-from app.models.project import Project
+from app.models.project import Project, ProjectMembership
+from app.api.projects import get_current_project_access
 from app.models.user import User
 from app.schemas.karma_shop import (
     KarmaItemPurchaseRequest,
@@ -23,30 +24,32 @@ router = APIRouter(
 XP_KARMA_COST = 5
 
 
-def owned_character(character_id: int, user: User, db: Session) -> Character:
+def owned_character(character_id: int, user: User, project_id: int, db: Session) -> Character:
     character = db.query(Character).filter(
         Character.id == character_id,
         Character.user_id == user.id,
+        Character.project_id == project_id,
     ).first()
     if not character:
         raise HTTPException(status_code=404, detail="Персонаж не найден")
     return character
 
 
-def charge_karma(user: User, cost: int) -> None:
-    if user.karma < cost:
+def charge_karma(membership: ProjectMembership, cost: int) -> None:
+    if membership.karma < cost:
         raise HTTPException(status_code=400, detail="Недостаточно кармы")
-    user.karma -= cost
+    membership.karma -= cost
 
 
 def record_purchase(
     db: Session,
-    user: User,
+    membership: ProjectMembership,
     purchase_type: str,
     name: str,
     cost: int,
     character: Character | None = None,
 ) -> KarmaPurchase:
+    user = membership.user
     purchase = KarmaPurchase(
         user_id=user.id,
         username=user.username,
@@ -65,18 +68,18 @@ def record_purchase(
 
 def commit_result(
     db: Session,
-    user: User,
+    membership: ProjectMembership,
     purchase: KarmaPurchase,
     character: Character | None = None,
 ) -> dict:
     db.commit()
     db.refresh(purchase)
-    db.refresh(user)
+    db.refresh(membership)
     if character:
         db.refresh(character)
     return {
         "purchase": purchase,
-        "remaining_karma": user.karma,
+        "remaining_karma": membership.karma,
         "character_level": character.level if character else None,
         "character_xp": character.xp if character else None,
         "character_is_dead": character.is_dead if character else None,
@@ -87,9 +90,12 @@ def commit_result(
 def list_owned_purchases(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    access=Depends(get_current_project_access),
 ):
+    project, _ = access
     return db.query(KarmaPurchase).filter(
         KarmaPurchase.user_id == current_user.id,
+        KarmaPurchase.project_id == project.id,
         KarmaPurchase.purchase_type.in_(("item", "opener")),
     ).order_by(KarmaPurchase.created_at.desc(), KarmaPurchase.id.desc()).all()
 
@@ -99,15 +105,19 @@ def purchase_xp(
     request: KarmaXpPurchaseRequest,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    access=Depends(get_current_project_access),
 ):
-    character = owned_character(request.character_id, current_user, db)
+    project, _ = access
+    membership = db.query(ProjectMembership).filter_by(project_id=project.id, user_id=current_user.id).one()
+    character = owned_character(request.character_id, current_user, project.id, db)
     cost = request.amount * XP_KARMA_COST
-    charge_karma(current_user, cost)
+    charge_karma(membership, cost)
     apply_xp_delta(character, request.amount)
     purchase = record_purchase(
-        db, current_user, "xp", f"{request.amount} опыта", cost, character,
+        db, membership, "xp", f"{request.amount} опыта", cost, character,
     )
-    return commit_result(db, current_user, purchase, character)
+    purchase.project_id = project.id
+    return commit_result(db, membership, purchase, character)
 
 
 @router.post("/purchases", response_model=KarmaPurchaseResult)
@@ -115,12 +125,16 @@ def purchase_item(
     request: KarmaItemPurchaseRequest,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    access=Depends(get_current_project_access),
 ):
-    charge_karma(current_user, request.cost)
+    project, _ = access
+    membership = db.query(ProjectMembership).filter_by(project_id=project.id, user_id=current_user.id).one()
+    charge_karma(membership, request.cost)
     purchase = record_purchase(
-        db, current_user, request.purchase_type, request.name, request.cost,
+        db, membership, request.purchase_type, request.name, request.cost,
     )
-    return commit_result(db, current_user, purchase)
+    purchase.project_id = project.id
+    return commit_result(db, membership, purchase)
 
 
 @router.post("/resurrect", response_model=KarmaPurchaseResult)
@@ -128,8 +142,11 @@ def resurrect_character(
     request: KarmaResurrectionRequest,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    access=Depends(get_current_project_access),
 ):
-    character = owned_character(request.character_id, current_user, db)
+    project, _ = access
+    membership = db.query(ProjectMembership).filter_by(project_id=project.id, user_id=current_user.id).one()
+    character = owned_character(request.character_id, current_user, project.id, db)
     if not character.is_dead:
         raise HTTPException(status_code=400, detail="Персонаж не погиб")
     if character.level >= 11:
@@ -138,9 +155,10 @@ def resurrect_character(
             detail="Воскрешение недоступно персонажам 11 уровня и выше",
         )
     cost = 5 if character.level <= 5 else 10
-    charge_karma(current_user, cost)
+    charge_karma(membership, cost)
     character.is_dead = False
     purchase = record_purchase(
-        db, current_user, "resurrection", "Воскрешение персонажа", cost, character,
+        db, membership, "resurrection", "Воскрешение персонажа", cost, character,
     )
-    return commit_result(db, current_user, purchase, character)
+    purchase.project_id = project.id
+    return commit_result(db, membership, purchase, character)

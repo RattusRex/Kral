@@ -17,7 +17,7 @@ from app.schemas.character import (
     SkillRollResponse,
 )
 from app.api.users import get_db
-from app.api.projects import require_feature
+from app.api.projects import get_current_project_access, require_feature
 from app.core.projects import require_project_access
 from app.models.project import Project
 
@@ -52,7 +52,7 @@ SKILL_FIELDS = {
 }
 
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(get_current_project_access)])
 MAX_CHARACTERS_PER_USER = 10
 
 
@@ -82,12 +82,10 @@ def create_character(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    project_id = character_data.project_id
-    if project_id is None:
-        from app.api.projects import get_current_project_access
-        # Header-less legacy clients are resolved by the same default/single
-        # membership rules as other selected-project endpoints.
-        project_id = get_current_project_access(None, current_user, db)[0].id
+    selected_project_id = current_user.active_project_id
+    project_id = character_data.project_id or selected_project_id
+    if project_id != selected_project_id:
+        raise HTTPException(status_code=403, detail="Selected project does not match character project")
     require_project_access(db, current_user, project_id)
     character_count = db.query(Character).filter(
         Character.user_id == current_user.id,
@@ -184,8 +182,10 @@ def get_characters(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
+    project_id = current_user.active_project_id
     characters = db.query(Character).filter(
-        Character.user_id == current_user.id
+        Character.user_id == current_user.id,
+        Character.project_id == project_id,
     ).all()
 
     return characters
@@ -216,7 +216,8 @@ def update_character(
 ):
     character = db.query(Character).filter(
         Character.id == character_id,
-        Character.user_id == current_user.id
+        Character.user_id == current_user.id,
+        Character.project_id == current_user.active_project_id,
     ).first()
 
     if not character:
@@ -265,7 +266,8 @@ def roll_ability(
 
     character = db.query(Character).filter(
         Character.id == character_id,
-        Character.user_id == current_user.id
+        Character.user_id == current_user.id,
+        Character.project_id == current_user.active_project_id,
     ).first()
     if not character:
         raise HTTPException(status_code=404, detail="Персонаж не найден")
@@ -287,7 +289,8 @@ def roll_ability(
         content=(
             f"{current_user.username}: {character.name} — бросок {ability_label}. "
             f"Бросок: {roll}. Модификатор: {mod_text}. Итог: {total}."
-        )
+        ),
+        project_id=character.project_id,
     )
     db.commit()
 
@@ -315,7 +318,8 @@ def roll_saving_throw(
 
     character = db.query(Character).filter(
         Character.id == character_id,
-        Character.user_id == current_user.id
+        Character.user_id == current_user.id,
+        Character.project_id == current_user.active_project_id,
     ).first()
     if not character:
         raise HTTPException(status_code=404, detail="Персонаж не найден")
@@ -339,7 +343,8 @@ def roll_saving_throw(
         content=(
             f"{current_user.username}: {character.name} — спасбросок {ability_label}. "
             f"Бросок: {roll}. Бонус: {bonus_text}. Итог: {total}."
-        )
+        ),
+        project_id=character.project_id,
     )
     db.commit()
 
@@ -368,6 +373,7 @@ def roll_skill(
     character = db.query(Character).filter(
         Character.id == character_id,
         Character.user_id == current_user.id,
+        Character.project_id == current_user.active_project_id,
     ).first()
     if not character:
         raise HTTPException(status_code=404, detail="Персонаж не найден")
@@ -395,6 +401,7 @@ def roll_skill(
             f"{current_user.username}: {character.name} — навык {skill_label}. "
             f"Формула: 1d20{modifier_text}. Бросок: {roll}. Итог: {total}."
         ),
+        project_id=character.project_id,
     )
     db.commit()
 

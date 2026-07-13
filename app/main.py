@@ -92,6 +92,23 @@ def seed_default_project(db: Session) -> None:
     db.commit()
 
 
+def seed_owner_project_memberships(db: Session) -> None:
+    """Give global owners a project-local balance in every project."""
+    owners = db.query(User).filter(User.role == Role.OWNER).all()
+    projects = db.query(Project).all()
+    for owner in owners:
+        for project in projects:
+            if not db.query(ProjectMembership).filter_by(
+                project_id=project.id, user_id=owner.id
+            ).first():
+                db.add(ProjectMembership(
+                    project_id=project.id,
+                    user_id=owner.id,
+                    role=Role.PROJECT_OWNER,
+                ))
+    db.commit()
+
+
 def ensure_column(table_name: str, column_name: str, column_definition: str) -> None:
     inspector = inspect(engine)
     columns = {column["name"] for column in inspector.get_columns(table_name)}
@@ -162,10 +179,12 @@ def ensure_schema_columns() -> None:
     ensure_column("projects", "slug", "VARCHAR(100)")
     ensure_column("projects", "is_default", "BOOLEAN NOT NULL DEFAULT FALSE")
     ensure_column("projects", "features", "JSON NOT NULL DEFAULT '{}'")
+    ensure_column("project_memberships", "karma", "INTEGER NOT NULL DEFAULT 0")
     # Existing installations predate projects; all legacy characters belong to
     # the campaign's original ecosystem.
     with SessionLocal() as db:
         seed_default_project(db)
+        seed_owner_project_memberships(db)
         default_project_id = db.query(Project.id).filter(
             Project.name == DEFAULT_PROJECT_NAME
         ).scalar()
@@ -235,6 +254,12 @@ def ensure_schema_columns() -> None:
     for table_name in ("shop_transaction_logs", "market_sale_logs", "karma_purchases"):
         ensure_column(table_name, "actor_id", "INTEGER")
         ensure_column(table_name, "actor_username", "VARCHAR(50)")
+    ensure_column("karma_purchases", "project_id", f"INTEGER REFERENCES projects(id) DEFAULT {default_project_id}")
+    for table_name in (
+        "shop_transaction_logs", "market_sale_logs", "transfer_logs",
+        "admin_grant_logs", "calendar_audit_logs",
+    ):
+        ensure_column(table_name, "project_id", f"INTEGER REFERENCES projects(id) DEFAULT {default_project_id}")
     ensure_column(
         "shop_quotes",
         "searcher_type",
@@ -265,7 +290,19 @@ def ensure_schema_columns() -> None:
             text("UPDATE characters SET project_id = :project_id WHERE project_id IS NULL"),
             {"project_id": default_project_id},
         )
-        for table_name in ("chat_messages", "content_blocks", "game_recruitments"):
+        connection.execute(text(
+            "UPDATE project_memberships SET karma = ("
+            "SELECT users.karma FROM users "
+            "WHERE users.id = project_memberships.user_id"
+            ") WHERE project_id = :project_id AND karma = 0 "
+            "AND EXISTS (SELECT 1 FROM users "
+            "WHERE users.id = project_memberships.user_id AND users.karma <> 0)"
+        ), {"project_id": default_project_id})
+        for table_name in (
+            "chat_messages", "content_blocks", "game_recruitments",
+            "shop_transaction_logs", "market_sale_logs", "transfer_logs",
+            "admin_grant_logs", "calendar_audit_logs", "karma_purchases",
+        ):
             connection.execute(text(
                 f"UPDATE {table_name} SET project_id = :project_id WHERE project_id IS NULL"
             ), {"project_id": default_project_id})
@@ -296,6 +333,7 @@ async def lifespan(app: FastAPI):
     try:
         seed_admin(db)
         seed_default_project(db)
+        seed_owner_project_memberships(db)
     finally:
         db.close()
     yield

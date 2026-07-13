@@ -175,6 +175,7 @@ class ShopTransactionLog(Base):
     user_id: Mapped[int] = mapped_column(
         ForeignKey("users.id")
     )
+    project_id: Mapped[int | None] = mapped_column(ForeignKey("projects.id"), nullable=True)
 
     username: Mapped[str] = mapped_column(
         String(50)
@@ -225,6 +226,7 @@ class MarketSaleLog(Base):
     # IDs and names are immutable audit snapshots. They deliberately are not
     # foreign keys, so deleting a user or character cannot erase sale history.
     user_id: Mapped[int] = mapped_column(Integer)
+    project_id: Mapped[int | None] = mapped_column(ForeignKey("projects.id"), nullable=True)
     username: Mapped[str] = mapped_column(String(50))
     actor_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     actor_username: Mapped[str | None] = mapped_column(String(50), nullable=True)
@@ -249,6 +251,7 @@ class TransferLog(Base):
     user_id: Mapped[int] = mapped_column(
         ForeignKey("users.id")
     )
+    project_id: Mapped[int | None] = mapped_column(ForeignKey("projects.id"), nullable=True)
 
     username: Mapped[str] = mapped_column(
         String(50)
@@ -308,6 +311,7 @@ class AdminGrantLog(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
     admin_id: Mapped[int] = mapped_column(Integer)
+    project_id: Mapped[int | None] = mapped_column(ForeignKey("projects.id"), nullable=True)
     admin_username: Mapped[str] = mapped_column(String(50))
     user_id: Mapped[int] = mapped_column(Integer)
     username: Mapped[str] = mapped_column(String(50))
@@ -324,6 +328,7 @@ class KarmaPurchase(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
     user_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    project_id: Mapped[int | None] = mapped_column(ForeignKey("projects.id"), nullable=True)
     username: Mapped[str] = mapped_column(String(50))
     actor_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     actor_username: Mapped[str | None] = mapped_column(String(50), nullable=True)

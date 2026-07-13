@@ -18,6 +18,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from app.api.users import get_current_user
+from app.api.projects import get_current_project_access
+from app.core.roles import Role, ROLE_RANK
 from app.core import calendar as game_calendar
 from app.db.database import SessionLocal
 from app.models.character import (
@@ -35,7 +37,7 @@ from app.schemas.character import (
     WorkEntryResponse,
 )
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(get_current_project_access)])
 
 AGENT_CHARACTER = "character"
 AGENT_PERSONAL_HIRELING = "personal_hireling"
@@ -51,6 +53,10 @@ CALENDAR_AGENT_START_LABELS = {
     AGENT_SIMULACRUM: "даты создания симулякра",
 }
 UNIT_AGENT_TYPES = {AGENT_PERSONAL_HIRELING, AGENT_SIMULACRUM}
+
+
+def can_manage_calendar(user: User) -> bool:
+    return ROLE_RANK.get(getattr(user, "active_project_role", Role.PLAYER), 0) >= ROLE_RANK[Role.TECHNICIAN]
 
 
 def get_db():
@@ -84,11 +90,13 @@ def get_character_for_current_user(
     Owners of the character and any administrator may access it.  Anyone else
     gets a 404 so the existence of other players' characters is not leaked.
     """
+    project_id = current_user.active_project_id
     character = db.query(Character).filter(
         Character.id == character_id
+        , Character.project_id == project_id
     ).first()
     if not character or (
-        character.user_id != current_user.id and not current_user.is_admin
+        character.user_id != current_user.id and not can_manage_calendar(current_user)
     ):
         raise HTTPException(
             status_code=404,
@@ -99,7 +107,7 @@ def get_character_for_current_user(
 
 def require_calendar_manager(current_user: User) -> None:
     """Reject non-administrators trying to edit or delete calendar entries."""
-    if not current_user.is_admin:
+    if not can_manage_calendar(current_user):
         raise HTTPException(
             status_code=403,
             detail=(
@@ -119,9 +127,10 @@ def record_calendar_audit(
 ) -> None:
     """Append a calendar audit-log row for an administrative change."""
     db.add(CalendarAuditLog(
+        project_id=character.project_id,
         user_id=user.id,
         username=user.username,
-        role=user.role,
+        role=getattr(user, "active_project_role", Role.PLAYER),
         character_id=character.id,
         character_name=character.name,
         action=action,
@@ -377,7 +386,7 @@ def create_manual_downtime_entry(
     db.add(entry)
     db.flush()
 
-    if current_user.is_admin:
+    if can_manage_calendar(current_user):
         record_calendar_audit(
             db, current_user, character, "create", entry,
             (
@@ -390,7 +399,7 @@ def create_manual_downtime_entry(
     db.refresh(character)
     return build_summary(
         character,
-        can_manage=current_user.is_admin,
+        can_manage=can_manage_calendar(current_user),
         agent_type=normalized_agent,
     )
 
@@ -448,6 +457,7 @@ def create_work_entry(
     inventory.silver = total_copper // 10
     inventory.copper = total_copper % 10
     db.add(ShopTransactionLog(
+        project_id=character.project_id,
         user_id=character.owner.id,
         username=character.owner.username,
         actor_id=current_user.id,
@@ -491,7 +501,7 @@ def get_character_calendar(
 ):
     character = get_character_for_current_user(character_id, current_user, db)
     return build_summary(
-        character, can_manage=current_user.is_admin, page=page, page_size=page_size
+        character, can_manage=can_manage_calendar(current_user), page=page, page_size=page_size
     )
 
 
@@ -513,7 +523,7 @@ def get_agent_calendar(
     require_agent_available(character, normalized_agent)
     return build_summary(
         character,
-        can_manage=current_user.is_admin,
+        can_manage=can_manage_calendar(current_user),
         agent_type=normalized_agent,
         page=page,
         page_size=page_size,
@@ -620,7 +630,7 @@ def update_downtime_entry(
 
     db.commit()
     db.refresh(character)
-    return build_summary(character, can_manage=current_user.is_admin)
+    return build_summary(character, can_manage=can_manage_calendar(current_user))
 
 
 @router.patch(
@@ -683,7 +693,7 @@ def update_agent_downtime_entry(
     db.refresh(character)
     return build_summary(
         character,
-        can_manage=current_user.is_admin,
+        can_manage=can_manage_calendar(current_user),
         agent_type=normalized_agent,
     )
 
@@ -735,7 +745,7 @@ def delete_downtime_entry(
     db.delete(entry)
     db.commit()
     db.refresh(character)
-    return build_summary(character, can_manage=current_user.is_admin)
+    return build_summary(character, can_manage=can_manage_calendar(current_user))
 
 
 @router.delete(
@@ -777,6 +787,6 @@ def delete_agent_downtime_entry(
     db.refresh(character)
     return build_summary(
         character,
-        can_manage=current_user.is_admin,
+        can_manage=can_manage_calendar(current_user),
         agent_type=normalized_agent,
     )

@@ -93,7 +93,10 @@ def test_legacy_admin_is_promoted_before_project_schema_migration():
         assert me.json()["is_owner"] is True
         assert projects.status_code == 200
         assert [project["name"] for project in projects.json()] == [DEFAULT_PROJECT_NAME]
-        assert client.get("/api/admin/users", headers=owner_headers).status_code == 200
+        assert client.get(
+            "/api/admin/users",
+            headers=project_headers(owner_headers, projects.json()[0]["id"]),
+        ).status_code == 200
 
 
 def test_project_roles_are_isolated_and_cannot_be_escalated_by_switching_project_id():
@@ -114,6 +117,110 @@ def test_project_roles_are_isolated_and_cannot_be_escalated_by_switching_project
         assert client.get("/api/admin/users", headers=project_headers(user, first["id"])).status_code == 200
         assert client.get("/api/admin/users", headers=project_headers(user, second["id"])).status_code == 403
         assert client.get(f"/api/projects/{second['id']}/settings", headers=user).status_code == 403
+
+
+def test_global_admin_role_does_not_leak_into_player_project_membership():
+    with TestClient(app) as client:
+        owner = login(client, "admin", "admin123")
+        user_id = register(client, "global-admin-project-player")
+        with SessionLocal() as db:
+            db.get(User, user_id).role = "admin"
+            db.commit()
+        project = client.post(
+            "/api/projects", headers=owner,
+            json={"name": "Role Isolation", "slug": "role-isolation"},
+        ).json()
+        assert client.put(
+            f"/api/projects/{project['id']}/members/{user_id}",
+            headers=owner, json={"role": "player"},
+        ).status_code == 200
+
+        headers = project_headers(login(client, "global-admin-project-player", PASSWORD), project["id"])
+        assert client.get("/api/admin/characters", headers=headers).status_code == 403
+
+
+def test_gameplay_requires_explicit_project_selection():
+    with TestClient(app) as client:
+        owner = login(client, "admin", "admin123")
+
+        assert client.get("/api/projects", headers=owner).status_code == 200
+        assert client.get("/api/me", headers=owner).status_code == 200
+        for path in (
+            "/api/projects/current",
+            "/api/characters",
+            "/api/chat/messages",
+            "/api/leaderboard",
+            "/api/content-pages/server-rules",
+            "/api/karma-shop/purchases",
+        ):
+            response = client.get(path, headers=owner)
+            assert response.status_code == 400, (path, response.text)
+            assert response.json()["detail"] == "X-Project-ID header is required"
+
+
+def test_chat_and_karma_are_isolated_between_selected_projects():
+    with TestClient(app) as client:
+        owner = login(client, "admin", "admin123")
+        player_id = register(client, "isolated-player")
+        first = client.post(
+            "/api/projects", headers=owner, json={"name": "Isolated First", "slug": "isolated-first"}
+        ).json()
+        second = client.post(
+            "/api/projects", headers=owner, json={"name": "Isolated Second", "slug": "isolated-second"}
+        ).json()
+        for project in (first, second):
+            assert client.put(
+                f"/api/projects/{project['id']}/members/{player_id}",
+                headers=owner,
+                json={"role": "player"},
+            ).status_code == 200
+
+        player = login(client, "isolated-player", PASSWORD)
+        first_headers = project_headers(player, first["id"])
+        second_headers = project_headers(player, second["id"])
+        first_character = client.post("/api/characters", headers=first_headers, json={
+            "name": "First Character", "class_name": "Fighter", "level": 1, "route": "First"
+        })
+        assert first_character.status_code == 200, first_character.text
+        assert [row["name"] for row in client.get("/api/characters", headers=first_headers).json()] == [
+            "First Character"
+        ]
+        assert client.get("/api/characters", headers=second_headers).json() == []
+        assert client.patch(
+            f"/api/characters/{first_character.json()['id']}",
+            headers=second_headers,
+            json={"name": "Cross-project update"},
+        ).status_code == 404
+
+        assert client.post(
+            "/api/chat/messages", headers=first_headers, json={"content": "First only"}
+        ).status_code == 200
+        assert [row["content"] for row in client.get(
+            "/api/chat/messages", headers=first_headers
+        ).json()] == ["First only"]
+        assert client.get("/api/chat/messages", headers=second_headers).json() == []
+
+        granted = client.post(
+            f"/api/admin/users/{player_id}/karma/add",
+            headers=project_headers(owner, first["id"]),
+            json={"amount": 7, "reason": "project-local grant"},
+        )
+        assert granted.status_code == 200, granted.text
+        assert granted.json()["karma"] == 7
+        assert client.get("/api/projects/current", headers=first_headers).json()["karma"] == 7
+        assert client.get("/api/projects/current", headers=second_headers).json()["karma"] == 0
+        purchase = client.post(
+            "/api/karma-shop/purchases",
+            headers=first_headers,
+            json={"purchase_type": "opener", "name": "First opener", "cost": 3},
+        )
+        assert purchase.status_code == 200, purchase.text
+        assert purchase.json()["remaining_karma"] == 4
+        assert [row["name"] for row in client.get(
+            "/api/karma-shop/purchases", headers=first_headers
+        ).json()] == ["First opener"]
+        assert client.get("/api/karma-shop/purchases", headers=second_headers).json() == []
+        assert client.get("/api/projects/current", headers=second_headers).json()["karma"] == 0
 
 
 def test_role_hierarchy_and_project_owner_peer_protection_are_enforced_server_side():

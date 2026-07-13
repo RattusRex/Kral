@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from app.api.users import get_current_user, get_db
-from app.api.projects import require_feature
+from app.api.projects import get_current_project_access, require_feature
 from app.models.chat import ChatMessage
 from app.models.project import Project, ProjectMembership
 from app.models.user import User
@@ -17,7 +17,7 @@ from app.schemas.chat import (
 )
 
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(get_current_project_access)])
 ROLL_PATTERN = re.compile(r"^(?P<count>\d*)d(?P<sides>\d+)$", re.IGNORECASE)
 VALID_CHANNELS = {"general", "rolls"}
 MAX_DICE_COUNT = 100
@@ -63,10 +63,12 @@ def create_roll_chat_message(
     formula: str,
     rolls: list[int],
     total: int,
-    content: str | None = None
+    content: str | None = None,
+    project_id: int | None = None,
 ) -> ChatMessage:
     message = ChatMessage(
         user_id=user.id,
+        project_id=project_id,
         username=user.username,
         channel="rolls",
         content=content or (
@@ -99,20 +101,20 @@ def get_leaderboard(
     _: User = Depends(get_current_user),
     project: Project = Depends(require_feature("leaderboard")),
 ):
-    users = db.query(User).join(
+    rows = db.query(User, ProjectMembership).join(
         ProjectMembership, ProjectMembership.user_id == User.id
     ).filter(
         ProjectMembership.project_id == project.id
     ).order_by(
-        User.karma.desc(),
+        ProjectMembership.karma.desc(),
         User.username.asc()
     ).all()
     return [{
         "rank": index + 1,
         "id": user.id,
         "username": user.username,
-        "karma": user.karma
-    } for index, user in enumerate(users)]
+        "karma": membership.karma
+    } for index, (user, membership) in enumerate(rows)]
 
 
 @router.get("/chat/messages", response_model=list[ChatMessageResponse])
@@ -121,7 +123,7 @@ def list_chat_messages(
     limit: int = Query(default=50, ge=1, le=200),
     before_id: int | None = Query(default=None),
     db: Session = Depends(get_db),
-    _: User = Depends(get_current_user)
+    access: tuple[Project, str] = Depends(get_current_project_access),
 ):
     if channel not in VALID_CHANNELS:
         raise HTTPException(
@@ -129,7 +131,10 @@ def list_chat_messages(
             detail="Unknown chat channel"
         )
 
-    query = db.query(ChatMessage).filter(ChatMessage.channel == channel)
+    query = db.query(ChatMessage).filter(
+        ChatMessage.project_id == access[0].id,
+        ChatMessage.channel == channel,
+    )
     if before_id is not None:
         query = query.filter(ChatMessage.id < before_id)
     rows = query.order_by(ChatMessage.created_at.desc(), ChatMessage.id.desc()).limit(limit).all()
@@ -140,7 +145,8 @@ def list_chat_messages(
 def create_chat_message(
     message_data: ChatMessageCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
+    access: tuple[Project, str] = Depends(get_current_project_access),
 ):
     content = require_message_content(message_data.content)
     if content.lower().startswith("/r"):
@@ -150,11 +156,13 @@ def create_chat_message(
             user=current_user,
             formula=formula,
             rolls=rolls,
-            total=total
+            total=total,
+            project_id=access[0].id,
         )
     else:
         message = ChatMessage(
             user_id=current_user.id,
+            project_id=access[0].id,
             username=current_user.username,
             channel="general",
             content=content
@@ -171,10 +179,14 @@ def delete_chat_message(
     message_id: int,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    access: tuple[Project, str] = Depends(get_current_project_access),
 ):
-    if not is_admin_role(current_user.role):
+    if access[1] not in ("owner", "project_owner", "head_admin", "admin", "technician"):
         raise HTTPException(status_code=403, detail="Admin permissions required")
-    message = db.query(ChatMessage).filter(ChatMessage.id == message_id).first()
+    message = db.query(ChatMessage).filter(
+        ChatMessage.id == message_id,
+        ChatMessage.project_id == access[0].id,
+    ).first()
     if not message:
         raise HTTPException(status_code=404, detail="Message not found")
     db.delete(message)
@@ -185,7 +197,8 @@ def delete_chat_message(
 def roll_dice(
     roll_data: DiceRollRequest,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
+    access: tuple[Project, str] = Depends(get_current_project_access),
 ):
     formula, rolls, total = roll_dice_formula(roll_data.formula)
     message = create_roll_chat_message(
@@ -193,7 +206,8 @@ def roll_dice(
         user=current_user,
         formula=formula,
         rolls=rolls,
-        total=total
+        total=total,
+        project_id=access[0].id,
     )
     db.commit()
     db.refresh(message)

@@ -28,10 +28,10 @@ from app.schemas.user import AdminResourceUpdate, RoleUpdate
 from app.schemas.karma_shop import KarmaPurchaseResponse
 from app.core import calendar as game_calendar
 from app.core.calendar import GAME_EPOCH
-from app.core.roles import Role, VALID_ROLES, normalize_role, can_manage_roles
-from app.api.projects import require_feature, require_project_admin as require_selected_project_admin
+from app.core.roles import PROJECT_ROLES, ROLE_RANK, Role, normalize_role
+from app.api.projects import get_current_project_access, require_feature, require_project_admin as require_selected_project_admin
 from app.core.projects import get_admin_character_or_404
-from app.models.project import DEFAULT_PROJECT_NAME, Project, ProjectMembership
+from app.models.project import Project, ProjectMembership
 from app.models.recruitment import GameApplication, GameRecruitment, RecruitmentMessage
 
 
@@ -71,7 +71,9 @@ def list_karma_shop_logs(
     _: User = Depends(require_admin),
     __: Project = Depends(require_feature("karma_logs")),
 ):
-    return db.query(KarmaPurchase).order_by(
+    return db.query(KarmaPurchase).filter(
+        KarmaPurchase.project_id == _.active_project_id
+    ).order_by(
         KarmaPurchase.created_at.desc(), KarmaPurchase.id.desc()
     ).all()
 
@@ -85,9 +87,14 @@ def require_owner(current_user: User = Depends(get_current_user)) -> User:
     return current_user
 
 
-def require_role_manager(current_user: User = Depends(get_current_user)) -> User:
-    """Allow owners and head administrators to manage user roles."""
-    if not can_manage_roles(current_user.role):
+def require_role_manager(
+    current_user: User = Depends(get_current_user),
+    access: tuple[Project, str] = Depends(get_current_project_access),
+) -> User:
+    """Allow project owners and head administrators to manage project roles."""
+    current_user.active_project_id = access[0].id
+    current_user.active_project_role = access[1]
+    if not current_user.is_owner and access[1] not in (Role.PROJECT_OWNER, Role.HEAD_ADMIN):
         raise HTTPException(
             status_code=403,
             detail="Role management permissions required"
@@ -95,7 +102,12 @@ def require_role_manager(current_user: User = Depends(get_current_user)) -> User
     return current_user
 
 
-def require_character_deleter(current_user: User = Depends(get_current_user)) -> User:
+def require_character_deleter(
+    current_user: User = Depends(get_current_user),
+    access: tuple[Project, str] = Depends(get_current_project_access),
+) -> User:
+    current_user.active_project_id = access[0].id
+    current_user.active_project_role = access[1]
     role = getattr(current_user, "active_project_role", current_user.role)
     if normalize_role(role) not in (Role.OWNER, Role.PROJECT_OWNER, Role.HEAD_ADMIN):
         raise HTTPException(
@@ -119,6 +131,7 @@ def add_grant_log(
     character: Character | None = None,
 ) -> None:
     db.add(AdminGrantLog(
+        project_id=character.project_id if character else admin.active_project_id,
         admin_id=admin.id,
         admin_username=admin.username,
         user_id=user.id,
@@ -153,25 +166,26 @@ def agent_calendar_summary(
     )
 
 
-def serialize_user(user: User) -> dict:
+def serialize_user(user: User, membership: ProjectMembership | None = None) -> dict:
+    role = Role.OWNER if user.is_owner else membership.role if membership else user.role
     return {
         "id": user.id,
         "username": user.username,
         "email": user.email,
-        "karma": user.karma,
-        "role": user.role,
-        "is_admin": user.is_admin,
+        "karma": membership.karma if membership else user.karma,
+        "role": role,
+        "is_admin": ROLE_RANK.get(role, 0) >= ROLE_RANK[Role.TECHNICIAN],
         "is_owner": user.is_owner,
-        "is_head_admin": user.is_head_admin,
+        "is_head_admin": role == Role.HEAD_ADMIN,
         "email_verified": user.email_verified,
         "email_verified_at": user.email_verified_at,
     }
 
 
-def serialize_admin_user(user: User) -> dict:
+def serialize_admin_user(user: User, membership: ProjectMembership | None = None, character_count: int | None = None) -> dict:
     return {
-        **serialize_user(user),
-        "character_count": len(user.characters),
+        **serialize_user(user, membership),
+        "character_count": character_count if character_count is not None else len(user.characters),
     }
 
 
@@ -393,18 +407,24 @@ def list_users(
     db: Session = Depends(get_db),
     _: User = Depends(require_admin)
 ):
-    query = db.query(User).join(ProjectMembership).filter(
+    query = db.query(User, ProjectMembership).join(ProjectMembership).filter(
         ProjectMembership.project_id == _.active_project_id
     ).order_by(User.id)
     if page is None and page_size is None:
-        return [serialize_admin_user(user) for user in query.all()]
+        return [serialize_admin_user(
+            user, membership,
+            sum(character.project_id == _.active_project_id for character in user.characters),
+        ) for user, membership in query.all()]
     resolved_page = page or 1
     resolved_page_size = page_size or DEFAULT_PAGE_SIZE
     return paginated_response(
         query,
         resolved_page,
         resolved_page_size,
-        serialize_admin_user,
+        lambda row: serialize_admin_user(
+            row[0], row[1],
+            sum(character.project_id == _.active_project_id for character in row[0].characters),
+        ),
     )
 
 
@@ -414,9 +434,14 @@ def manually_verify_user_email(
     db: Session = Depends(get_db),
     _: User = Depends(require_admin),
 ):
-    user = db.query(User).filter(User.id == user_id).first()
-    if not user:
+    membership = db.query(ProjectMembership).filter(
+        ProjectMembership.user_id == user_id,
+        ProjectMembership.project_id == _.active_project_id,
+    ).first()
+    if not membership:
         raise HTTPException(status_code=404, detail="User not found")
+    user = membership.user
+
     if not user.email_verified:
         user.email_verified = True
         user.email_verified_at = datetime.now().astimezone()
@@ -424,7 +449,7 @@ def manually_verify_user_email(
     user.email_verification_expires_at = None
     db.commit()
     db.refresh(user)
-    return serialize_admin_user(user)
+    return serialize_admin_user(user, membership)
 
 
 @router.post("/characters/{character_id}/xp")
@@ -504,7 +529,7 @@ def list_shop_logs(
     _: User = Depends(require_admin),
     __: Project = Depends(require_feature("logs")),
 ):
-    query = db.query(ShopTransactionLog)
+    query = db.query(ShopTransactionLog).filter(ShopTransactionLog.project_id == _.active_project_id)
 
     if character_id is not None:
         query = query.filter(ShopTransactionLog.character_id == character_id)
@@ -551,7 +576,7 @@ def list_market_sales(
     _: User = Depends(require_admin),
     __: Project = Depends(require_feature("market_logs")),
 ):
-    query = db.query(MarketSaleLog)
+    query = db.query(MarketSaleLog).filter(MarketSaleLog.project_id == _.active_project_id)
     if character_id is not None:
         query = query.filter(MarketSaleLog.character_id == character_id)
     if user_id is not None:
@@ -587,7 +612,7 @@ def list_transfer_logs(
     _: User = Depends(require_admin),
     __: Project = Depends(require_feature("logs")),
 ):
-    query = db.query(TransferLog)
+    query = db.query(TransferLog).filter(TransferLog.project_id == _.active_project_id)
 
     if character_id is not None:
         query = query.filter(
@@ -639,7 +664,7 @@ def list_calendar_logs(
     __: Project = Depends(require_feature("logs")),
 ):
     """Return the audit trail of administrative calendar changes."""
-    query = db.query(CalendarAuditLog)
+    query = db.query(CalendarAuditLog).filter(CalendarAuditLog.project_id == _.active_project_id)
 
     if character_id is not None:
         query = query.filter(CalendarAuditLog.character_id == character_id)
@@ -688,7 +713,7 @@ def list_grant_logs(
     _: User = Depends(require_admin),
     __: Project = Depends(require_feature("logs")),
 ):
-    query = db.query(AdminGrantLog)
+    query = db.query(AdminGrantLog).filter(AdminGrantLog.project_id == _.active_project_id)
     if character_id is not None:
         query = query.filter(AdminGrantLog.character_id == character_id)
     if user_id is not None:
@@ -793,18 +818,21 @@ def update_user_karma(
     admin: User,
     db: Session,
 ):
-    user = db.query(User).filter(User.id == user_id).first()
-    if not user:
+    membership = db.query(ProjectMembership).filter(
+        ProjectMembership.user_id == user_id,
+        ProjectMembership.project_id == admin.active_project_id,
+    ).first()
+    if not membership:
         raise HTTPException(
             status_code=404,
             detail="User not found"
         )
-
-    user.karma = max(0, user.karma + amount)
+    user = membership.user
+    membership.karma = max(0, membership.karma + amount)
     add_grant_log(db, admin, user, "karma", f"{amount:+d}", reason)
     db.commit()
-    db.refresh(user)
-    return serialize_user(user)
+    db.refresh(membership)
+    return serialize_user(user, membership)
 
 
 @router.post("/users/{user_id}/role")
@@ -815,72 +843,47 @@ def change_user_role(
     current_user: User = Depends(require_role_manager)
 ):
     requested_role = normalize_role(role_data.role)
-    if role_data.role.strip().lower() not in VALID_ROLES:
+    if role_data.role.strip().lower() == Role.OWNER and not current_user.is_owner:
+        raise HTTPException(status_code=403, detail="Only the global owner may assign owners")
+    if role_data.role.strip().lower() not in PROJECT_ROLES:
         raise HTTPException(
             status_code=400,
-            detail=f"Role must be one of: {', '.join(VALID_ROLES)}"
+            detail=f"Role must be one of: {', '.join(PROJECT_ROLES)}"
         )
 
-    user = db.query(User).filter(User.id == user_id).first()
-    if not user:
+    membership = db.query(ProjectMembership).filter_by(
+        project_id=current_user.active_project_id,
+        user_id=user_id,
+    ).first()
+    if not membership:
         raise HTTPException(
             status_code=404,
             detail="User not found"
         )
+    user = membership.user
 
-    if current_user.is_owner:
-        # The owner has unrestricted control but may not demote themselves,
-        # otherwise the system could be left without an owner.
-        if user.id == current_user.id and requested_role != Role.OWNER:
+    if user.is_owner and not current_user.is_owner:
+        raise HTTPException(status_code=403, detail="Only the global owner may manage owners")
+
+    if user.id == current_user.id:
+        if current_user.is_owner or membership.role == Role.PROJECT_OWNER:
             raise HTTPException(
                 status_code=400,
-                detail="Owners cannot demote themselves"
+                detail="Project owners cannot demote themselves"
             )
-    else:
-        # Head administrators may manage admins, technicians and players, but
-        # they can never touch the owner or the head-admin role. These checks
-        # must live on the backend so a direct API call cannot bypass the UI.
-        if user.is_owner:
-            raise HTTPException(
-                status_code=403,
-                detail="Главный администратор не может изменять роль владельца"
-            )
-        if user.is_head_admin:
-            raise HTTPException(
-                status_code=403,
-                detail="Только владелец может изменять роль главного администратора"
-            )
-        if requested_role == Role.OWNER:
-            raise HTTPException(
-                status_code=403,
-                detail="Только владелец может назначать владельца"
-            )
-        if requested_role == Role.HEAD_ADMIN:
-            raise HTTPException(
-                status_code=403,
-                detail="Только владелец может назначать главного администратора"
-            )
+    actor_role = getattr(current_user, "active_project_role", Role.PLAYER)
+    if not current_user.is_owner:
+        if membership.role == Role.PROJECT_OWNER:
+            raise HTTPException(status_code=403, detail="Only the global owner may manage project owners")
+        if ROLE_RANK[requested_role] >= ROLE_RANK[actor_role]:
+            raise HTTPException(status_code=403, detail="Cannot assign an equal or higher role")
+        if ROLE_RANK[membership.role] >= ROLE_RANK[actor_role]:
+            raise HTTPException(status_code=403, detail="Cannot manage an equal or higher role")
 
-    user.role = requested_role
-    # Preserve legacy role-management behavior inside the original campaign.
-    # Project-specific assignments can then diverge through /projects APIs.
-    default_project_id = db.query(Project.id).filter(
-        Project.name == DEFAULT_PROJECT_NAME
-    ).scalar()
-    if default_project_id is not None:
-        membership = db.query(ProjectMembership).filter_by(
-            project_id=default_project_id, user_id=user.id
-        ).first()
-        if membership:
-            membership.role = requested_role if requested_role in (
-                Role.PROJECT_OWNER,
-                Role.HEAD_ADMIN,
-                Role.ADMIN,
-                Role.TECHNICIAN,
-            ) else Role.PLAYER
+    membership.role = requested_role
     db.commit()
-    db.refresh(user)
-    return serialize_user(user)
+    db.refresh(membership)
+    return serialize_user(user, membership)
 
 
 @router.delete("/users/{user_id}")

@@ -8,6 +8,8 @@ from app.models.character import Character
 from app.models.chat import ChatMessage
 from app.models.content import ContentBlock
 from app.models.recruitment import GameRecruitment
+from app.models.inventory import AdminGrantLog, KarmaPurchase, MarketSaleLog, ShopTransactionLog, TransferLog
+from app.models.character import CalendarAuditLog
 from app.models.user import User
 from app.schemas.project import ProjectCreate, ProjectFeaturesUpdate, ProjectRoleUpdate
 
@@ -23,6 +25,7 @@ def serialize_project(project: Project, membership: ProjectMembership | None, us
         "slug": project.slug,
         "is_default": project.is_default,
         "role": role,
+        "karma": membership.karma if membership else 0,
         "features": {**DEFAULT_FEATURES, **(project.features or {})},
         "can_manage_settings": user.is_owner or role in (Role.PROJECT_OWNER, Role.HEAD_ADMIN),
         "can_manage_roles": user.is_owner or role in (Role.PROJECT_OWNER, Role.HEAD_ADMIN),
@@ -59,18 +62,11 @@ def get_current_project_access(
     db: Session = Depends(get_db),
 ) -> tuple[Project, str]:
     if x_project_id is None:
-        if not current_user.is_owner:
-            memberships = db.query(ProjectMembership).filter(
-                ProjectMembership.user_id == current_user.id
-            ).order_by(ProjectMembership.id).all()
-            non_default = [item for item in memberships if not item.project.is_default]
-            if len(non_default) == 1:
-                return non_default[0].project, non_default[0].role
-        project = db.query(Project).filter(Project.is_default.is_(True)).first()
-        if not project:
-            raise HTTPException(status_code=400, detail="X-Project-ID header is required")
-        x_project_id = project.id
-    return get_project_access(x_project_id, current_user, db)
+        raise HTTPException(status_code=400, detail="X-Project-ID header is required")
+    access = get_project_access(x_project_id, current_user, db)
+    current_user.active_project_id = access[0].id
+    current_user.active_project_role = access[1]
+    return access
 
 
 def require_project_admin(
@@ -102,7 +98,12 @@ def require_feature(feature: str):
 def list_projects(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     if current_user.is_owner:
         projects = db.query(Project).order_by(Project.id).all()
-        return [serialize_project(project, None, current_user) for project in projects]
+        memberships = {
+            item.project_id: item for item in db.query(ProjectMembership).filter(
+                ProjectMembership.user_id == current_user.id
+            ).all()
+        }
+        return [serialize_project(project, memberships.get(project.id), current_user) for project in projects]
     memberships = db.query(ProjectMembership).filter(ProjectMembership.user_id == current_user.id).all()
     return [serialize_project(item.project, item, current_user) for item in memberships]
 
@@ -122,9 +123,16 @@ def create_project(data: ProjectCreate, current_user: User = Depends(get_current
         settings={},
     )
     db.add(project)
+    db.flush()
+    membership = ProjectMembership(
+        project_id=project.id,
+        user_id=current_user.id,
+        role=Role.PROJECT_OWNER,
+    )
+    db.add(membership)
     db.commit()
     db.refresh(project)
-    return serialize_project(project, None, current_user)
+    return serialize_project(project, membership, current_user)
 
 
 @router.delete("/{project_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -156,6 +164,11 @@ def delete_project(
         db.delete(character)
     db.query(ChatMessage).filter_by(project_id=project.id).delete(synchronize_session=False)
     db.query(ContentBlock).filter_by(project_id=project.id).delete(synchronize_session=False)
+    for model in (
+        ShopTransactionLog, MarketSaleLog, TransferLog, AdminGrantLog,
+        CalendarAuditLog, KarmaPurchase,
+    ):
+        db.query(model).filter_by(project_id=project.id).delete(synchronize_session=False)
     db.query(ProjectMembership).filter_by(project_id=project.id).delete(synchronize_session=False)
     db.delete(project)
     db.commit()
@@ -177,7 +190,8 @@ def current_project(
 @router.get("/{project_id}/settings")
 def get_settings(project_id: int, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     project, role = get_project_access(project_id, current_user, db, required_rank=ROLE_RANK[Role.HEAD_ADMIN])
-    return serialize_project(project, None, current_user) | {"role": role}
+    membership = db.query(ProjectMembership).filter_by(project_id=project.id, user_id=current_user.id).first()
+    return serialize_project(project, membership, current_user) | {"role": role}
 
 
 @router.patch("/{project_id}/settings")
@@ -189,7 +203,8 @@ def update_settings(data: ProjectFeaturesUpdate, project_id: int, current_user: 
     project.features = {**DEFAULT_FEATURES, **(project.features or {}), **data.features}
     db.commit()
     db.refresh(project)
-    return serialize_project(project, None, current_user)
+    membership = db.query(ProjectMembership).filter_by(project_id=project.id, user_id=current_user.id).first()
+    return serialize_project(project, membership, current_user)
 
 
 @router.get("/{project_id}/members")
