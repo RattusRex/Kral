@@ -446,6 +446,12 @@ export interface KarmaPurchaseResult {
   character_is_dead: boolean | null;
 }
 
+export interface KarmaOpener {
+  name: string;
+  cost: number;
+  note: string | null;
+}
+
 export const api = axios.create({
   baseURL: API_BASE_URL
 });

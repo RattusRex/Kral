@@ -10,6 +10,7 @@ from app.models.project import Project
 from app.models.user import User
 from app.schemas.karma_shop import (
     KarmaItemPurchaseRequest,
+    KarmaOpener,
     KarmaPurchaseResponse,
     KarmaPurchaseResult,
     KarmaResurrectionRequest,
@@ -21,6 +22,23 @@ router = APIRouter(
     dependencies=[Depends(require_feature("karma")), Depends(require_feature("karma_shop"))],
 )
 XP_KARMA_COST = 5
+OPENER_NOTE = "Условия применения проверяются администрацией или мастером."
+OPENER_CATALOG = (
+    KarmaOpener(name="Смена расы", cost=10, note=OPENER_NOTE),
+    KarmaOpener(name="Смена класса", cost=20, note=OPENER_NOTE),
+    KarmaOpener(name="Смена подкласса", cost=15, note=OPENER_NOTE),
+    KarmaOpener(name="Смена черты", cost=10, note=OPENER_NOTE),
+    KarmaOpener(name="Смена классового умения", cost=5, note=OPENER_NOTE),
+    KarmaOpener(name="Смена предыстории", cost=10, note=OPENER_NOTE),
+    KarmaOpener(name="Открыть заклинание", cost=5, note=OPENER_NOTE),
+    KarmaOpener(name="Смена опционального умения", cost=5, note=OPENER_NOTE),
+    KarmaOpener(name="Мультикласс", cost=5, note=OPENER_NOTE),
+    KarmaOpener(name="Открыть расу", cost=15, note=OPENER_NOTE),
+    KarmaOpener(name="Открыть подкласс", cost=20, note=OPENER_NOTE),
+    KarmaOpener(name="Открыть черту", cost=10, note=OPENER_NOTE),
+    KarmaOpener(name="Открыть предысторию", cost=10, note=OPENER_NOTE),
+)
+OPENER_COSTS = {opener.name: opener.cost for opener in OPENER_CATALOG}
 
 
 def owned_character(character_id: int, user: User, db: Session) -> Character:
@@ -94,6 +112,11 @@ def list_owned_purchases(
     ).order_by(KarmaPurchase.created_at.desc(), KarmaPurchase.id.desc()).all()
 
 
+@router.get("/openers", response_model=list[KarmaOpener])
+def list_openers():
+    return OPENER_CATALOG
+
+
 @router.post("/xp", response_model=KarmaPurchaseResult)
 def purchase_xp(
     request: KarmaXpPurchaseRequest,
@@ -116,9 +139,14 @@ def purchase_item(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    charge_karma(current_user, request.cost)
+    cost = (
+        OPENER_COSTS.get(request.name, request.cost)
+        if request.purchase_type == "opener"
+        else request.cost
+    )
+    charge_karma(current_user, cost)
     purchase = record_purchase(
-        db, current_user, request.purchase_type, request.name, request.cost,
+        db, current_user, request.purchase_type, request.name, cost,
     )
     return commit_result(db, current_user, purchase)
 
