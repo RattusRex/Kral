@@ -3,7 +3,7 @@ import { createRoot } from "react-dom/client";
 import axios from "axios";
 import { Link, Navigate, Route, BrowserRouter as Router, Routes, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { ArrowDown, ArrowUp, BookOpen, CalendarDays, Check, ChevronDown, ChevronUp, Coins, Dice5, LogOut, MapPin, MessageSquare, Pencil, Plus, RefreshCw, Save, ScrollText, Search, Send, Shield, ShoppingBag, Swords, Trash2, Trophy, UserRound, UsersRound, X } from "lucide-react";
-import { AbilityRoll, AdminGrantLog, AdminUser, api, AttackRoll, AUTH_NOTICE_KEY, CalendarSummary, Character, CharacterAttack, ChatMessage, ContentBlock, DamageRoll, GameRecruitment, Inventory, InventoryItem, KarmaPurchase, KarmaPurchaseResult, LeaderboardEntry, MagicItem, MarketSaleLog, MarketSaleResult, PaginatedResponse, PROJECT_KEY, ProjectContext, ROLE_LABELS, SavingThrowRoll, ShopResult, ShopTransactionLog, SkillRoll, TOKEN_KEY, TransferLog, TransferTarget, User, UserRole } from "./api";
+import { AbilityRoll, AdminGrantLog, AdminUser, api, AttackRoll, AUTH_NOTICE_KEY, CalendarSummary, Character, CharacterAttack, ChatMessage, ContentBlock, DamageRoll, GameRecruitment, Inventory, InventoryItem, KarmaOpener, KarmaPurchase, KarmaPurchaseResult, LeaderboardEntry, MagicItem, MarketSaleLog, MarketSaleResult, PaginatedResponse, PROJECT_KEY, ProjectContext, ROLE_LABELS, SavingThrowRoll, ShopResult, ShopTransactionLog, SkillRoll, TOKEN_KEY, TransferLog, TransferTarget, User, UserRole } from "./api";
 import "./styles.css";
 
 const rarities = ["Обычный", "Необычный", "Редкий"];
@@ -1513,12 +1513,15 @@ function CharacterFormPage({ edit = false }: { edit?: boolean }) {
       <h1 className="text-xl font-bold text-ember md:col-span-2">{edit ? "Редактировать персонажа" : "Создать персонажа"}</h1>
       <ClassLevelsEditor
         classLevels={form.class_levels}
-        onChange={(classLevels) => setForm({
-          ...form,
+        lockedTotalLevel={edit ? form.level : undefined}
+        onChange={(classLevels) => setForm((current) => ({
+          ...current,
           class_name: classLevels[0].class_name,
           class_levels: classLevels,
-          level: classLevels.reduce((total, entry) => total + entry.level, 0)
-        })}
+          level: edit
+            ? current.level
+            : classLevels.reduce((total, entry) => total + entry.level, 0)
+        }))}
       />
       <label className="field-label md:col-span-2">
         <span>📅 Дата создания персонажа</span>
@@ -1567,13 +1570,14 @@ function CharacterFormPage({ edit = false }: { edit?: boolean }) {
         ))}
       </div>
       {error && <p className="text-sm text-red-300 md:col-span-2">{error}</p>}
-      <button className="btn md:col-span-2" type="submit">Сохранить</button>
+      <button className="btn md:col-span-2" disabled={edit && form.class_levels.reduce((total, entry) => total + entry.level, 0) !== form.level} type="submit">Сохранить</button>
     </form>
   );
 }
 
-function ClassLevelsEditor({ classLevels, onChange }: {
+function ClassLevelsEditor({ classLevels, lockedTotalLevel, onChange }: {
   classLevels: Character["class_levels"];
+  lockedTotalLevel?: number;
   onChange: (classLevels: Character["class_levels"]) => void;
 }) {
   const [draftLevels, setDraftLevels] = useState<Array<{ class_name: string; level: NumericInputValue }>>(classLevels);
@@ -1581,10 +1585,12 @@ function ClassLevelsEditor({ classLevels, onChange }: {
   const levels = draftLevels.length ? draftLevels : [{ class_name: defaultCharacterClass, level: 1 }];
   const commitLevels = (next: typeof levels) => onChange(next.map((entry) => ({ ...entry, level: normalizeNumber(entry.level, 1) })));
   const totalLevel = levels.reduce((total, entry) => total + normalizeNumber(entry.level), 0);
+  const invalidTotal = lockedTotalLevel !== undefined && totalLevel !== lockedTotalLevel;
   return (
     <fieldset className="md:col-span-2 rounded-md border border-white/10 p-3">
       <legend className="px-2 text-sm font-semibold text-ember">Дополнительные классы</legend>
-      <p className="mb-3 text-sm text-white/55">Первый класс — основной. Общий уровень: {totalLevel}</p>
+      <p className="mb-3 text-sm text-white/55">Первый класс — основной. Общий уровень: {lockedTotalLevel ?? totalLevel}</p>
+      {invalidTotal && <p className="mb-3 text-sm text-red-300">Сумма уровней классов должна быть равна общему уровню ({lockedTotalLevel}). Сейчас: {totalLevel}.</p>}
       <div className="space-y-2">
         {levels.map((entry, index) => (
           <div className="grid gap-2 sm:grid-cols-[1fr_120px_auto]" key={`${index}-${entry.class_name}`}>
@@ -2123,9 +2129,10 @@ function KarmaShopPage() {
   const [characters, setCharacters] = useState<Character[]>([]);
   const [characterId, setCharacterId] = useState("");
   const [xpAmount, setXpAmount] = useState<NumericInputValue>(1);
-  const [purchaseType, setPurchaseType] = useState<"item" | "opener">("opener");
-  const [name, setName] = useState("");
-  const [cost, setCost] = useState<NumericInputValue>(1);
+  const [openers, setOpeners] = useState<KarmaOpener[]>([]);
+  const [selectedOpener, setSelectedOpener] = useState("");
+  const [customOpenerName, setCustomOpenerName] = useState("");
+  const [customOpenerCost, setCustomOpenerCost] = useState<NumericInputValue>(1);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
 
@@ -2139,13 +2146,25 @@ function KarmaShopPage() {
     ? (resurrectionCharacter.level <= 5 ? 5 : 10)
     : null;
   const canAffordResurrection = resurrectionCost !== null
-    && karma >= resurrectionCost;
+    && (user?.karma ?? 0) >= resurrectionCost;
+  const selectedOpenerDefinition = openers.find(
+    (opener) => opener.name === selectedOpener
+  );
+  const openerName = selectedOpener === "custom"
+    ? customOpenerName.trim()
+    : selectedOpenerDefinition?.name ?? "";
+  const openerCost = selectedOpener === "custom"
+    ? normalizeNumber(customOpenerCost)
+    : selectedOpenerDefinition?.cost ?? 0;
 
   useEffect(() => {
     api.get<ProjectContext>("/projects/current").then((response) => setKarma(response.data.karma));
     api.get<Character[]>("/characters").then((response) => {
       setCharacters(response.data);
       if (response.data[0]) setCharacterId(String(response.data[0].id));
+    });
+    api.get<KarmaOpener[]>("/karma-shop/openers").then((response) => {
+      setOpeners(response.data);
     });
   }, []);
 
@@ -2162,7 +2181,7 @@ function KarmaShopPage() {
     }
   }
 
-  return <div className="space-y-4"><section className="panel p-5"><h1 className="text-2xl font-bold text-ember">Магазин Кармы</h1><p className="mt-2 text-white/70">Баланс: {karma} кармы</p>{message && <p className="mt-3 text-emerald-200">{message}</p>}{error && <p className="mt-3 text-red-300">{error}</p>}</section><div className="grid gap-4 lg:grid-cols-3"><section className="panel p-5"><h2 className="text-lg font-semibold text-ember">Покупка опыта</h2><p className="text-sm text-white/55">1 опыт = 5 кармы</p><select className="field mt-4" value={characterId} onChange={(event) => setCharacterId(event.target.value)}><option value="">Выберите персонажа</option>{characters.map((character) => <option key={character.id} value={character.id}>{character.name} · ур. {character.level}</option>)}</select><input className="field mt-3" min={1} type="number" value={xpAmount} onChange={numericInputChange(setXpAmount)} onBlur={normalizeNumberOnBlur(setXpAmount, 1)} /><button className="btn mt-3" disabled={!characterId || normalizeNumber(xpAmount) < 1} onClick={() => execute("/karma-shop/xp", { character_id: Number(characterId), amount: normalizeNumber(xpAmount, 1) }, `Куплено ${normalizeNumber(xpAmount, 1)} опыта`)}>Купить за {normalizeNumber(xpAmount) * 5} кармы</button></section><section className="panel p-5"><h2 className="text-lg font-semibold text-ember">Специальная покупка</h2><select className="field mt-4" value={purchaseType} onChange={(event) => setPurchaseType(event.target.value as "item" | "opener")}><option value="opener">Открывашка</option><option value="item">Другой товар</option></select><input className="field mt-3" placeholder="Название" value={name} onChange={(event) => setName(event.target.value)} /><input className="field mt-3" min={1} type="number" value={cost} onChange={numericInputChange(setCost)} onBlur={normalizeNumberOnBlur(setCost, 1)} /><button className="btn mt-3" disabled={!name.trim() || normalizeNumber(cost) < 1} onClick={() => execute("/karma-shop/purchases", { purchase_type: purchaseType, name, cost: normalizeNumber(cost, 1) }, "Покупка сохранена")}>Купить за {cost || 0} кармы</button></section><section className="panel p-5"><h2 className="text-lg font-semibold text-ember">Воскресить персонажа</h2><p className="text-sm text-white/55">1–5 уровень: 5 кармы · 6–10: 10 кармы · 11+: недоступно</p><select className="field mt-4" value={resurrectionCharacter ? characterId : ""} onChange={(event) => setCharacterId(event.target.value)}><option value="">Выберите погибшего персонажа</option>{resurrectionCharacters.map((character) => <option key={character.id} value={character.id}>{character.name} · ур. {character.level}</option>)}</select>{resurrectionCharacters.length === 0 && <p className="mt-3 text-sm text-white/55">Нет погибших персонажей доступного уровня.</p>}{resurrectionCost !== null && !canAffordResurrection && <p className="mt-3 text-sm text-red-300">Недостаточно кармы для воскрешения.</p>}<button className="btn mt-3" disabled={!resurrectionCharacter || !canAffordResurrection} onClick={() => execute("/karma-shop/resurrect", { character_id: Number(characterId) }, "Персонаж воскрешён")}>Воскресить за {resurrectionCost ?? "—"} кармы</button></section></div></div>;
+  return <div className="space-y-4"><section className="panel p-5"><h1 className="text-2xl font-bold text-ember">Магазин Кармы</h1><p className="mt-2 text-white/70">Баланс: {user?.karma ?? 0} кармы</p>{message && <p className="mt-3 text-emerald-200">{message}</p>}{error && <p className="mt-3 text-red-300">{error}</p>}</section><div className="grid gap-4 lg:grid-cols-3"><section className="panel p-5"><h2 className="text-lg font-semibold text-ember">Покупка опыта</h2><p className="text-sm text-white/55">1 опыт = 5 кармы</p><select className="field mt-4" value={characterId} onChange={(event) => setCharacterId(event.target.value)}><option value="">Выберите персонажа</option>{characters.map((character) => <option key={character.id} value={character.id}>{character.name} · ур. {character.level}</option>)}</select><input className="field mt-3" min={1} type="number" value={xpAmount} onChange={numericInputChange(setXpAmount)} onBlur={normalizeNumberOnBlur(setXpAmount, 1)} /><button className="btn mt-3" disabled={!characterId || normalizeNumber(xpAmount) < 1} onClick={() => execute("/karma-shop/xp", { character_id: Number(characterId), amount: normalizeNumber(xpAmount, 1) }, `Куплено ${normalizeNumber(xpAmount, 1)} опыта`)}>Купить за {normalizeNumber(xpAmount) * 5} кармы</button></section><section className="panel p-5"><h2 className="text-lg font-semibold text-ember">Покупка открывашки</h2><select aria-label="Открывашка" className="field mt-4" value={selectedOpener} onChange={(event) => setSelectedOpener(event.target.value)}><option value="">Выберите открывашку</option>{openers.map((opener) => <option key={opener.name} value={opener.name}>{opener.name} · {opener.cost} кармы</option>)}<option value="custom">Нестандартная открывашка</option></select>{selectedOpener === "custom" && <><input className="field mt-3" placeholder="Название открывашки" value={customOpenerName} onChange={(event) => setCustomOpenerName(event.target.value)} /><input aria-label="Стоимость нестандартной открывашки" className="field mt-3" min={1} type="number" value={customOpenerCost} onChange={numericInputChange(setCustomOpenerCost)} onBlur={normalizeNumberOnBlur(setCustomOpenerCost, 1)} /></>}{selectedOpenerDefinition?.note && <p className="mt-3 rounded-md border border-ember/25 bg-ember/10 p-3 text-sm text-white/70">{selectedOpenerDefinition.note}</p>}<button className="btn mt-3" disabled={!openerName || openerCost < 1} onClick={() => execute("/karma-shop/purchases", { purchase_type: "opener", name: openerName, cost: openerCost }, "Открывашка добавлена в профиль")}>Купить за {openerCost || 0} кармы</button></section><section className="panel p-5"><h2 className="text-lg font-semibold text-ember">Воскресить персонажа</h2><p className="text-sm text-white/55">1–5 уровень: 5 кармы · 6–10: 10 кармы · 11+: недоступно</p><select className="field mt-4" value={resurrectionCharacter ? characterId : ""} onChange={(event) => setCharacterId(event.target.value)}><option value="">Выберите погибшего персонажа</option>{resurrectionCharacters.map((character) => <option key={character.id} value={character.id}>{character.name} · ур. {character.level}</option>)}</select>{resurrectionCharacters.length === 0 && <p className="mt-3 text-sm text-white/55">Нет погибших персонажей доступного уровня.</p>}{resurrectionCost !== null && !canAffordResurrection && <p className="mt-3 text-sm text-red-300">Недостаточно кармы для воскрешения.</p>}<button className="btn mt-3" disabled={!resurrectionCharacter || !canAffordResurrection} onClick={() => execute("/karma-shop/resurrect", { character_id: Number(characterId) }, "Персонаж воскрешён")}>Воскресить за {resurrectionCost ?? "—"} кармы</button></section></div></div>;
 }
 
 function LeaderboardPage() {
@@ -2422,11 +2441,12 @@ function GameRecruitmentsPage() {
                 ))}
                 {!recruitment.applications.length && <p className="text-sm text-white/50">Пока никто не записался.</p>}
               </div>
-              {recruitment.can_manage ? (
+              {recruitment.can_manage && (
                 <button className="btn mt-3" disabled={busy || !(selectedApplications[recruitment.id] ?? []).length} onClick={() => publishParticipants(recruitment.id)}><Check size={16} />Выдать выбранных игроков</button>
-              ) : recruitment.status === "upcoming" && recruitment.application_status === "not_applied" ? (
+              )}
+              {recruitment.status === "upcoming" && recruitment.application_status === "not_applied" && (
                 <div className="mt-3 flex flex-wrap gap-2"><select className="field max-w-sm" value={selectedCharacters[recruitment.id] ?? ""} onChange={(event) => setSelectedCharacters({ ...selectedCharacters, [recruitment.id]: event.target.value })}><option value="">Выберите персонажа</option>{characters.map((character) => <option key={character.id} value={character.id}>{character.name} · {character.class_name} · ур. {character.level}</option>)}</select><button className="btn" disabled={busy || !selectedCharacters[recruitment.id]} onClick={() => apply(recruitment.id)}>Записаться</button></div>
-              ) : null}
+              )}
             </section>
             <section>
               <div className="flex items-center justify-between"><h3 className="font-semibold text-ember">Чат публикации</h3>{!chatMessages[recruitment.id] && <button className="btn-secondary" onClick={() => loadChat(recruitment.id)}>Открыть чат</button>}</div>

@@ -9,6 +9,12 @@ class KarmaXpPurchaseRequest(BaseModel):
     amount: int = Field(ge=1, le=1000)
 
 
+class KarmaOpener(BaseModel):
+    name: str
+    cost: int
+    note: str | None = None
+
+
 class KarmaItemPurchaseRequest(BaseModel):
     purchase_type: Literal["item", "opener"]
     name: str = Field(min_length=1, max_length=255)

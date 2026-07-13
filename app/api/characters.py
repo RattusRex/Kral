@@ -2,6 +2,7 @@ import random
 
 from fastapi import APIRouter
 from fastapi import Depends
+from fastapi import Header
 from sqlalchemy.orm import Session
 from fastapi import HTTPException
 from app.core.calendar import GAME_EPOCH
@@ -81,11 +82,13 @@ def create_character(
     character_data: CharacterCreate,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    x_project_id: int | None = Header(default=None, alias="X-Project-ID"),
 ):
-    selected_project_id = current_user.active_project_id
-    project_id = character_data.project_id or selected_project_id
-    if project_id != selected_project_id:
-        raise HTTPException(status_code=403, detail="Selected project does not match character project")
+    project_id = character_data.project_id
+    if project_id is None:
+        # Header-less legacy clients are resolved by the same default/single
+        # membership rules as other selected-project endpoints.
+        project_id = get_current_project_access(x_project_id, current_user, db)[0].id
     require_project_access(db, current_user, project_id)
     character_count = db.query(Character).filter(
         Character.user_id == current_user.id,
@@ -180,12 +183,13 @@ def create_character(
 @router.get("/characters")
 def get_characters(
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
+    x_project_id: int | None = Header(default=None, alias="X-Project-ID"),
 ):
-    project_id = current_user.active_project_id
+    project, _ = get_current_project_access(x_project_id, current_user, db)
     characters = db.query(Character).filter(
         Character.user_id == current_user.id,
-        Character.project_id == project_id,
+        Character.project_id == project.id,
     ).all()
 
     return characters
@@ -230,8 +234,12 @@ def update_character(
 
     if "class_levels" in update_data:
         class_levels = update_data["class_levels"]
+        if sum(entry["level"] for entry in class_levels) != character.level:
+            raise HTTPException(
+                status_code=422,
+                detail="Общий уровень должен равняться сумме уровней классов",
+            )
         update_data["class_name"] = class_levels[0]["class_name"]
-        update_data["level"] = sum(entry["level"] for entry in class_levels)
     elif "class_name" in update_data:
         current_levels = character.class_levels or [{
             "class_name": character.class_name,
