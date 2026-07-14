@@ -17,7 +17,7 @@ test("every numeric input keeps the user's raw value while editing", () => {
     return "";
   }).filter((input) => input.includes('type="number"'));
 
-  assert.equal(numericInputs.length, 14, "update this coverage when adding numeric inputs");
+  assert.equal(numericInputs.length, 15, "update this coverage when adding numeric inputs");
   for (const input of numericInputs) {
     assert.match(input, /onChange=\{numericInputChange\(/, input);
     assert.doesNotMatch(input, /onChange=\{\(event\)[\s\S]*Number\(event\.target\.value\)/, input);

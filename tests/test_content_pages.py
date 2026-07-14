@@ -11,6 +11,7 @@ from fastapi.testclient import TestClient
 from app.core.auth_abuse import reset_auth_abuse_state
 from app.db.database import Base, SessionLocal, engine
 from app.main import app
+from app.models.project import DEFAULT_PROJECT_NAME, Project
 from app.models.user import User
 
 
@@ -23,7 +24,10 @@ def setup_function():
 def login(client: TestClient, username: str, password: str) -> dict[str, str]:
     response = client.post("/api/login", data={"username": username, "password": password})
     assert response.status_code == 200, response.text
-    return {"Authorization": f"Bearer {response.json()['access_token']}"}
+    headers = {"Authorization": f"Bearer {response.json()['access_token']}"}
+    with SessionLocal() as db:
+        project_id = db.query(Project.id).filter(Project.name == DEFAULT_PROJECT_NAME).scalar()
+    return {**headers, "X-Project-ID": str(project_id)}
 
 
 def create_player(client: TestClient) -> dict[str, str]:
@@ -93,7 +97,9 @@ def test_player_cannot_manage_content_and_pages_are_isolated():
         admin = login(client, "admin", "admin123")
         player = create_player(client)
         created = client.post("/api/content-pages/approved-homebrew", headers=admin, json={
-            "title": "Новые подклассы", "content": "Одобренный список."
+            "title": "Новые подклассы", "content_type": "Подкласс",
+            "karma_cost": 5, "is_banned": False,
+            "source_url": "https://example.com/subclasses", "notes": "Одобренный список."
         })
         assert created.status_code == 201
         assert client.get("/api/content-pages/server-rules", headers=player).json() == []
@@ -144,3 +150,115 @@ def test_reorder_requires_each_page_block_exactly_once():
         })
         assert duplicate.status_code == 400
         assert missing.status_code == 400
+
+
+def test_admin_can_manage_structured_homebrew_entries_and_players_can_read_them():
+    with TestClient(app) as client:
+        admin = login(client, "admin", "admin123")
+        player = create_player(client)
+        payload = {
+            "title": "Клятва Мора",
+            "content_type": "Подкласс",
+            "karma_cost": 20,
+            "is_banned": False,
+            "source_url": "https://example.com/homebrew/oath-of-pestilence",
+            "notes": "Разрешено после обсуждения с мастером.",
+        }
+
+        created = client.post(
+            "/api/content-pages/approved-homebrew", headers=admin, json=payload
+        )
+        assert created.status_code == 201, created.text
+        assert created.json() | payload == created.json()
+
+        listed = client.get(
+            "/api/content-pages/approved-homebrew", headers=player
+        )
+        assert listed.status_code == 200
+        assert listed.json()[0]["content_type"] == "Подкласс"
+        assert listed.json()[0]["source_url"] == payload["source_url"]
+
+        edited = client.patch(
+            f"/api/content-pages/approved-homebrew/{created.json()['id']}",
+            headers=admin,
+            json={"karma_cost": None, "is_banned": True, "notes": "Запрещено."},
+        )
+        assert edited.status_code == 200, edited.text
+        assert edited.json()["karma_cost"] is None
+        assert edited.json()["is_banned"] is True
+        assert edited.json()["notes"] == "Запрещено."
+
+        unbanned = client.patch(
+            f"/api/content-pages/approved-homebrew/{created.json()['id']}",
+            headers=admin,
+            json={"karma_cost": 35},
+        )
+        assert unbanned.status_code == 200, unbanned.text
+        assert unbanned.json()["karma_cost"] == 35
+        assert unbanned.json()["is_banned"] is False
+
+        assert client.patch(
+            f"/api/content-pages/approved-homebrew/{created.json()['id']}",
+            headers=player,
+            json={"notes": "Взлом"},
+        ).status_code == 403
+
+
+def test_structured_homebrew_fields_are_required_and_validated():
+    with TestClient(app) as client:
+        admin = login(client, "admin", "admin123")
+        base = {
+            "title": "Связующая нить",
+            "content_type": "Заклинание",
+            "karma_cost": 5,
+            "is_banned": False,
+            "source_url": "https://example.com/thread",
+            "notes": "",
+        }
+
+        missing_type = client.post(
+            "/api/content-pages/approved-homebrew",
+            headers=admin,
+            json={key: value for key, value in base.items() if key != "content_type"},
+        )
+        invalid_url = client.post(
+            "/api/content-pages/approved-homebrew",
+            headers=admin,
+            json={**base, "source_url": "javascript:alert(1)"},
+        )
+        ambiguous_status = client.post(
+            "/api/content-pages/approved-homebrew",
+            headers=admin,
+            json={**base, "is_banned": True},
+        )
+        missing_status = client.post(
+            "/api/content-pages/approved-homebrew",
+            headers=admin,
+            json={**base, "karma_cost": None},
+        )
+        blank_title = client.post(
+            "/api/content-pages/approved-homebrew",
+            headers=admin,
+            json={**base, "title": "   "},
+        )
+
+        assert missing_type.status_code == 422
+        assert invalid_url.status_code == 422
+        assert ambiguous_status.status_code == 422
+        assert missing_status.status_code == 422
+        assert blank_title.status_code == 422
+
+
+def test_server_rules_reject_homebrew_only_fields():
+    with TestClient(app) as client:
+        admin = login(client, "admin", "admin123")
+        response = client.post("/api/content-pages/server-rules", headers=admin, json={
+            "title": "Правило",
+            "content": "Текст правила",
+            "content_type": "Класс",
+            "karma_cost": 5,
+            "is_banned": False,
+            "source_url": "https://example.com",
+            "notes": "",
+        })
+        assert response.status_code == 422
