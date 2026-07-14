@@ -11,6 +11,8 @@ from app.schemas.content import (
     ContentBlockOrder,
     ContentBlockResponse,
     ContentBlockUpdate,
+    HomebrewEntryCreate,
+    HomebrewEntryUpdate,
 )
 
 
@@ -54,6 +56,34 @@ def list_content_blocks(
 
 
 @router.post(
+    "/approved-homebrew",
+    response_model=ContentBlockResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_homebrew_entry(
+    entry_data: HomebrewEntryCreate,
+    db: Session = Depends(get_db),
+    access=Depends(require_project_admin),
+):
+    last_position = db.query(func.max(ContentBlock.position)).filter(
+        ContentBlock.project_id == access[0].id,
+        ContentBlock.page_slug == "approved-homebrew",
+    ).scalar()
+    values = entry_data.model_dump(mode="json")
+    block = ContentBlock(
+        project_id=access[0].id,
+        page_slug="approved-homebrew",
+        content="",
+        position=(last_position if last_position is not None else -1) + 1,
+        **values,
+    )
+    db.add(block)
+    db.commit()
+    db.refresh(block)
+    return block
+
+
+@router.post(
     "/{page_slug}",
     response_model=ContentBlockResponse,
     status_code=status.HTTP_201_CREATED,
@@ -65,6 +95,8 @@ def create_content_block(
     access=Depends(require_project_admin),
 ):
     page_slug = validate_page_slug(page_slug)
+    if page_slug == "approved-homebrew":
+        raise HTTPException(status_code=422, detail="Structured homebrew entry required")
     last_position = db.query(func.max(ContentBlock.position)).filter(
         ContentBlock.project_id == access[0].id,
         ContentBlock.page_slug == page_slug,
@@ -105,6 +137,26 @@ def reorder_content_blocks(
     return ordered_blocks(db, access[0].id, page_slug)
 
 
+@router.patch("/approved-homebrew/{block_id}", response_model=ContentBlockResponse)
+def update_homebrew_entry(
+    block_id: int,
+    entry_data: HomebrewEntryUpdate,
+    db: Session = Depends(get_db),
+    access=Depends(require_project_admin),
+):
+    block = get_block_or_404(db, access[0].id, "approved-homebrew", block_id)
+    values = entry_data.model_dump(exclude_unset=True, mode="json")
+    for field, value in values.items():
+        setattr(block, field, value)
+    next_is_banned = block.is_banned
+    next_karma_cost = block.karma_cost
+    if next_is_banned == (next_karma_cost is not None):
+        raise HTTPException(status_code=422, detail="Choose either a karma cost or banned status")
+    db.commit()
+    db.refresh(block)
+    return block
+
+
 @router.patch("/{page_slug}/{block_id}", response_model=ContentBlockResponse)
 def update_content_block(
     page_slug: str,
@@ -113,7 +165,10 @@ def update_content_block(
     db: Session = Depends(get_db),
     access=Depends(require_project_admin),
 ):
-    block = get_block_or_404(db, access[0].id, validate_page_slug(page_slug), block_id)
+    page_slug = validate_page_slug(page_slug)
+    if page_slug == "approved-homebrew":
+        raise HTTPException(status_code=422, detail="Structured homebrew entry required")
+    block = get_block_or_404(db, access[0].id, page_slug, block_id)
     for field, value in block_data.model_dump(exclude_unset=True).items():
         setattr(block, field, value)
     db.commit()

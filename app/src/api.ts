@@ -73,6 +73,11 @@ export interface ContentBlock {
   page_slug: "server-rules" | "approved-homebrew";
   title: string;
   content: string;
+  content_type: string | null;
+  karma_cost: number | null;
+  is_banned: boolean;
+  source_url: string | null;
+  notes: string | null;
   position: number;
   created_at: string;
   updated_at: string;

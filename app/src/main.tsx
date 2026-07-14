@@ -561,6 +561,103 @@ function ContentBlockForm({ form, setForm, onSubmit, onCancel }: {
   );
 }
 
+type HomebrewForm = {
+  title: string;
+  content_type: string;
+  karma_cost: NumericInputValue;
+  is_banned: boolean;
+  source_url: string;
+  notes: string;
+};
+type HomebrewSort = "title" | "content_type" | "karma_cost" | "status" | "source_url" | "notes";
+const blankHomebrewForm: HomebrewForm = { title: "", content_type: "", karma_cost: "", is_banned: false, source_url: "", notes: "" };
+
+function ApprovedHomebrewPage() {
+  const { user, loading: userLoading } = useAuth();
+  const [entries, setEntries] = useState<ContentBlock[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [editingId, setEditingId] = useState<number | "new" | null>(null);
+  const [form, setForm] = useState<HomebrewForm>(blankHomebrewForm);
+  const [query, setQuery] = useState("");
+  const [typeFilter, setTypeFilter] = useState("");
+  const [statusFilter, setStatusFilter] = useState<"" | "karma" | "banned">("");
+  const [sort, setSort] = useState<{ field: HomebrewSort; direction: "asc" | "desc" }>({ field: "title", direction: "asc" });
+
+  function load() {
+    setLoading(true);
+    setError("");
+    api.get<ContentBlock[]>("/content-pages/approved-homebrew")
+      .then((response) => setEntries(response.data))
+      .catch((requestError) => setError(apiErrorDetail(requestError, "Не удалось загрузить таблицу")))
+      .finally(() => setLoading(false));
+  }
+
+  useEffect(load, []);
+  const contentTypes = useMemo(() => [...new Set(entries.map((entry) => entry.content_type).filter((value): value is string => Boolean(value)))].sort((a, b) => a.localeCompare(b, "ru")), [entries]);
+  const visibleEntries = useMemo(() => entries
+    .filter((entry) => entry.title.toLocaleLowerCase("ru").includes(query.trim().toLocaleLowerCase("ru")))
+    .filter((entry) => !typeFilter || entry.content_type === typeFilter)
+    .filter((entry) => !statusFilter || (statusFilter === "banned" ? entry.is_banned : !entry.is_banned))
+    .sort((left, right) => {
+      let comparison = 0;
+      if (sort.field === "karma_cost") comparison = (left.karma_cost ?? Number.MAX_SAFE_INTEGER) - (right.karma_cost ?? Number.MAX_SAFE_INTEGER);
+      else if (sort.field === "status") comparison = Number(left.is_banned) - Number(right.is_banned);
+      else comparison = String(left[sort.field] ?? "").localeCompare(String(right[sort.field] ?? ""), "ru", { sensitivity: "base" });
+      return sort.direction === "asc" ? comparison : -comparison;
+    }), [entries, query, typeFilter, statusFilter, sort]);
+
+  function changeSort(field: HomebrewSort) {
+    setSort((current) => ({ field, direction: current.field === field && current.direction === "asc" ? "desc" : "asc" }));
+  }
+
+  function startCreate() { setEditingId("new"); setForm(blankHomebrewForm); }
+  function startEdit(entry: ContentBlock) {
+    setEditingId(entry.id);
+    setForm({ title: entry.title, content_type: entry.content_type ?? "", karma_cost: entry.karma_cost ?? "", is_banned: entry.is_banned, source_url: entry.source_url ?? "", notes: entry.notes ?? "" });
+  }
+  async function save(event: FormEvent) {
+    event.preventDefault();
+    const payload = { ...form, karma_cost: form.is_banned ? null : Number(form.karma_cost) };
+    try {
+      if (editingId === "new") await api.post("/content-pages/approved-homebrew", payload);
+      else await api.patch(`/content-pages/approved-homebrew/${editingId}`, payload);
+      setEditingId(null); load();
+    } catch (requestError) { setError(apiErrorDetail(requestError, "Не удалось сохранить запись")); }
+  }
+  async function remove(entry: ContentBlock) {
+    if (!window.confirm(`Удалить запись «${entry.title}»?`)) return;
+    try { await api.delete(`/content-pages/approved-homebrew/${entry.id}`); setEditingId(null); load(); }
+    catch (requestError) { setError(apiErrorDetail(requestError, "Не удалось удалить запись")); }
+  }
+  async function move(index: number, offset: -1 | 1) {
+    const target = index + offset;
+    if (target < 0 || target >= entries.length) return;
+    const reordered = [...entries];
+    [reordered[index], reordered[target]] = [reordered[target], reordered[index]];
+    setEntries(reordered);
+    try { await api.put("/content-pages/approved-homebrew/order", { block_ids: reordered.map((entry) => entry.id) }); }
+    catch (requestError) { setError(apiErrorDetail(requestError, "Не удалось изменить порядок")); load(); }
+  }
+  if (loading || userLoading) return <p>Загрузка...</p>;
+
+  return <div className="space-y-4">
+    <div className="flex flex-wrap items-center justify-between gap-3"><div><h1 className="text-2xl font-bold text-ember">Одобренное ХБ</h1><p className="mt-1 text-sm text-white/60">Одобренные и запрещённые домашние материалы</p></div>{user?.is_admin && <button className="btn" onClick={startCreate}><Plus size={16} />Создать запись</button>}</div>
+    {error && <p className="rounded-md border border-red-400/30 bg-red-950/30 p-3 text-sm text-red-200">{error}</p>}
+    {editingId !== null && <HomebrewFormPanel form={form} setForm={setForm} onSubmit={save} onCancel={() => setEditingId(null)} />}
+    <section className="panel p-4"><div className="grid gap-3 md:grid-cols-3"><label className="field-label"><span>Название</span><input className="field" placeholder="Поиск по названию" value={query} onChange={(event) => setQuery(event.target.value)} /></label><label className="field-label"><span>Тип</span><select className="field" value={typeFilter} onChange={(event) => setTypeFilter(event.target.value)}><option value="">Все типы</option>{contentTypes.map((type) => <option key={type}>{type}</option>)}</select></label><label className="field-label"><span>Статус</span><select className="field" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as "" | "karma" | "banned")}><option value="">Все статусы</option><option value="karma">Карма</option><option value="banned">Бан</option></select></label></div></section>
+    <section className="panel overflow-hidden"><div className="responsive-table" role="region" aria-label="Таблица одобренного домашнего контента" tabIndex={0}><table className="min-w-[1100px] w-full text-left text-sm"><thead className="bg-black/35 text-white/70"><tr><SortableHomebrewHeading label="Название" field="title" sort={sort} onSort={changeSort} /><SortableHomebrewHeading label="Тип" field="content_type" sort={sort} onSort={changeSort} /><SortableHomebrewHeading label="Карма / Бан" field="status" sort={sort} onSort={changeSort} /><SortableHomebrewHeading label="Источник / Ссылка" field="source_url" sort={sort} onSort={changeSort} /><SortableHomebrewHeading label="Примечания" field="notes" sort={sort} onSort={changeSort} />{user?.is_admin && <th className="px-4 py-3">Управление</th>}</tr></thead><tbody>{visibleEntries.map((entry) => { const index = entries.findIndex((item) => item.id === entry.id); return <tr className="border-t border-white/10 align-top" key={entry.id}><td className="px-4 py-3 font-semibold text-ember">{entry.title}</td><td className="px-4 py-3">{entry.content_type || "—"}</td><td className="px-4 py-3">{entry.is_banned ? <span className="rounded bg-red-900/60 px-2 py-1 text-red-200">Бан</span> : `${entry.karma_cost ?? 0} кармы`}</td><td className="max-w-48 px-4 py-3">{entry.source_url ? <a className="text-ember underline" href={entry.source_url} rel="noreferrer" target="_blank" title={entry.source_url}>Открыть</a> : "—"}</td><td className="max-w-80 whitespace-pre-wrap px-4 py-3">{entry.notes || "—"}</td>{user?.is_admin && <td className="px-4 py-3"><div className="flex flex-wrap gap-2"><button className="btn-secondary p-2" aria-label="Переместить вверх" disabled={index === 0} onClick={() => move(index, -1)}><ArrowUp size={15} /></button><button className="btn-secondary p-2" aria-label="Переместить вниз" disabled={index === entries.length - 1} onClick={() => move(index, 1)}><ArrowDown size={15} /></button><button className="btn-secondary p-2" aria-label="Редактировать" onClick={() => startEdit(entry)}><Pencil size={15} /></button><button className="btn-secondary p-2" aria-label="Удалить" onClick={() => remove(entry)}><Trash2 size={15} /></button></div></td>}</tr>; })}</tbody></table>{!visibleEntries.length && <p className="p-8 text-center text-white/60">Записи не найдены.</p>}</div></section>
+  </div>;
+}
+
+function SortableHomebrewHeading({ label, field, sort, onSort }: { label: string; field: HomebrewSort; sort: { field: HomebrewSort; direction: "asc" | "desc" }; onSort: (field: HomebrewSort) => void }) {
+  return <th className="px-4 py-3"><button className="inline-flex items-center gap-1" onClick={() => onSort(field)} type="button">{label}{sort.field === field && (sort.direction === "asc" ? <ChevronUp size={14} /> : <ChevronDown size={14} />)}</button></th>;
+}
+
+function HomebrewFormPanel({ form, setForm, onSubmit, onCancel }: { form: HomebrewForm; setForm: (form: HomebrewForm) => void; onSubmit: (event: FormEvent) => void; onCancel: () => void }) {
+  return <form className="panel grid gap-3 p-5 md:grid-cols-2" onSubmit={onSubmit}><label className="field-label"><span>Название</span><input className="field" required maxLength={200} value={form.title} onChange={(event) => setForm({ ...form, title: event.target.value })} /></label><label className="field-label"><span>Тип</span><input className="field" required maxLength={100} list="homebrew-types" value={form.content_type} onChange={(event) => setForm({ ...form, content_type: event.target.value })} /><datalist id="homebrew-types">{["Класс", "Подкласс", "Заклинание", "Черта", "Предыстория", "Раса/Происхождение", "Боевой стиль"].map((type) => <option key={type}>{type}</option>)}</datalist></label><label className="field-label"><span>Источник / Ссылка</span><input className="field" required type="url" maxLength={2000} value={form.source_url} onChange={(event) => setForm({ ...form, source_url: event.target.value })} /></label><div className="flex flex-wrap items-end gap-3"><label className="field-label flex-1"><span>Количество кармы</span><input className="field" disabled={form.is_banned} min={0} required={!form.is_banned} type="number" value={form.karma_cost} onChange={numericInputChange((karma_cost) => setForm({ ...form, karma_cost }))} /></label><label className="mb-2 flex items-center gap-2"><input checked={form.is_banned} type="checkbox" onChange={(event) => setForm({ ...form, is_banned: event.target.checked, karma_cost: event.target.checked ? "" : form.karma_cost })} />Бан</label></div><label className="field-label md:col-span-2"><span>Примечания</span><textarea className="field min-h-24" maxLength={5000} value={form.notes} onChange={(event) => setForm({ ...form, notes: event.target.value })} /></label><div className="flex flex-wrap gap-2 md:col-span-2"><button className="btn"><Save size={16} />Сохранить</button><button className="btn-secondary" type="button" onClick={onCancel}><X size={16} />Отмена</button></div></form>;
+}
+
 function Protected({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
   const [, forceUpdate] = useState(0);
@@ -3680,7 +3777,7 @@ function App() {
         <Route path="/chat" element={<ProjectProtected><ChatPage /></ProjectProtected>} />
         <Route path="/game-recruitments" element={<ProjectProtected><GameRecruitmentsPage /></ProjectProtected>} />
         <Route path="/server-rules" element={<ProjectProtected><ContentPage pageSlug="server-rules" title="Правила сервера" /></ProjectProtected>} />
-        <Route path="/approved-homebrew" element={<ProjectProtected><ContentPage pageSlug="approved-homebrew" title="Одобренное ХБ" /></ProjectProtected>} />
+        <Route path="/approved-homebrew" element={<ProjectProtected><ApprovedHomebrewPage /></ProjectProtected>} />
         <Route path="/profile" element={<ProjectProtected><ProfilePage /></ProjectProtected>} />
         <Route path="/project-settings" element={<ProjectProtected><ProjectSettingsPage /></ProjectProtected>} />
         <Route path="/project-management" element={<ProjectProtected><ProjectManagementPage /></ProjectProtected>} />

@@ -205,6 +205,11 @@ def ensure_schema_columns() -> None:
             table_name, "project_id",
             f"INTEGER REFERENCES projects(id) DEFAULT {default_project_id}"
         )
+    ensure_column("content_blocks", "content_type", "VARCHAR(100)")
+    ensure_column("content_blocks", "karma_cost", "INTEGER")
+    ensure_column("content_blocks", "is_banned", "BOOLEAN NOT NULL DEFAULT FALSE")
+    ensure_column("content_blocks", "source_url", "VARCHAR(2000)")
+    ensure_column("content_blocks", "notes", "TEXT")
     ensure_column("characters", "temp_hp", "INTEGER NOT NULL DEFAULT 0")
     ensure_column("characters", "speed", "INTEGER NOT NULL DEFAULT 30")
     ensure_column("characters", "skill_proficiencies", "JSON NOT NULL DEFAULT '[]'")
