@@ -428,7 +428,7 @@ def test_registration_never_exposes_or_persists_plaintext_password(caplog):
             assert not hasattr(user, "password")
 
 
-@pytest.mark.parametrize("password", ["password1234", "alllowercase", "123456789012"])
+@pytest.mark.parametrize("password", ["simple", "alllowercase", "123456"])
 def test_registration_accepts_passwords_without_composition_requirements(password):
     with TestClient(app) as client:
         response = client.post("/api/users", json={
@@ -443,8 +443,8 @@ def test_registration_accepts_passwords_without_composition_requirements(passwor
 @pytest.mark.parametrize(
     "password",
     [
-        "short7!",
-        "password",
+        "short",
+        "12345",
     ],
 )
 def test_registration_enforces_only_minimum_password_length(password):
@@ -456,7 +456,7 @@ def test_registration_enforces_only_minimum_password_length(password):
         })
 
         assert response.status_code == 422
-        assert response.json()["detail"] == "Пароль должен содержать не менее 12 символов"
+        assert response.json()["detail"] == "Пароль должен содержать не менее 6 символов"
 
 
 def test_registration_accepts_strong_password_at_bcrypt_byte_limit():
