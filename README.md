@@ -124,11 +124,14 @@ that project's owner, or one of its head administrators may change them.
 
 Global owners can open **Project Management** to list and create projects or
 control which projects appear in ordinary users' project selector, or delete a
-non-default project. Hidden projects remain available to the global owner.
-Availability changes and deletion are owner-only at the API boundary; deletion
-removes the selected project's characters, inventories, calendars, chat,
-content and recruitment data without affecting other projects, and writes an
-immutable audit record naming the owner who performed it.
+non-default project. Every authenticated user can discover an enabled project;
+entering it for the first time creates a player membership, while an existing
+project role is preserved. Hidden projects remain available to the global owner
+but cannot be discovered or entered by non-members. Availability changes and
+deletion are owner-only at the API boundary; deletion removes the selected
+project's characters, inventories, calendars, chat, content and recruitment
+data without affecting other projects, and writes an immutable audit record
+naming the owner who performed it.
 
 Administrative grant logs already distinguish the acting administrator from
 the recipient. Shop, market, work and Karma Shop logs now also store and show

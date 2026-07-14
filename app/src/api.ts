@@ -38,7 +38,7 @@ export interface ProjectContext {
   slug: string;
   is_default: boolean;
   is_selectable: boolean;
-  role: UserRole;
+  role: UserRole | null;
   karma: number;
   features: ProjectFeatures;
   is_admin: boolean;

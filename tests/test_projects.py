@@ -198,6 +198,77 @@ def test_owner_controls_which_member_projects_are_available_for_selection():
         assert {visible["id"], hidden["id"]} <= enabled_project_ids
 
 
+def test_new_user_can_discover_and_join_any_selectable_project():
+    with TestClient(app) as client:
+        owner = login(client, "admin", "admin123")
+        visible = client.post(
+            "/api/projects", headers=owner,
+            json={"name": "Open campaign", "slug": "open-campaign"},
+        ).json()
+        hidden = client.post(
+            "/api/projects", headers=owner,
+            json={"name": "Private campaign", "slug": "private-campaign"},
+        ).json()
+        assert client.patch(
+            f"/api/projects/{hidden['id']}/availability",
+            headers=owner,
+            json={"is_selectable": False},
+        ).status_code == 200
+
+        user_id = register(client, "new-project-user")
+        player = login(client, "new-project-user", PASSWORD)
+        listed_projects = client.get("/api/projects", headers=player)
+
+        assert listed_projects.status_code == 200
+        listed_ids = {project["id"] for project in listed_projects.json()}
+        assert visible["id"] in listed_ids
+        assert hidden["id"] not in listed_ids
+
+        selected = client.get(
+            "/api/projects/current", headers=project_headers(player, visible["id"])
+        )
+        assert selected.status_code == 200, selected.text
+        assert selected.json()["role"] == "player"
+
+        with SessionLocal() as db:
+            membership = db.query(ProjectMembership).filter_by(
+                project_id=visible["id"], user_id=user_id
+            ).one()
+            assert membership.role == "player"
+
+        assert client.get(
+            "/api/projects/current", headers=project_headers(player, hidden["id"])
+        ).status_code == 403
+
+
+def test_selectable_project_preserves_existing_roles_for_every_project_role():
+    with TestClient(app) as client:
+        owner = login(client, "admin", "admin123")
+        project = client.post(
+            "/api/projects", headers=owner,
+            json={"name": "Role campaign", "slug": "role-campaign"},
+        ).json()
+        for role in ("project_owner", "head_admin", "admin", "technician", "player"):
+            username = f"select-{role.replace('_', '-')}"
+            user_id = register(client, username)
+            assert client.put(
+                f"/api/projects/{project['id']}/members/{user_id}",
+                headers=owner,
+                json={"role": role},
+            ).status_code == 200
+
+            user = login(client, username, PASSWORD)
+            listed = client.get("/api/projects", headers=user)
+            listed_project = next(item for item in listed.json() if item["id"] == project["id"])
+            assert listed_project["role"] == role
+
+            selected = client.get(
+                "/api/projects/current", headers=project_headers(user, project["id"])
+            )
+            assert selected.status_code == 200, selected.text
+            assert selected.json()["role"] == role
+
+
 def test_only_global_owner_can_change_project_availability():
     with TestClient(app) as client:
         owner = login(client, "admin", "admin123")
