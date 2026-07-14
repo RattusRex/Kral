@@ -718,14 +718,14 @@ function Register() {
       className="field"
       placeholder="Пароль"
       type="password"
-      minLength={12}
+      minLength={6}
       maxLength={72}
       autoComplete="new-password"
       value={form.password}
       onChange={(event) => setForm({ ...form, password: event.target.value })}
     />
     <p className="text-xs text-parchment/70">
-      Пароль должен содержать не менее 12 символов.
+      Пароль должен содержать не менее 6 символов.
     </p>
     <button className="btn" type="submit">Создать аккаунт</button>
     <Link className="btn-secondary" to="/login">Войти</Link>

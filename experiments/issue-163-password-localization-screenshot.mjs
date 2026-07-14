@@ -11,7 +11,7 @@ await page.route("**/api/users", (route) => route.fulfill({
   contentType: "application/json",
   status: 422,
   body: JSON.stringify({
-    detail: "Пароль должен содержать не менее 12 символов, включая заглавную и строчную буквы, цифру и специальный символ",
+    detail: "Пароль должен содержать не менее 6 символов",
   }),
 }));
 
@@ -21,7 +21,7 @@ await page.getByPlaceholder("email").fill("player@example.com");
 await page.getByPlaceholder("Пароль").fill("Слабый-пароль");
 await page.getByRole("button", { name: "Создать аккаунт" }).click();
 
-await page.getByText("Пароль должен содержать не менее 12 символов", { exact: false }).first().waitFor();
+await page.getByText("Пароль должен содержать не менее 6 символов", { exact: false }).first().waitFor();
 assert.equal(await page.getByPlaceholder("Пароль").count(), 1);
 assert.equal(await page.getByPlaceholder("password").count(), 0);
 

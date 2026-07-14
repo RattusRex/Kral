@@ -22,10 +22,10 @@ test("registration password is only submitted to the registration endpoint", () 
 });
 
 test("registration form exposes the length-only password policy to users", () => {
-  assert.match(registerSource, /minLength=\{12\}/);
+  assert.match(registerSource, /minLength=\{6\}/);
   assert.match(registerSource, /maxLength=\{72\}/);
   assert.match(registerSource, /autoComplete="new-password"/);
-  assert.match(registerSource, /Пароль должен содержать не менее 12 символов\./);
+  assert.match(registerSource, /Пароль должен содержать не менее 6 символов\./);
   assert.doesNotMatch(registerSource, /заглавную и строчную буквы|цифру и специальный символ/);
   assert.match(registerSource, /Пароль должен содержать/);
   assert.match(registerSource, /requestError\.response\?\.data\?\.detail/);
