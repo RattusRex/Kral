@@ -14,3 +14,7 @@ class ProjectRoleUpdate(BaseModel):
 
 class ProjectFeaturesUpdate(BaseModel):
     features: dict[str, bool]
+
+
+class ProjectAvailabilityUpdate(BaseModel):
+    is_selectable: bool

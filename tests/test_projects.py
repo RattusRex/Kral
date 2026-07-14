@@ -146,6 +146,82 @@ def test_owner_can_create_project_from_name_only_and_list_its_ecosystem():
             assert membership.role == "project_owner"
 
 
+def test_owner_controls_which_member_projects_are_available_for_selection():
+    with TestClient(app) as client:
+        owner = login(client, "admin", "admin123")
+        player_id = register(client, "project-selector")
+        visible = client.post(
+            "/api/projects", headers=owner,
+            json={"name": "Visible project", "slug": "visible-project"},
+        ).json()
+        hidden = client.post(
+            "/api/projects", headers=owner,
+            json={"name": "Hidden project", "slug": "hidden-project"},
+        ).json()
+        for project in (visible, hidden):
+            assert client.put(
+                f"/api/projects/{project['id']}/members/{player_id}",
+                headers=owner,
+                json={"role": "player"},
+            ).status_code == 200
+
+        disabled = client.patch(
+            f"/api/projects/{hidden['id']}/availability",
+            headers=owner,
+            json={"is_selectable": False},
+        )
+        assert disabled.status_code == 200, disabled.text
+        assert disabled.json()["is_selectable"] is False
+
+        player = login(client, "project-selector", PASSWORD)
+        player_project_ids = {
+            project["id"] for project in client.get("/api/projects", headers=player).json()
+        }
+        assert visible["id"] in player_project_ids
+        assert hidden["id"] not in player_project_ids
+        assert {project["id"] for project in client.get("/api/projects", headers=owner).json()} >= {
+            visible["id"], hidden["id"]
+        }
+        assert client.get(
+            "/api/projects/current", headers=project_headers(owner, hidden["id"])
+        ).status_code == 200
+
+        enabled = client.patch(
+            f"/api/projects/{hidden['id']}/availability",
+            headers=owner,
+            json={"is_selectable": True},
+        )
+        assert enabled.status_code == 200, enabled.text
+        enabled_project_ids = {
+            project["id"] for project in client.get("/api/projects", headers=player).json()
+        }
+        assert {visible["id"], hidden["id"]} <= enabled_project_ids
+
+
+def test_only_global_owner_can_change_project_availability():
+    with TestClient(app) as client:
+        owner = login(client, "admin", "admin123")
+        project_owner_id = register(client, "availability-manager")
+        project = client.post(
+            "/api/projects", headers=owner,
+            json={"name": "Availability permissions", "slug": "availability-permissions"},
+        ).json()
+        assert client.put(
+            f"/api/projects/{project['id']}/members/{project_owner_id}",
+            headers=owner,
+            json={"role": "project_owner"},
+        ).status_code == 200
+
+        project_owner = login(client, "availability-manager", PASSWORD)
+        forbidden = client.patch(
+            f"/api/projects/{project['id']}/availability",
+            headers=project_owner,
+            json={"is_selectable": False},
+        )
+        assert forbidden.status_code == 403
+        assert forbidden.json()["detail"] == "Owner permissions required"
+
+
 def test_duplicate_project_name_returns_conflict_instead_of_database_error():
     with TestClient(app, raise_server_exceptions=False) as client:
         owner = login(client, "admin", "admin123")

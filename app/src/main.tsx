@@ -380,9 +380,16 @@ function ProjectManagementPage() {
       await load();
     } catch (e) { setError(apiErrorDetail(e, "Не удалось удалить проект")); }
   }
+  async function toggleAvailability(project: ProjectContext, is_selectable: boolean) {
+    setError("");
+    try {
+      const response = await api.patch<ProjectContext>(`/projects/${project.id}/availability`, { is_selectable });
+      setProjects((current) => current.map((item) => item.id === project.id ? response.data : item));
+    } catch (e) { setError(apiErrorDetail(e, "Не удалось изменить доступность проекта")); }
+  }
   if (loading) return <p>Загрузка...</p>;
   if (!user?.is_owner) return <Navigate to="/" replace />;
-  return <div className="space-y-5"><section className="panel p-5"><h1 className="text-2xl font-bold text-ember">Управление проектами</h1><p className="mt-2 text-white/60">Создание и полное удаление независимых игровых экосистем.</p><form className="mt-5 grid gap-3 md:grid-cols-[1fr_1fr_auto]" onSubmit={create}><input required maxLength={100} className="field" placeholder="Название" value={name} onChange={(e) => setName(e.target.value)} /><input pattern="[a-z0-9-]+" maxLength={100} className="field" placeholder="slug (необязательно)" value={slug} onChange={(e) => setSlug(e.target.value)} /><button className="btn"><Plus size={16} />Создать</button></form>{error && <p className="mt-3 text-red-300">{error}</p>}</section><section className="grid gap-3">{projects.map((project) => <article className="panel flex items-center justify-between gap-4 p-4" key={project.id}><div><h2 className="font-semibold text-ember">{project.name}</h2><p className="text-sm text-white/50">{project.slug}</p></div><button className="btn-secondary text-red-200" disabled={(project as ProjectContext & { is_default?: boolean }).is_default} onClick={() => remove(project)}><Trash2 size={16} />Удалить</button></article>)}</section></div>;
+  return <div className="space-y-5"><section className="panel p-5"><h1 className="text-2xl font-bold text-ember">Управление проектами</h1><p className="mt-2 text-white/60">Создание, доступность и полное удаление независимых игровых экосистем.</p><form className="mt-5 grid gap-3 md:grid-cols-[1fr_1fr_auto]" onSubmit={create}><input required maxLength={100} className="field" placeholder="Название" value={name} onChange={(e) => setName(e.target.value)} /><input pattern="[a-z0-9-]+" maxLength={100} className="field" placeholder="slug (необязательно)" value={slug} onChange={(e) => setSlug(e.target.value)} /><button className="btn"><Plus size={16} />Создать</button></form>{error && <p className="mt-3 text-red-300">{error}</p>}</section><section className="grid gap-3">{projects.map((project) => <article className="panel flex flex-wrap items-center justify-between gap-4 p-4" key={project.id}><div><h2 className="font-semibold text-ember">{project.name}</h2><p className="text-sm text-white/50">{project.slug}</p></div><div className="flex flex-wrap items-center gap-4"><label className="flex items-center gap-2 text-sm text-white/80"><input aria-label={`Доступен пользователям: ${project.name}`} type="checkbox" checked={project.is_selectable} onChange={(event) => toggleAvailability(project, event.target.checked)} />Доступен пользователям</label><button className="btn-secondary text-red-200" disabled={project.is_default} onClick={() => remove(project)}><Trash2 size={16} />Удалить</button></div></article>)}</section></div>;
 }
 
 type ContentPageSlug = "server-rules" | "approved-homebrew";
