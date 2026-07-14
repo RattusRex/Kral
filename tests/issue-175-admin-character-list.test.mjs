@@ -20,7 +20,7 @@ test("admin character list omits calendar details", () => {
 });
 
 test("admin character sheet keeps calendar details", () => {
-  assert.match(adminCharacterPage, /Дата сбора/);
+  assert.match(adminCharacterPage, /Дата создания/);
   assert.match(adminCharacterPage, /Свободные дни/);
   assert.match(adminCharacterPage, /character\.game_created_at/);
   assert.match(adminCharacterPage, /character\.free_days/);
