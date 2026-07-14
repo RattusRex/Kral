@@ -3153,7 +3153,7 @@ function AdminCharacterPage() {
           <Stat label="Смерть" value={character.is_dead ? "Да" : "Нет"} />
           <Stat label="HP" value={character.hp} />
           <Stat label="КД" value={character.armor_class} />
-          <Stat label="Дата сбора" value={formatGameDate(character.game_created_at)} />
+          <Stat label="Дата создания" value={formatGameDate(character.game_created_at)} />
           <Stat label="Свободные дни" value={character.free_days ?? 0} />
           <Stat label="Личный наёмник" value={character.personal_hireling_enabled ? `${character.personal_hireling_free_days ?? 0} дн.` : "-"} />
           <Stat label="Симулякр" value={character.simulacrum_enabled ? `${character.simulacrum_free_days ?? 0} дн.` : "-"} />
