@@ -351,6 +351,7 @@ function ProjectSettingsPage() {
   }
   if (error) return <section className="panel p-5 text-red-300">{error}</section>;
   if (!project) return <p>Загрузка...</p>;
+  if (!project.role) return <Navigate to="/projects" replace />;
   return <section className="panel p-5"><h1 className="text-2xl font-bold text-ember">Настройки проекта</h1><p className="mt-2 text-white/60">{project.name} · {ROLE_LABELS[project.role]}</p><div className="mt-5 grid gap-3 sm:grid-cols-2">{Object.entries(PROJECT_FEATURE_LABELS).map(([feature, label]) => <label className="flex items-center justify-between rounded-md border border-white/10 p-3" key={feature}><span>{label}</span><input aria-label={label} type="checkbox" checked={project.features[feature as keyof typeof project.features]} onChange={(event) => toggle(feature, event.target.checked)} /></label>)}</div></section>;
 }
 

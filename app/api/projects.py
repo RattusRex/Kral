@@ -79,6 +79,24 @@ def get_project_access(
         ProjectMembership.project_id == project.id,
         ProjectMembership.user_id == current_user.id,
     ).first()
+    # Selection availability is the invitation boundary for public projects.
+    # Materialize the least-privileged membership only when the user actually
+    # enters one; listing projects remains read-only.
+    if not membership and project.is_selectable and required_rank == 0:
+        membership = ProjectMembership(
+            project_id=project.id,
+            user_id=current_user.id,
+            role=Role.PLAYER,
+        )
+        db.add(membership)
+        try:
+            db.commit()
+        except IntegrityError:
+            db.rollback()
+            membership = db.query(ProjectMembership).filter(
+                ProjectMembership.project_id == project.id,
+                ProjectMembership.user_id == current_user.id,
+            ).first()
     if not membership or ROLE_RANK.get(membership.role, -1) < required_rank:
         raise HTTPException(status_code=403, detail="Project permissions required")
     return project, membership.role
@@ -132,11 +150,18 @@ def list_projects(current_user: User = Depends(get_current_user), db: Session = 
             ).all()
         }
         return [serialize_project(project, memberships.get(project.id), current_user) for project in projects]
-    memberships = db.query(ProjectMembership).join(Project).filter(
-        ProjectMembership.user_id == current_user.id,
-        Project.is_selectable.is_(True),
+    # A visible project must be discoverable before membership exists. Existing
+    # memberships are included only to expose their already-assigned role and
+    # project-local karma in the selection UI.
+    memberships = {
+        item.project_id: item for item in db.query(ProjectMembership).filter(
+            ProjectMembership.user_id == current_user.id
+        ).all()
+    }
+    projects = db.query(Project).filter(
+        Project.is_selectable.is_(True)
     ).order_by(Project.id).all()
-    return [serialize_project(item.project, item, current_user) for item in memberships]
+    return [serialize_project(project, memberships.get(project.id), current_user) for project in projects]
 
 
 @router.post("")
