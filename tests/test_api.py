@@ -428,42 +428,26 @@ def test_registration_never_exposes_or_persists_plaintext_password(caplog):
             assert not hasattr(user, "password")
 
 
-@pytest.mark.parametrize(
-    "password",
-    [
-        "password",
-        "password123",
-        "secret123",
-        "qwerty123",
-        "admin123",
-    ],
-)
-def test_registration_rejects_obvious_compromised_passwords(password):
+@pytest.mark.parametrize("password", ["password1234", "alllowercase", "123456789012"])
+def test_registration_accepts_passwords_without_composition_requirements(password):
     with TestClient(app) as client:
         response = client.post("/api/users", json={
-            "username": f"weak-{password}",
-            "email": f"weak-{password}@example.com",
+            "username": f"simple-{password}",
+            "email": f"simple-{password}@example.com",
             "password": password,
         })
 
-        assert response.status_code == 422
-        assert response.json()["detail"] == (
-            "Выберите менее распространённый пароль, который не встречался "
-            "в известных утечках данных"
-        )
+        assert response.status_code == 200, response.text
 
 
 @pytest.mark.parametrize(
     "password",
     [
         "short7!",
-        "alllowercase123!",
-        "ALLUPPERCASE123!",
-        "NoNumbersHere!",
-        "NoSymbolsHere123",
+        "password",
     ],
 )
-def test_registration_enforces_password_length_and_complexity(password):
+def test_registration_enforces_only_minimum_password_length(password):
     with TestClient(app) as client:
         response = client.post("/api/users", json={
             "username": "policy-user",
@@ -472,10 +456,7 @@ def test_registration_enforces_password_length_and_complexity(password):
         })
 
         assert response.status_code == 422
-        assert response.json()["detail"] == (
-            "Пароль должен содержать не менее 12 символов, включая заглавную "
-            "и строчную буквы, цифру и специальный символ"
-        )
+        assert response.json()["detail"] == "Пароль должен содержать не менее 12 символов"
 
 
 def test_registration_accepts_strong_password_at_bcrypt_byte_limit():
