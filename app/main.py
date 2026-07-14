@@ -178,6 +178,7 @@ def ensure_schema_columns() -> None:
     # upstream ecosystem columns. Add the optional metadata in place.
     ensure_column("projects", "slug", "VARCHAR(100)")
     ensure_column("projects", "is_default", "BOOLEAN NOT NULL DEFAULT FALSE")
+    ensure_column("projects", "is_selectable", "BOOLEAN NOT NULL DEFAULT TRUE")
     ensure_column("projects", "features", "JSON NOT NULL DEFAULT '{}'")
     ensure_column("project_memberships", "karma", "INTEGER NOT NULL DEFAULT 0")
     # Existing installations predate projects; all legacy characters belong to

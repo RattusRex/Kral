@@ -16,7 +16,12 @@ from app.models.recruitment import GameRecruitment
 from app.models.inventory import AdminGrantLog, KarmaPurchase, MarketSaleLog, ShopTransactionLog, TransferLog
 from app.models.character import CalendarAuditLog
 from app.models.user import User
-from app.schemas.project import ProjectCreate, ProjectFeaturesUpdate, ProjectRoleUpdate
+from app.schemas.project import (
+    ProjectAvailabilityUpdate,
+    ProjectCreate,
+    ProjectFeaturesUpdate,
+    ProjectRoleUpdate,
+)
 
 
 router = APIRouter(prefix="/projects")
@@ -46,6 +51,7 @@ def serialize_project(project: Project, membership: ProjectMembership | None, us
         "name": project.name,
         "slug": project.slug,
         "is_default": project.is_default,
+        "is_selectable": project.is_selectable,
         "role": role,
         "karma": membership.karma if membership else 0,
         "features": {**DEFAULT_FEATURES, **(project.features or {})},
@@ -126,7 +132,10 @@ def list_projects(current_user: User = Depends(get_current_user), db: Session = 
             ).all()
         }
         return [serialize_project(project, memberships.get(project.id), current_user) for project in projects]
-    memberships = db.query(ProjectMembership).filter(ProjectMembership.user_id == current_user.id).all()
+    memberships = db.query(ProjectMembership).join(Project).filter(
+        ProjectMembership.user_id == current_user.id,
+        Project.is_selectable.is_(True),
+    ).order_by(Project.id).all()
     return [serialize_project(item.project, item, current_user) for item in memberships]
 
 
@@ -163,6 +172,27 @@ def create_project(data: ProjectCreate, current_user: User = Depends(get_current
         db.rollback()
         raise HTTPException(status_code=409, detail="Project name or slug already exists")
     db.refresh(project)
+    return serialize_project(project, membership, current_user)
+
+
+@router.patch("/{project_id}/availability")
+def update_availability(
+    data: ProjectAvailabilityUpdate,
+    project_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    if not current_user.is_owner:
+        raise HTTPException(status_code=403, detail="Owner permissions required")
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    project.is_selectable = data.is_selectable
+    db.commit()
+    db.refresh(project)
+    membership = db.query(ProjectMembership).filter_by(
+        project_id=project.id, user_id=current_user.id
+    ).first()
     return serialize_project(project, membership, current_user)
 
 

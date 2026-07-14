@@ -37,6 +37,7 @@ class Project(Base):
     name: Mapped[str] = mapped_column(String(100), unique=True)
     slug: Mapped[str | None] = mapped_column(String(100), unique=True, nullable=True)
     is_default: Mapped[bool] = mapped_column(Boolean, default=False)
+    is_selectable: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
     features: Mapped[dict] = mapped_column(JSON, default=lambda: dict(DEFAULT_FEATURES))
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
     owner_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
