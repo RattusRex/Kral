@@ -13,7 +13,7 @@ from app.db.database import Base, SessionLocal, engine
 from app.core.security import hash_password
 from app.main import app, ensure_schema_columns
 from app.models.character import Character
-from app.models.project import DEFAULT_PROJECT_NAME, Project, ProjectAuditLog
+from app.models.project import DEFAULT_PROJECT_NAME, Project, ProjectAuditLog, ProjectMembership
 from app.models.recruitment import GameRecruitment, RecruitmentMessage
 from app.models.user import User
 
@@ -117,6 +117,65 @@ def test_project_roles_are_isolated_and_cannot_be_escalated_by_switching_project
         assert client.get("/api/admin/users", headers=project_headers(user, first["id"])).status_code == 200
         assert client.get("/api/admin/users", headers=project_headers(user, second["id"])).status_code == 403
         assert client.get(f"/api/projects/{second['id']}/settings", headers=user).status_code == 403
+
+
+def test_owner_can_create_project_from_name_only_and_list_its_ecosystem():
+    with TestClient(app) as client:
+        owner = login(client, "admin", "admin123")
+
+        created = client.post(
+            "/api/projects",
+            headers=owner,
+            json={"name": "Новая кампания: Север!"},
+        )
+
+        assert created.status_code == 200, created.text
+        project = created.json()
+        assert project["name"] == "Новая кампания: Север!"
+        assert project["slug"]
+        assert all(character.isascii() and (character.isalnum() or character == "-") for character in project["slug"])
+        assert project["features"]
+        assert project["role"] == "owner"
+        assert project["id"] in {item["id"] for item in client.get("/api/projects", headers=owner).json()}
+
+        with SessionLocal() as db:
+            owner_id = db.query(User).filter_by(username="admin").one().id
+            membership = db.query(ProjectMembership).filter_by(
+                project_id=project["id"], user_id=owner_id
+            ).one()
+            assert membership.role == "project_owner"
+
+
+def test_duplicate_project_name_returns_conflict_instead_of_database_error():
+    with TestClient(app, raise_server_exceptions=False) as client:
+        owner = login(client, "admin", "admin123")
+        first = client.post(
+            "/api/projects", headers=owner, json={"name": "Duplicate project"}
+        )
+        duplicate = client.post(
+            "/api/projects", headers=owner, json={"name": "Duplicate project"}
+        )
+
+        assert first.status_code == 200, first.text
+        assert duplicate.status_code == 409, duplicate.text
+        assert duplicate.json()["detail"] == "Project name already exists"
+
+
+def test_automatic_project_slugs_do_not_limit_project_count():
+    with TestClient(app) as client:
+        owner = login(client, "admin", "admin123")
+
+        first = client.post(
+            "/api/projects", headers=owner, json={"name": "Campaign!"}
+        )
+        second = client.post(
+            "/api/projects", headers=owner, json={"name": "Campaign?"}
+        )
+
+        assert first.status_code == 200, first.text
+        assert second.status_code == 200, second.text
+        assert first.json()["slug"] == "campaign"
+        assert second.json()["slug"] == "campaign-2"
 
 
 def test_global_admin_role_does_not_leak_into_player_project_membership():

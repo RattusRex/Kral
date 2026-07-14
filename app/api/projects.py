@@ -1,4 +1,9 @@
+import re
+import unicodedata
+from uuid import uuid4
+
 from fastapi import APIRouter, Depends, Header, HTTPException, status
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.api.users import get_current_user, get_db
@@ -15,6 +20,23 @@ from app.schemas.project import ProjectCreate, ProjectFeaturesUpdate, ProjectRol
 
 
 router = APIRouter(prefix="/projects")
+
+
+def generate_project_slug(name: str) -> str:
+    normalized = unicodedata.normalize("NFKD", name).encode("ascii", "ignore").decode()
+    slug = re.sub(r"[^a-z0-9]+", "-", normalized.lower()).strip("-")
+    return slug[:100] or f"project-{uuid4().hex[:12]}"
+
+
+def available_project_slug(name: str, db: Session) -> str:
+    base = generate_project_slug(name)
+    slug = base
+    suffix = 2
+    while db.query(Project).filter(Project.slug == slug).first():
+        marker = f"-{suffix}"
+        slug = f"{base[:100 - len(marker)]}{marker}"
+        suffix += 1
+    return slug
 
 
 def serialize_project(project: Project, membership: ProjectMembership | None, user: User) -> dict:
@@ -112,11 +134,16 @@ def list_projects(current_user: User = Depends(get_current_user), db: Session = 
 def create_project(data: ProjectCreate, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     if not current_user.is_owner:
         raise HTTPException(status_code=403, detail="Owner permissions required")
-    slug = data.slug or "-".join(data.name.strip().lower().split())
+    name = data.name.strip()
+    if not name:
+        raise HTTPException(status_code=422, detail="Project name cannot be blank")
+    if db.query(Project).filter(Project.name == name).first():
+        raise HTTPException(status_code=409, detail="Project name already exists")
+    slug = data.slug or available_project_slug(name, db)
     if db.query(Project).filter(Project.slug == slug).first():
         raise HTTPException(status_code=409, detail="Project slug already exists")
     project = Project(
-        name=data.name.strip(),
+        name=name,
         slug=slug,
         owner_id=current_user.id,
         features=dict(DEFAULT_FEATURES),
@@ -130,7 +157,11 @@ def create_project(data: ProjectCreate, current_user: User = Depends(get_current
         role=Role.PROJECT_OWNER,
     )
     db.add(membership)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="Project name or slug already exists")
     db.refresh(project)
     return serialize_project(project, membership, current_user)
 

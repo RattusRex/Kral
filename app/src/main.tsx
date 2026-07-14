@@ -725,7 +725,7 @@ function Register() {
       onChange={(event) => setForm({ ...form, password: event.target.value })}
     />
     <p className="text-xs text-parchment/70">
-      Пароль должен содержать не менее 12 символов: заглавную и строчную буквы, цифру и специальный символ.
+      Пароль должен содержать не менее 12 символов.
     </p>
     <button className="btn" type="submit">Создать аккаунт</button>
     <Link className="btn-secondary" to="/login">Войти</Link>

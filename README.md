@@ -166,10 +166,8 @@ Character sheets also support multiclass characters. Each class stores its own l
 The public login and registration endpoints include backend throttles to reduce
 brute-force and account-spam abuse:
 
-- new passwords must contain at least 12 characters, including uppercase and
-  lowercase letters, a number, and a special character;
-- a local deny-list rejects obvious passwords known to be commonly compromised;
-  the application does not send passwords to an external breach-checking API;
+- new passwords must contain at least 12 characters; there are no composition
+  requirements for uppercase letters, lowercase letters, numbers, or symbols;
 - passwords longer than 72 UTF-8 bytes are rejected before bcrypt hashing or
   verification;
 - repeated failed login attempts are tracked by submitted username/email and by
