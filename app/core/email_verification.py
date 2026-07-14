@@ -138,20 +138,18 @@ def _smtp_error_details(error: Exception, secrets_to_redact: tuple[str, ...]) ->
     return code, response
 
 
-def send_verification_email(email: str, username: str, token: str) -> None:
-    frontend_url = os.getenv("FRONTEND_URL", "http://localhost:5173").strip().rstrip("/")
-    verification_url = f"{frontend_url}/verify-email?token={quote(token, safe='')}"
-    subject = "Подтверждение электронной почты"
-    body = (
-        f"Здравствуйте, {username}!\n\n"
-        "Подтвердите адрес электронной почты, перейдя по ссылке:\n"
-        f"{verification_url}\n\n"
-        "Ссылка действует 24 часа."
-    )
-
+def _send_email(
+    email: str,
+    subject: str,
+    body: str,
+    token: str,
+    purpose: str,
+    console_message: tuple[str, tuple[object, ...]],
+) -> None:
     backend = validate_email_configuration()
     if backend == "console":
-        logger.info("Email verification link for %s: %s", email, verification_url)
+        message, arguments = console_message
+        logger.info(message, *arguments)
         return
     message = EmailMessage()
     message["Subject"] = subject
@@ -165,8 +163,9 @@ def send_verification_email(email: str, username: str, token: str) -> None:
     timeout = float(os.getenv("SMTP_TIMEOUT_SECONDS", "10"))
     smtp_class = smtplib.SMTP_SSL if security == "ssl" else smtplib.SMTP
     logger.info(
-        "Starting verification email delivery: recipient=%s host=%s port=%s "
+        "Starting %s email delivery: recipient=%s host=%s port=%s "
         "security=%s authentication=%s",
+        purpose,
         email,
         host,
         port,
@@ -188,16 +187,17 @@ def send_verification_email(email: str, username: str, token: str) -> None:
                 logger.info("SMTP authentication completed: username=%s", username_env)
             stage = "send"
             smtp.send_message(message)
-            logger.info("Verification email accepted by SMTP server: recipient=%s", email)
+            logger.info("%s email accepted by SMTP server: recipient=%s", purpose.capitalize(), email)
     except Exception as error:
         smtp_code, smtp_response = _smtp_error_details(
             error,
             (os.getenv("SMTP_PASSWORD", ""), token),
         )
         logger.exception(
-            "Verification email delivery failed: stage=%s error_type=%s "
+            "%s email delivery failed: stage=%s error_type=%s "
             "smtp_code=%r smtp_response=%r host=%s port=%s security=%s "
             "recipient=%s",
+            purpose.capitalize(),
             stage,
             type(error).__name__,
             smtp_code,
@@ -208,3 +208,42 @@ def send_verification_email(email: str, username: str, token: str) -> None:
             email,
         )
         raise
+
+
+def send_verification_email(email: str, username: str, token: str) -> None:
+    frontend_url = os.getenv("FRONTEND_URL", "http://localhost:5173").strip().rstrip("/")
+    verification_url = f"{frontend_url}/verify-email?token={quote(token, safe='')}"
+    body = (
+        f"Здравствуйте, {username}!\n\n"
+        "Подтвердите адрес электронной почты, перейдя по ссылке:\n"
+        f"{verification_url}\n\n"
+        "Ссылка действует 24 часа."
+    )
+    _send_email(
+        email,
+        "Подтверждение электронной почты",
+        body,
+        token,
+        "verification",
+        ("Email verification link for %s: %s", (email, verification_url)),
+    )
+
+
+def send_password_reset_email(email: str, username: str, token: str) -> None:
+    frontend_url = os.getenv("FRONTEND_URL", "http://localhost:5173").strip().rstrip("/")
+    reset_url = f"{frontend_url}/reset-password?token={quote(token, safe='')}"
+    body = (
+        f"Здравствуйте, {username}!\n\n"
+        "Чтобы изменить пароль, перейдите по ссылке:\n"
+        f"{reset_url}\n\n"
+        "Ссылка действует 24 часа и может быть использована только один раз. "
+        "Если вы не запрашивали смену пароля, проигнорируйте это письмо."
+    )
+    _send_email(
+        email,
+        "Восстановление пароля",
+        body,
+        token,
+        "password reset",
+        ("Password reset link for %s: %s", (email, reset_url)),
+    )

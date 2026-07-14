@@ -7,6 +7,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from app.core.auth_abuse import (
     assert_login_allowed,
+    assert_password_reset_allowed,
     assert_registration_allowed,
     record_failed_login,
     record_successful_login,
@@ -17,10 +18,17 @@ from app.models.user import User
 from app.models.project import DEFAULT_PROJECT_NAME, Project, ProjectMembership
 from app.core.passwords import new_password_policy_error
 from app.core.roles import Role, is_admin_role
-from app.schemas.user import EmailResendRequest, EmailVerificationRequest, UserCreate
+from app.schemas.user import (
+    EmailResendRequest,
+    EmailVerificationRequest,
+    PasswordResetConfirm,
+    PasswordResetRequest,
+    UserCreate,
+)
 from app.core.email_verification import (
     generate_verification_token,
     hash_verification_token,
+    send_password_reset_email,
     send_verification_email,
 )
 from app.core.security import (
@@ -43,6 +51,12 @@ VERIFICATION_DELIVERY_ERROR = (
 
 router = APIRouter()
 VERIFICATION_TOKEN_LIFETIME = timedelta(hours=24)
+PASSWORD_RESET_TOKEN_LIFETIME = timedelta(hours=24)
+PASSWORD_RESET_REQUEST_MESSAGE = (
+    "Если аккаунт с указанным адресом существует, письмо для восстановления "
+    "пароля было отправлено."
+)
+INVALID_PASSWORD_RESET_LINK = "Ссылка восстановления недействительна или истекла"
 
 
 def get_db():
@@ -57,6 +71,13 @@ def issue_verification_token(user: User) -> str:
     token = generate_verification_token()
     user.email_verification_token_hash = hash_verification_token(token)
     user.email_verification_expires_at = datetime.now(timezone.utc) + VERIFICATION_TOKEN_LIFETIME
+    return token
+
+
+def issue_password_reset_token(user: User) -> str:
+    token = generate_verification_token()
+    user.password_reset_token_hash = hash_verification_token(token)
+    user.password_reset_expires_at = datetime.now(timezone.utc) + PASSWORD_RESET_TOKEN_LIFETIME
     return token
 
 
@@ -265,6 +286,68 @@ def login(
         "access_token": access_token,
         "token_type": "bearer"
     }
+
+
+@router.post("/password/forgot")
+def forgot_password(
+    data: PasswordResetRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    normalized_email = data.email.lower()
+    assert_password_reset_allowed(request, normalized_email)
+    user = db.query(User).filter(func.lower(User.email) == normalized_email).first()
+    response = {"message": PASSWORD_RESET_REQUEST_MESSAGE}
+    if not user:
+        return response
+
+    token = issue_password_reset_token(user)
+    db.commit()
+    try:
+        send_password_reset_email(user.email, user.username, token)
+    except Exception:
+        logger.exception(
+            "Failed to send password reset email: user_id=%s email=%s",
+            user.id,
+            user.email,
+        )
+    return response
+
+
+@router.post("/password/reset")
+def reset_password(data: PasswordResetConfirm, db: Session = Depends(get_db)):
+    reject_oversized_password(data.password)
+    reject_oversized_password(data.password_confirmation)
+    password_policy_error = new_password_policy_error(data.password)
+    if password_policy_error:
+        raise HTTPException(status_code=422, detail=password_policy_error)
+    if data.password != data.password_confirmation:
+        raise HTTPException(status_code=422, detail="Пароли не совпадают")
+
+    token_hash = hash_verification_token(data.token)
+    user = (
+        db.query(User)
+        .filter(User.password_reset_token_hash == token_hash)
+        .with_for_update()
+        .first()
+    )
+    now = datetime.now(timezone.utc)
+    if not user or not user.password_reset_expires_at:
+        raise HTTPException(status_code=400, detail=INVALID_PASSWORD_RESET_LINK)
+    expires_at = user.password_reset_expires_at
+    if expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
+    if expires_at <= now:
+        user.password_reset_token_hash = None
+        user.password_reset_expires_at = None
+        db.commit()
+        raise HTTPException(status_code=400, detail=INVALID_PASSWORD_RESET_LINK)
+
+    user.hashed_password = hash_password(data.password)
+    user.password_reset_token_hash = None
+    user.password_reset_expires_at = None
+    db.commit()
+    return {"message": "Пароль успешно изменён"}
 
 def get_current_user(
     token: str = Depends(oauth2_scheme),

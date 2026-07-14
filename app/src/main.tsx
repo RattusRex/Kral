@@ -647,6 +647,7 @@ function Login() {
     <button className="btn" type="submit">Войти</button>
     {unverifiedEmail && <button className="btn-secondary" type="button" onClick={resend}>Отправить письмо повторно</button>}
     {notice && <p className="text-sm text-amber-200">{notice}</p>}
+    <Link className="text-center text-sm text-amber-200 hover:text-ember" to="/forgot-password">Забыли пароль?</Link>
     <Link className="btn-secondary" to="/register">Перейти к регистрации</Link>
   </AuthPanel>;
 }
@@ -739,6 +740,18 @@ function Register() {
   </AuthPanel>;
 }
 
+function AuthPanel({ title, error, onSubmit, children }: { title: string; error: string; onSubmit: (event: FormEvent) => void; children: React.ReactNode }) {
+  return (
+    <div className="grid min-h-screen place-items-center bg-[#101217] px-4 text-parchment">
+      <form className="panel flex w-full max-w-sm flex-col gap-3 p-6" onSubmit={onSubmit}>
+        <h1 className="text-2xl font-bold text-ember">{title}</h1>
+        {children}
+        {error && <p className="text-sm text-red-300">{error}</p>}
+      </form>
+    </div>
+  );
+}
+
 function VerifyEmail() {
   const [params] = useSearchParams();
   const [state, setState] = useState<"loading" | "success" | "error">("loading");
@@ -761,16 +774,74 @@ function VerifyEmail() {
   </AuthPanel>;
 }
 
-function AuthPanel({ title, error, onSubmit, children }: { title: string; error: string; onSubmit: (event: FormEvent) => void; children: React.ReactNode }) {
-  return (
-    <div className="grid min-h-screen place-items-center bg-[#101217] px-4 text-parchment">
-      <form className="panel flex w-full max-w-sm flex-col gap-3 p-6" onSubmit={onSubmit}>
-        <h1 className="text-2xl font-bold text-ember">{title}</h1>
-        {children}
-        {error && <p className="text-sm text-red-300">{error}</p>}
-      </form>
-    </div>
-  );
+function ForgotPassword() {
+  const [email, setEmail] = useState("");
+  const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    setError("");
+    try {
+      const response = await api.post("/password/forgot", { email });
+      setMessage(response.data.message ?? "Если аккаунт с указанным адресом существует, письмо для восстановления пароля было отправлено.");
+    } catch (requestError) {
+      setError(apiErrorDetail(requestError, "Не удалось отправить запрос. Попробуйте позже."));
+    }
+  }
+
+  return <AuthPanel title="Восстановление пароля" error={error} onSubmit={submit}>
+    {message ? <>
+      <p className="text-sm text-green-300">{message}</p>
+      <Link className="btn-secondary" to="/login">Вернуться ко входу</Link>
+    </> : <>
+      <p className="text-sm text-white/75">Введите адрес электронной почты, привязанный к аккаунту.</p>
+      <input className="field" placeholder="email" type="email" autoComplete="email" required value={email} onChange={(event) => setEmail(event.target.value)} />
+      <button className="btn" type="submit">Отправить ссылку</button>
+      <Link className="btn-secondary" to="/login">Вернуться ко входу</Link>
+    </>}
+  </AuthPanel>;
+}
+
+function ResetPassword() {
+  const [params] = useSearchParams();
+  const token = params.get("token") ?? "";
+  const [password, setPassword] = useState("");
+  const [passwordConfirmation, setPasswordConfirmation] = useState("");
+  const [success, setSuccess] = useState(false);
+  const [error, setError] = useState("");
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    setError("");
+    if (!token) {
+      setError("Ссылка восстановления недействительна или истекла");
+      return;
+    }
+    if (password !== passwordConfirmation) {
+      setError("Пароли не совпадают");
+      return;
+    }
+    try {
+      await api.post("/password/reset", { token, password, password_confirmation: passwordConfirmation });
+      setSuccess(true);
+    } catch (requestError) {
+      setError(apiErrorDetail(requestError, "Не удалось изменить пароль"));
+    }
+  }
+
+  return <AuthPanel title="Новый пароль" error={error} onSubmit={submit}>
+    {success ? <>
+      <p className="text-sm text-green-300">Пароль успешно изменён. Теперь можно войти с новым паролем.</p>
+      <Link className="btn" to="/login">Войти</Link>
+    </> : <>
+      <input className="field" placeholder="Новый пароль" type="password" minLength={6} maxLength={72} autoComplete="new-password" required value={password} onChange={(event) => setPassword(event.target.value)} />
+      <input className="field" placeholder="Подтверждение нового пароля" type="password" minLength={6} maxLength={72} autoComplete="new-password" required value={passwordConfirmation} onChange={(event) => setPasswordConfirmation(event.target.value)} />
+      <p className="text-xs text-parchment/70">Пароль должен содержать не менее 6 символов.</p>
+      <button className="btn" type="submit">Изменить пароль</button>
+      <Link className="btn-secondary" to="/login">Вернуться ко входу</Link>
+    </>}
+  </AuthPanel>;
 }
 
 function ClassSelect({ value, onChange }: { value: string; onChange: (value: string) => void }) {
@@ -3593,6 +3664,8 @@ function App() {
         <Route path="/login" element={<Login />} />
         <Route path="/register" element={<Register />} />
         <Route path="/verify-email" element={<VerifyEmail />} />
+        <Route path="/forgot-password" element={<ForgotPassword />} />
+        <Route path="/reset-password" element={<ResetPassword />} />
         <Route path="/projects" element={<Protected><ProjectSelectionPage /></Protected>} />
         <Route path="/" element={<ProjectProtected><HomePage /></ProjectProtected>} />
         <Route path="/characters" element={<ProjectProtected><CharactersPage /></ProjectProtected>} />

@@ -56,6 +56,9 @@ services:
       SMTP_USERNAME: ${SMTP_USERNAME:-}
       SMTP_PASSWORD: ${SMTP_PASSWORD:-}
       SMTP_FROM_EMAIL: ${SMTP_FROM_EMAIL:-}
+      AUTH_PASSWORD_RESET_LIMIT: ${AUTH_PASSWORD_RESET_LIMIT:-5}
+      AUTH_PASSWORD_RESET_IP_LIMIT: ${AUTH_PASSWORD_RESET_IP_LIMIT:-20}
+      AUTH_PASSWORD_RESET_WINDOW_SECONDS: ${AUTH_PASSWORD_RESET_WINDOW_SECONDS:-3600}
       WEB_CONCURRENCY: ${WEB_CONCURRENCY:-2}
     # Keep FastAPI private to the compose network. nginx reaches this port by
     # service name; use docker-compose.dev.yml to publish it on the host.

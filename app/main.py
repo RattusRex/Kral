@@ -164,6 +164,12 @@ def migrate_email_verification() -> None:
         ))
 
 
+def migrate_password_reset() -> None:
+    timestamp_type = "TIMESTAMP" if engine.dialect.name == "sqlite" else "TIMESTAMP WITH TIME ZONE"
+    ensure_column("users", "password_reset_token_hash", "VARCHAR(64)")
+    ensure_column("users", "password_reset_expires_at", timestamp_type)
+
+
 def ensure_schema_columns() -> None:
     # Project migration depends on a global owner. Legacy databases do not
     # have the role or email-verification columns yet, so migrate the user
@@ -171,6 +177,7 @@ def ensure_schema_columns() -> None:
     # ownership or creating the default project.
     migrate_user_roles()
     migrate_email_verification()
+    migrate_password_reset()
     with SessionLocal() as db:
         seed_admin(db)
 
