@@ -78,3 +78,7 @@ test("nginx preserves anti-framing headers in locations with custom headers", ()
     "asset cache header should also use always so error responses keep explicit header behavior"
   );
 });
+
+test("nginx rate limits password reset email requests", () => {
+  assert.match(nginxConfig, /location = \/api\/password\/forgot \{[\s\S]*?limit_req zone=auth_api/);
+});

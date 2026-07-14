@@ -59,6 +59,15 @@ class User(Base):
         DateTime(timezone=True),
         nullable=True,
     )
+    password_reset_token_hash: Mapped[str | None] = mapped_column(
+        String(64),
+        nullable=True,
+        unique=True,
+    )
+    password_reset_expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
 
     @property
     def is_admin(self) -> bool:

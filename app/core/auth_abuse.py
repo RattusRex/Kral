@@ -19,6 +19,9 @@ LOGIN_WINDOW_SECONDS = int(os.getenv("AUTH_LOGIN_WINDOW_SECONDS", "900"))
 LOGIN_LOCKOUT_SECONDS = int(os.getenv("AUTH_LOGIN_LOCKOUT_SECONDS", "300"))
 REGISTRATION_IP_LIMIT = int(os.getenv("AUTH_REGISTRATION_IP_LIMIT", "10"))
 REGISTRATION_WINDOW_SECONDS = int(os.getenv("AUTH_REGISTRATION_WINDOW_SECONDS", "3600"))
+PASSWORD_RESET_LIMIT = int(os.getenv("AUTH_PASSWORD_RESET_LIMIT", "5"))
+PASSWORD_RESET_IP_LIMIT = int(os.getenv("AUTH_PASSWORD_RESET_IP_LIMIT", "20"))
+PASSWORD_RESET_WINDOW_SECONDS = int(os.getenv("AUTH_PASSWORD_RESET_WINDOW_SECONDS", "3600"))
 
 
 @dataclass(frozen=True)
@@ -166,6 +169,40 @@ def assert_login_allowed(request: Request, username: str) -> None:
         "Too many failed login attempts. Try again later.",
         retry_after,
     )
+
+
+def assert_password_reset_allowed(request: Request, email: str) -> None:
+    subject = _normalize_subject(email)
+    rules = [
+        LimitRule(
+            key=f"password-reset:subject:{subject}",
+            limit=PASSWORD_RESET_LIMIT,
+            window_seconds=PASSWORD_RESET_WINDOW_SECONDS,
+            lockout_seconds=PASSWORD_RESET_WINDOW_SECONDS,
+        ),
+        *(
+            LimitRule(
+                key=f"password-reset:ip:{client_key}",
+                limit=PASSWORD_RESET_IP_LIMIT,
+                window_seconds=PASSWORD_RESET_WINDOW_SECONDS,
+                lockout_seconds=PASSWORD_RESET_WINDOW_SECONDS,
+            )
+            for client_key in _client_keys(request)
+        ),
+    ]
+    retry_after = _tracker.retry_after(rules)
+    if retry_after is not None:
+        logger.warning(
+            "Password reset rate limit exceeded for subject=%r client=%s retry_after=%s",
+            subject,
+            _audit_client(request),
+            retry_after,
+        )
+        _raise_too_many_requests(
+            "Too many password reset attempts. Try again later.",
+            retry_after,
+        )
+    _tracker.record(rules)
 
 
 def record_failed_login(request: Request, username: str) -> None:

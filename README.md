@@ -176,6 +176,7 @@ brute-force and account-spam abuse:
   client IP, then temporarily return `429 Too Many Requests` with `Retry-After`;
 - registration attempts are tracked by client IP before database uniqueness
   checks and bcrypt hashing run;
+- password recovery attempts are tracked by submitted email and client IP;
 - repeated failures and blocked attempts are written to the application log.
 
 The default backend limits can be tuned with:
@@ -187,10 +188,13 @@ AUTH_LOGIN_WINDOW_SECONDS=900
 AUTH_LOGIN_LOCKOUT_SECONDS=300
 AUTH_REGISTRATION_IP_LIMIT=10
 AUTH_REGISTRATION_WINDOW_SECONDS=3600
+AUTH_PASSWORD_RESET_LIMIT=5
+AUTH_PASSWORD_RESET_IP_LIMIT=20
+AUTH_PASSWORD_RESET_WINDOW_SECONDS=3600
 ```
 
-Docker deployments also apply nginx `limit_req` throttling to `/api/login` and
-`/api/users` before requests reach FastAPI.
+Docker deployments also apply nginx `limit_req` throttling to `/api/login`,
+`/api/users`, and `/api/password/forgot` before requests reach FastAPI.
 
 Browser warnings such as “this password appeared in a data leak” are generated
 by the browser or password manager when the password entered by a user matches
@@ -200,7 +204,7 @@ responses and logs, and never written to local storage, session storage, or
 cookies. Only the JWT access token is stored in browser local storage after a
 successful login.
 
-## Email Verification
+## Email Verification and Password Recovery
 
 New accounts cannot log in until their email address is confirmed. Registration
 sends a 24-hour, single-use link; requesting a new message invalidates the old
@@ -217,6 +221,15 @@ Gmail address as `SMTP_USERNAME`, and a Google app password as `SMTP_PASSWORD`;
 an email address is not a valid `SMTP_HOST`. Administrators can see each user's
 status and manually confirm an address in the admin panel. Accounts that existed
 before this feature are migrated as already verified.
+
+The login page also links to self-service password recovery. The request form
+always returns the same response, whether or not the submitted email exists.
+Existing accounts receive a 24-hour, single-use `/reset-password` link. Only a
+SHA-256 hash of its cryptographically random token is stored. A successful
+change consumes the token, invalidates all earlier reset links, and applies the
+same 6-character minimum and 72-byte bcrypt limit used during registration.
+Real recovery emails require `EMAIL_BACKEND=smtp`; local `console` mode writes
+the link to backend logs.
 
 At backend startup, the effective email backend, SMTP host, port, security mode,
 timeout, authentication state, and sender are logged without the SMTP password.

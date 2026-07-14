@@ -20,6 +20,16 @@ class EmailVerificationRequest(BaseModel):
 class EmailResendRequest(BaseModel):
     email: EmailStr
 
+
+class PasswordResetRequest(EmailResendRequest):
+    pass
+
+
+class PasswordResetConfirm(BaseModel):
+    token: str = Field(min_length=32, max_length=512)
+    password: str = Field(min_length=1, max_length=MAX_PASSWORD_BYTES)
+    password_confirmation: str = Field(min_length=1, max_length=MAX_PASSWORD_BYTES)
+
 class KarmaUpdate(BaseModel):
     amount: int
 
