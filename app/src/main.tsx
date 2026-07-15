@@ -4,6 +4,7 @@ import axios from "axios";
 import { Link, Navigate, Route, BrowserRouter as Router, Routes, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { ArrowDown, ArrowUp, BookOpen, CalendarDays, Check, ChevronDown, ChevronUp, Coins, Dice5, LogOut, MapPin, MessageSquare, Pencil, Plus, RefreshCw, Save, ScrollText, Search, Send, Shield, ShoppingBag, Swords, Trash2, Trophy, UserRound, UsersRound, X } from "lucide-react";
 import { AbilityRoll, AdminGrantLog, AdminUser, api, AttackRoll, AUTH_NOTICE_KEY, CalendarSummary, Character, CharacterAttack, ChatMessage, ContentBlock, DamageRoll, GameRecruitment, Inventory, InventoryItem, KarmaOpener, KarmaPurchase, KarmaPurchaseResult, LeaderboardEntry, MagicItem, MarketSaleLog, MarketSaleResult, PaginatedResponse, PROJECT_KEY, ProjectContext, ROLE_LABELS, SavingThrowRoll, ShopResult, ShopTransactionLog, SkillRoll, TOKEN_KEY, TransferLog, TransferTarget, User, UserRole } from "./api";
+import { compareHomebrewKarma, nextHomebrewSort } from "./homebrewSort.js";
 import "./styles.css";
 
 const rarities = ["Обычный", "Необычный", "Редкий"];
@@ -569,7 +570,7 @@ type HomebrewForm = {
   source_url: string;
   notes: string;
 };
-type HomebrewSort = "title" | "content_type" | "karma_cost" | "status" | "source_url" | "notes";
+type HomebrewSort = "title" | "content_type" | "karma_cost" | "source_url" | "notes";
 const blankHomebrewForm: HomebrewForm = { title: "", content_type: "", karma_cost: "", is_banned: false, source_url: "", notes: "" };
 
 function ApprovedHomebrewPage() {
@@ -601,14 +602,13 @@ function ApprovedHomebrewPage() {
     .filter((entry) => !statusFilter || (statusFilter === "banned" ? entry.is_banned : !entry.is_banned))
     .sort((left, right) => {
       let comparison = 0;
-      if (sort.field === "karma_cost") comparison = (left.karma_cost ?? Number.MAX_SAFE_INTEGER) - (right.karma_cost ?? Number.MAX_SAFE_INTEGER);
-      else if (sort.field === "status") comparison = Number(left.is_banned) - Number(right.is_banned);
+      if (sort.field === "karma_cost") return compareHomebrewKarma(left, right, sort.direction);
       else comparison = String(left[sort.field] ?? "").localeCompare(String(right[sort.field] ?? ""), "ru", { sensitivity: "base" });
       return sort.direction === "asc" ? comparison : -comparison;
     }), [entries, query, typeFilter, statusFilter, sort]);
 
   function changeSort(field: HomebrewSort) {
-    setSort((current) => ({ field, direction: current.field === field && current.direction === "asc" ? "desc" : "asc" }));
+    setSort((current) => nextHomebrewSort(current, field));
   }
 
   function startCreate() { setEditingId("new"); setForm(blankHomebrewForm); }
@@ -646,12 +646,13 @@ function ApprovedHomebrewPage() {
     {error && <p className="rounded-md border border-red-400/30 bg-red-950/30 p-3 text-sm text-red-200">{error}</p>}
     {editingId !== null && <HomebrewFormPanel form={form} setForm={setForm} onSubmit={save} onCancel={() => setEditingId(null)} />}
     <section className="panel p-4"><div className="grid gap-3 md:grid-cols-3"><label className="field-label"><span>Название</span><input className="field" placeholder="Поиск по названию" value={query} onChange={(event) => setQuery(event.target.value)} /></label><label className="field-label"><span>Тип</span><select className="field" value={typeFilter} onChange={(event) => setTypeFilter(event.target.value)}><option value="">Все типы</option>{contentTypes.map((type) => <option key={type}>{type}</option>)}</select></label><label className="field-label"><span>Статус</span><select className="field" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as "" | "karma" | "banned")}><option value="">Все статусы</option><option value="karma">Карма</option><option value="banned">Бан</option></select></label></div></section>
-    <section className="panel overflow-hidden"><div className="responsive-table" role="region" aria-label="Таблица одобренного домашнего контента" tabIndex={0}><table className="min-w-[1100px] w-full text-left text-sm"><thead className="bg-black/35 text-white/70"><tr><SortableHomebrewHeading label="Название" field="title" sort={sort} onSort={changeSort} /><SortableHomebrewHeading label="Тип" field="content_type" sort={sort} onSort={changeSort} /><SortableHomebrewHeading label="Карма / Бан" field="status" sort={sort} onSort={changeSort} /><SortableHomebrewHeading label="Источник / Ссылка" field="source_url" sort={sort} onSort={changeSort} /><SortableHomebrewHeading label="Примечания" field="notes" sort={sort} onSort={changeSort} />{user?.is_admin && <th className="px-4 py-3">Управление</th>}</tr></thead><tbody>{visibleEntries.map((entry) => { const index = entries.findIndex((item) => item.id === entry.id); return <tr className="border-t border-white/10 align-top" key={entry.id}><td className="px-4 py-3 font-semibold text-ember">{entry.title}</td><td className="px-4 py-3">{entry.content_type || "—"}</td><td className="px-4 py-3">{entry.is_banned ? <span className="rounded bg-red-900/60 px-2 py-1 text-red-200">Бан</span> : `${entry.karma_cost ?? 0} кармы`}</td><td className="max-w-48 px-4 py-3">{entry.source_url ? <a className="text-ember underline" href={entry.source_url} rel="noreferrer" target="_blank" title={entry.source_url}>Открыть</a> : "—"}</td><td className="max-w-80 whitespace-pre-wrap px-4 py-3">{entry.notes || "—"}</td>{user?.is_admin && <td className="px-4 py-3"><div className="flex flex-wrap gap-2"><button className="btn-secondary p-2" aria-label="Переместить вверх" disabled={index === 0} onClick={() => move(index, -1)}><ArrowUp size={15} /></button><button className="btn-secondary p-2" aria-label="Переместить вниз" disabled={index === entries.length - 1} onClick={() => move(index, 1)}><ArrowDown size={15} /></button><button className="btn-secondary p-2" aria-label="Редактировать" onClick={() => startEdit(entry)}><Pencil size={15} /></button><button className="btn-secondary p-2" aria-label="Удалить" onClick={() => remove(entry)}><Trash2 size={15} /></button></div></td>}</tr>; })}</tbody></table>{!visibleEntries.length && <p className="p-8 text-center text-white/60">Записи не найдены.</p>}</div></section>
+    <section className="panel overflow-hidden"><div className="responsive-table" role="region" aria-label="Таблица одобренного домашнего контента" tabIndex={0}><table className="min-w-[1100px] w-full text-left text-sm"><thead className="bg-black/35 text-white/70"><tr><SortableHomebrewHeading label="Название" field="title" sort={sort} onSort={changeSort} /><SortableHomebrewHeading label="Тип" field="content_type" sort={sort} onSort={changeSort} /><SortableHomebrewHeading label="Кол-во кармы / Бан" field="karma_cost" sort={sort} onSort={changeSort} /><SortableHomebrewHeading label="Источник / Ссылка" field="source_url" sort={sort} onSort={changeSort} /><SortableHomebrewHeading label="Примечания" field="notes" sort={sort} onSort={changeSort} />{user?.is_admin && <th className="px-4 py-3">Управление</th>}</tr></thead><tbody>{visibleEntries.map((entry) => { const index = entries.findIndex((item) => item.id === entry.id); return <tr className="border-t border-white/10 align-top" key={entry.id}><td className="px-4 py-3 font-semibold text-ember">{entry.title}</td><td className="px-4 py-3">{entry.content_type || "—"}</td><td className="px-4 py-3">{entry.is_banned ? <span className="rounded bg-red-900/60 px-2 py-1 text-red-200">Бан</span> : entry.karma_cost === null ? "???" : `${entry.karma_cost} кармы`}</td><td className="max-w-48 px-4 py-3">{entry.source_url ? <a className="text-ember underline" href={entry.source_url} rel="noreferrer" target="_blank" title={entry.source_url}>Открыть</a> : "—"}</td><td className="max-w-80 whitespace-pre-wrap px-4 py-3">{entry.notes || "—"}</td>{user?.is_admin && <td className="px-4 py-3"><div className="flex flex-wrap gap-2"><button className="btn-secondary p-2" aria-label="Переместить вверх" disabled={index === 0} onClick={() => move(index, -1)}><ArrowUp size={15} /></button><button className="btn-secondary p-2" aria-label="Переместить вниз" disabled={index === entries.length - 1} onClick={() => move(index, 1)}><ArrowDown size={15} /></button><button className="btn-secondary p-2" aria-label="Редактировать" onClick={() => startEdit(entry)}><Pencil size={15} /></button><button className="btn-secondary p-2" aria-label="Удалить" onClick={() => remove(entry)}><Trash2 size={15} /></button></div></td>}</tr>; })}</tbody></table>{!visibleEntries.length && <p className="p-8 text-center text-white/60">Записи не найдены.</p>}</div></section>
   </div>;
 }
 
 function SortableHomebrewHeading({ label, field, sort, onSort }: { label: string; field: HomebrewSort; sort: { field: HomebrewSort; direction: "asc" | "desc" }; onSort: (field: HomebrewSort) => void }) {
-  return <th className="px-4 py-3"><button className="inline-flex items-center gap-1" onClick={() => onSort(field)} type="button">{label}{sort.field === field && (sort.direction === "asc" ? <ChevronUp size={14} /> : <ChevronDown size={14} />)}</button></th>;
+  const active = sort.field === field;
+  return <th aria-sort={active ? (sort.direction === "asc" ? "ascending" : "descending") : "none"} className="px-4 py-3"><button className="inline-flex items-center gap-1" onClick={() => onSort(field)} type="button">{label}{active && (sort.direction === "asc" ? <ChevronUp aria-hidden="true" size={14} /> : <ChevronDown aria-hidden="true" size={14} />)}</button></th>;
 }
 
 function HomebrewFormPanel({ form, setForm, onSubmit, onCancel }: { form: HomebrewForm; setForm: (form: HomebrewForm) => void; onSubmit: (event: FormEvent) => void; onCancel: () => void }) {

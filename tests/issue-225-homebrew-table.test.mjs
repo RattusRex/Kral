@@ -7,7 +7,7 @@ const source = await readFile(new URL("../app/src/main.tsx", import.meta.url), "
 test("approved homebrew uses a structured responsive table", () => {
   assert.match(source, /function ApprovedHomebrewPage/);
   assert.match(source, /className="responsive-table/);
-  for (const heading of ["Название", "Тип", "Карма / Бан", "Источник / Ссылка", "Примечания"]) {
+  for (const heading of ["Название", "Тип", "Кол-во кармы / Бан", "Источник / Ссылка", "Примечания"]) {
     assert.match(source, new RegExp(`label="${heading}"`));
   }
   assert.match(source, />Открыть</);
