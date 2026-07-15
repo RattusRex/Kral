@@ -211,6 +211,8 @@ def ensure_schema_columns() -> None:
     ensure_column("content_blocks", "karma_cost", "INTEGER")
     ensure_column("content_blocks", "is_banned", "BOOLEAN NOT NULL DEFAULT FALSE")
     ensure_column("content_blocks", "source_url", "VARCHAR(2000)")
+    ensure_column("content_blocks", "rarity", "VARCHAR(50)")
+    ensure_column("content_blocks", "source", "VARCHAR(200)")
     ensure_column("content_blocks", "notes", "TEXT")
     ensure_column("characters", "temp_hp", "INTEGER NOT NULL DEFAULT 0")
     ensure_column("characters", "speed", "INTEGER NOT NULL DEFAULT 30")

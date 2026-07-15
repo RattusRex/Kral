@@ -13,11 +13,14 @@ from app.schemas.content import (
     ContentBlockUpdate,
     HomebrewEntryCreate,
     HomebrewEntryUpdate,
+    IllegalItemCreate,
+    IllegalItemUpdate,
 )
 
 
 router = APIRouter(prefix="/content-pages", tags=["content pages"])
-VALID_PAGE_SLUGS = {"server-rules", "approved-homebrew"}
+VALID_PAGE_SLUGS = {"server-rules", "approved-homebrew", "illegal-items"}
+STRUCTURED_PAGE_SLUGS = {"approved-homebrew", "illegal-items"}
 
 
 def validate_page_slug(page_slug: str) -> str:
@@ -84,6 +87,33 @@ def create_homebrew_entry(
 
 
 @router.post(
+    "/illegal-items",
+    response_model=ContentBlockResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_illegal_item(
+    item_data: IllegalItemCreate,
+    db: Session = Depends(get_db),
+    access=Depends(require_project_admin),
+):
+    last_position = db.query(func.max(ContentBlock.position)).filter(
+        ContentBlock.project_id == access[0].id,
+        ContentBlock.page_slug == "illegal-items",
+    ).scalar()
+    block = ContentBlock(
+        project_id=access[0].id,
+        page_slug="illegal-items",
+        content="",
+        position=(last_position if last_position is not None else -1) + 1,
+        **item_data.model_dump(mode="json"),
+    )
+    db.add(block)
+    db.commit()
+    db.refresh(block)
+    return block
+
+
+@router.post(
     "/{page_slug}",
     response_model=ContentBlockResponse,
     status_code=status.HTTP_201_CREATED,
@@ -95,8 +125,8 @@ def create_content_block(
     access=Depends(require_project_admin),
 ):
     page_slug = validate_page_slug(page_slug)
-    if page_slug == "approved-homebrew":
-        raise HTTPException(status_code=422, detail="Structured homebrew entry required")
+    if page_slug in STRUCTURED_PAGE_SLUGS:
+        raise HTTPException(status_code=422, detail="Structured entry required")
     last_position = db.query(func.max(ContentBlock.position)).filter(
         ContentBlock.project_id == access[0].id,
         ContentBlock.page_slug == page_slug,
@@ -157,6 +187,21 @@ def update_homebrew_entry(
     return block
 
 
+@router.patch("/illegal-items/{block_id}", response_model=ContentBlockResponse)
+def update_illegal_item(
+    block_id: int,
+    item_data: IllegalItemUpdate,
+    db: Session = Depends(get_db),
+    access=Depends(require_project_admin),
+):
+    block = get_block_or_404(db, access[0].id, "illegal-items", block_id)
+    for field, value in item_data.model_dump(exclude_unset=True, mode="json").items():
+        setattr(block, field, value)
+    db.commit()
+    db.refresh(block)
+    return block
+
+
 @router.patch("/{page_slug}/{block_id}", response_model=ContentBlockResponse)
 def update_content_block(
     page_slug: str,
@@ -166,8 +211,8 @@ def update_content_block(
     access=Depends(require_project_admin),
 ):
     page_slug = validate_page_slug(page_slug)
-    if page_slug == "approved-homebrew":
-        raise HTTPException(status_code=422, detail="Structured homebrew entry required")
+    if page_slug in STRUCTURED_PAGE_SLUGS:
+        raise HTTPException(status_code=422, detail="Structured entry required")
     block = get_block_or_404(db, access[0].id, page_slug, block_id)
     for field, value in block_data.model_dump(exclude_unset=True).items():
         setattr(block, field, value)

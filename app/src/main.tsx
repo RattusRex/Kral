@@ -8,6 +8,7 @@ import { compareHomebrewKarma, nextHomebrewSort, type HomebrewSortField } from "
 import "./styles.css";
 
 const rarities = ["Обычный", "Необычный", "Редкий"];
+const illegalItemRarities = ["Обычный", "Необычный", "Редкий", "Очень редкий", "Легендарный", "Артефакт"];
 // The game world started counting in-world time on this date; characters
 // cannot be created (or spend downtime) earlier than it.
 const GAME_EPOCH = "2025-06-01";
@@ -309,6 +310,7 @@ function HomePage() {
           {project?.features.recruitments !== false && <Link className="btn" to="/game-recruitments"><CalendarDays size={18} />Набор на игры</Link>}
           <Link className="btn" to="/server-rules"><BookOpen size={18} />Правила сервера</Link>
           <Link className="btn" to="/approved-homebrew"><ScrollText size={18} />Одобренное ХБ</Link>
+          <Link className="btn" to="/illegal-items"><Shield size={18} />Нелегальные предметы</Link>
         </div>
       </section>
       <aside className="panel p-5">
@@ -674,6 +676,92 @@ function SortableHomebrewHeading({ label, field, sort, onSort }: { label: string
 
 function HomebrewFormPanel({ form, setForm, onSubmit, onCancel }: { form: HomebrewForm; setForm: (form: HomebrewForm) => void; onSubmit: (event: FormEvent) => void; onCancel: () => void }) {
   return <form className="panel grid gap-3 p-5 md:grid-cols-2" onSubmit={onSubmit}><label className="field-label"><span>Название</span><input className="field" required maxLength={200} value={form.title} onChange={(event) => setForm({ ...form, title: event.target.value })} /></label><label className="field-label"><span>Тип</span><input className="field" required maxLength={100} list="homebrew-types" value={form.content_type} onChange={(event) => setForm({ ...form, content_type: event.target.value })} /><datalist id="homebrew-types">{["Класс", "Подкласс", "Заклинание", "Черта", "Предыстория", "Раса/Происхождение", "Боевой стиль"].map((type) => <option key={type}>{type}</option>)}</datalist></label><label className="field-label"><span>Источник / Ссылка</span><input className="field" required type="url" maxLength={2000} value={form.source_url} onChange={(event) => setForm({ ...form, source_url: event.target.value })} /></label><div className="flex flex-wrap items-end gap-3"><label className="field-label flex-1"><span>Количество кармы</span><input className="field" disabled={form.is_banned} min={0} required={!form.is_banned} type="number" value={form.karma_cost} onChange={numericInputChange((karma_cost) => setForm({ ...form, karma_cost }))} /></label><label className="mb-2 flex items-center gap-2"><input checked={form.is_banned} type="checkbox" onChange={(event) => setForm({ ...form, is_banned: event.target.checked, karma_cost: event.target.checked ? "" : form.karma_cost })} />Бан</label></div><label className="field-label md:col-span-2"><span>Примечания</span><textarea className="field min-h-24" maxLength={5000} value={form.notes} onChange={(event) => setForm({ ...form, notes: event.target.value })} /></label><div className="flex flex-wrap gap-2 md:col-span-2"><button className="btn"><Save size={16} />Сохранить</button><button className="btn-secondary" type="button" onClick={onCancel}><X size={16} />Отмена</button></div></form>;
+}
+
+type IllegalItemForm = { title: string; rarity: string; source_url: string; source: string };
+type IllegalItemSort = "title" | "rarity";
+const blankIllegalItemForm: IllegalItemForm = { title: "", rarity: illegalItemRarities[0], source_url: "", source: "" };
+
+function IllegalItemsPage() {
+  const { user, loading: userLoading } = useAuth();
+  const [entries, setEntries] = useState<ContentBlock[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [editingId, setEditingId] = useState<number | "new" | null>(null);
+  const [form, setForm] = useState<IllegalItemForm>(blankIllegalItemForm);
+  const [query, setQuery] = useState("");
+  const [rarityFilter, setRarityFilter] = useState("");
+  const [sort, setSort] = useState<{ field: IllegalItemSort; direction: "asc" | "desc" }>({ field: "title", direction: "asc" });
+
+  function load() {
+    setLoading(true);
+    setError("");
+    api.get<ContentBlock[]>("/content-pages/illegal-items")
+      .then((response) => setEntries(response.data))
+      .catch((requestError) => setError(apiErrorDetail(requestError, "Не удалось загрузить таблицу")))
+      .finally(() => setLoading(false));
+  }
+  useEffect(load, []);
+
+  const rarityRank = (rarity: string | null) => illegalItemRarities.indexOf(rarity ?? "");
+  const visibleEntries = useMemo(() => entries
+    .filter((entry) => entry.title.toLocaleLowerCase("ru").includes(query.trim().toLocaleLowerCase("ru")))
+    .filter((entry) => !rarityFilter || entry.rarity === rarityFilter)
+    .sort((left, right) => {
+      const comparison = sort.field === "rarity"
+        ? rarityRank(left.rarity) - rarityRank(right.rarity)
+        : left.title.localeCompare(right.title, "ru", { sensitivity: "base" });
+      return sort.direction === "asc" ? comparison : -comparison;
+    }), [entries, query, rarityFilter, sort]);
+
+  function changeSort(field: IllegalItemSort) {
+    setSort((current) => ({ field, direction: current.field === field && current.direction === "asc" ? "desc" : "asc" }));
+  }
+  function startCreate() { setEditingId("new"); setForm(blankIllegalItemForm); }
+  function startEdit(entry: ContentBlock) {
+    setEditingId(entry.id);
+    setForm({ title: entry.title, rarity: entry.rarity ?? illegalItemRarities[0], source_url: entry.source_url ?? "", source: entry.source ?? "" });
+  }
+  async function save(event: FormEvent) {
+    event.preventDefault();
+    try {
+      if (editingId === "new") await api.post("/content-pages/illegal-items", form);
+      else await api.patch(`/content-pages/illegal-items/${editingId}`, form);
+      setEditingId(null); load();
+    } catch (requestError) { setError(apiErrorDetail(requestError, "Не удалось сохранить предмет")); }
+  }
+  async function remove(entry: ContentBlock) {
+    if (!window.confirm(`Удалить предмет «${entry.title}»?`)) return;
+    try { await api.delete(`/content-pages/illegal-items/${entry.id}`); setEditingId(null); load(); }
+    catch (requestError) { setError(apiErrorDetail(requestError, "Не удалось удалить предмет")); }
+  }
+  async function move(index: number, offset: -1 | 1) {
+    const target = index + offset;
+    if (target < 0 || target >= entries.length) return;
+    const reordered = [...entries];
+    [reordered[index], reordered[target]] = [reordered[target], reordered[index]];
+    setEntries(reordered);
+    try { await api.put("/content-pages/illegal-items/order", { block_ids: reordered.map((entry) => entry.id) }); }
+    catch (requestError) { setError(apiErrorDetail(requestError, "Не удалось изменить порядок")); load(); }
+  }
+  if (loading || userLoading) return <p>Загрузка...</p>;
+
+  return <div className="space-y-4">
+    <div className="flex flex-wrap items-center justify-between gap-3"><div><h1 className="text-2xl font-bold text-ember">Нелегальные предметы</h1><p className="mt-1 text-sm text-white/60">Запрещённые и ограниченные магические предметы</p></div>{user?.is_admin && <button className="btn" onClick={startCreate}><Plus size={16} />Создать предмет</button>}</div>
+    {error && <p className="rounded-md border border-red-400/30 bg-red-950/30 p-3 text-sm text-red-200">{error}</p>}
+    {editingId !== null && <IllegalItemFormPanel form={form} setForm={setForm} onSubmit={save} onCancel={() => setEditingId(null)} />}
+    <section className="panel p-4"><div className="grid gap-3 md:grid-cols-2"><label className="field-label"><span>Название</span><input className="field" placeholder="Поиск по названию" value={query} onChange={(event) => setQuery(event.target.value)} /></label><label className="field-label"><span>Редкость</span><select className="field" value={rarityFilter} onChange={(event) => setRarityFilter(event.target.value)}><option value="">Все редкости</option>{illegalItemRarities.map((rarity) => <option key={rarity}>{rarity}</option>)}</select></label></div></section>
+    <section className="panel overflow-hidden"><div className="responsive-table" role="region" aria-label="Таблица нелегальных предметов" tabIndex={0}><table className="min-w-[850px] w-full text-left text-sm"><thead className="bg-black/35 text-white/70"><tr><SortableIllegalItemHeading label="Название" field="title" sort={sort} onSort={changeSort} /><SortableIllegalItemHeading label="Редкость" field="rarity" sort={sort} onSort={changeSort} /><th className="px-4 py-3">Ссылка</th><th className="px-4 py-3">Источник</th>{user?.is_admin && <th className="px-4 py-3">Управление</th>}</tr></thead><tbody>{visibleEntries.map((entry) => { const index = entries.findIndex((item) => item.id === entry.id); return <tr className="border-t border-white/10 align-top" key={entry.id}><td className="px-4 py-3 font-semibold text-ember">{entry.title}</td><td className="px-4 py-3">{entry.rarity}</td><td className="max-w-48 px-4 py-3"><a className="text-ember underline" href={entry.source_url ?? ""} rel="noreferrer" target="_blank" title={entry.source_url ?? ""}>Открыть</a></td><td className="max-w-72 break-words px-4 py-3">{entry.source}</td>{user?.is_admin && <td className="px-4 py-3"><div className="flex flex-wrap gap-2"><button className="btn-secondary p-2" aria-label="Переместить вверх" disabled={index === 0} onClick={() => move(index, -1)}><ArrowUp size={15} /></button><button className="btn-secondary p-2" aria-label="Переместить вниз" disabled={index === entries.length - 1} onClick={() => move(index, 1)}><ArrowDown size={15} /></button><button className="btn-secondary p-2" aria-label="Редактировать" onClick={() => startEdit(entry)}><Pencil size={15} /></button><button className="btn-secondary p-2" aria-label="Удалить" onClick={() => remove(entry)}><Trash2 size={15} /></button></div></td>}</tr>; })}</tbody></table>{!visibleEntries.length && <p className="p-8 text-center text-white/60">Предметы не найдены.</p>}</div></section>
+  </div>;
+}
+
+function SortableIllegalItemHeading({ label, field, sort, onSort }: { label: string; field: IllegalItemSort; sort: { field: IllegalItemSort; direction: "asc" | "desc" }; onSort: (field: IllegalItemSort) => void }) {
+  const activeDirection = sort.field === field ? sort.direction : undefined;
+  return <th aria-sort={activeDirection === "asc" ? "ascending" : activeDirection === "desc" ? "descending" : "none"} className="px-4 py-3"><button aria-label={`${label}: сортировать`} className="inline-flex items-center gap-1" onClick={() => onSort(field)} type="button">{label}{activeDirection && (activeDirection === "asc" ? <ChevronUp aria-hidden="true" size={14} /> : <ChevronDown aria-hidden="true" size={14} />)}</button></th>;
+}
+
+function IllegalItemFormPanel({ form, setForm, onSubmit, onCancel }: { form: IllegalItemForm; setForm: (form: IllegalItemForm) => void; onSubmit: (event: FormEvent) => void; onCancel: () => void }) {
+  return <form className="panel grid gap-3 p-5 md:grid-cols-2" onSubmit={onSubmit}><label className="field-label"><span>Название</span><input className="field" required maxLength={200} value={form.title} onChange={(event) => setForm({ ...form, title: event.target.value })} /></label><label className="field-label"><span>Редкость</span><select className="field" required value={form.rarity} onChange={(event) => setForm({ ...form, rarity: event.target.value })}>{illegalItemRarities.map((rarity) => <option key={rarity}>{rarity}</option>)}</select></label><label className="field-label"><span>Ссылка</span><input className="field" required type="url" maxLength={2000} value={form.source_url} onChange={(event) => setForm({ ...form, source_url: event.target.value })} /></label><label className="field-label"><span>Источник</span><input className="field" required maxLength={200} value={form.source} onChange={(event) => setForm({ ...form, source: event.target.value })} /></label><div className="flex flex-wrap gap-2 md:col-span-2"><button className="btn"><Save size={16} />Сохранить</button><button className="btn-secondary" type="button" onClick={onCancel}><X size={16} />Отмена</button></div></form>;
 }
 
 function Protected({ children }: { children: React.ReactNode }) {
@@ -3843,6 +3931,7 @@ function App() {
         <Route path="/game-recruitments" element={<ProjectProtected><GameRecruitmentsPage /></ProjectProtected>} />
         <Route path="/server-rules" element={<ProjectProtected><ContentPage pageSlug="server-rules" title="Правила сервера" /></ProjectProtected>} />
         <Route path="/approved-homebrew" element={<ProjectProtected><ApprovedHomebrewPage /></ProjectProtected>} />
+        <Route path="/illegal-items" element={<ProjectProtected><IllegalItemsPage /></ProjectProtected>} />
         <Route path="/profile" element={<ProjectProtected><ProfilePage /></ProjectProtected>} />
         <Route path="/project-settings" element={<ProjectProtected><ProjectSettingsPage /></ProjectProtected>} />
         <Route path="/project-management" element={<ProjectProtected><ProjectManagementPage /></ProjectProtected>} />

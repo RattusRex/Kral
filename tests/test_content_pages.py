@@ -11,7 +11,7 @@ from fastapi.testclient import TestClient
 from app.core.auth_abuse import reset_auth_abuse_state
 from app.db.database import Base, SessionLocal, engine
 from app.main import app
-from app.models.project import DEFAULT_PROJECT_NAME, Project
+from app.models.project import DEFAULT_PROJECT_NAME, Project, ProjectMembership
 from app.models.user import User
 
 
@@ -262,3 +262,111 @@ def test_server_rules_reject_homebrew_only_fields():
             "notes": "",
         })
         assert response.status_code == 422
+
+
+def test_illegal_items_are_project_scoped_and_player_read_only():
+    with TestClient(app) as client:
+        admin = login(client, "admin", "admin123")
+        player = create_player(client)
+        payload = {
+            "title": "Кольцо трёх желаний",
+            "rarity": "Легендарный",
+            "source_url": "https://example.com/items/ring-of-three-wishes",
+            "source": "Dungeon Master's Guide",
+        }
+
+        created = client.post(
+            "/api/content-pages/illegal-items", headers=admin, json=payload
+        )
+        assert created.status_code == 201, created.text
+        assert created.json() | payload == created.json()
+
+        listed = client.get("/api/content-pages/illegal-items", headers=player)
+        assert listed.status_code == 200
+        assert listed.json()[0]["title"] == payload["title"]
+        assert listed.json()[0]["rarity"] == payload["rarity"]
+        assert listed.json()[0]["source"] == payload["source"]
+
+        assert client.post(
+            "/api/content-pages/illegal-items", headers=player, json=payload
+        ).status_code == 403
+        assert client.patch(
+            f"/api/content-pages/illegal-items/{created.json()['id']}",
+            headers=player,
+            json={"title": "Взлом"},
+        ).status_code == 403
+        assert client.delete(
+            f"/api/content-pages/illegal-items/{created.json()['id']}", headers=player
+        ).status_code == 403
+
+
+def test_illegal_item_crud_reordering_and_validation():
+    with TestClient(app) as client:
+        admin = login(client, "admin", "admin123")
+        first = client.post("/api/content-pages/illegal-items", headers=admin, json={
+            "title": "Посох Магуса",
+            "rarity": "Очень редкий",
+            "source_url": "https://example.com/items/magus-staff",
+            "source": "Homebrew",
+        })
+        second = client.post("/api/content-pages/illegal-items", headers=admin, json={
+            "title": "Клинок вечной ночи",
+            "rarity": "Артефакт",
+            "source_url": "https://example.com/items/eternal-night",
+            "source": "Griffon's Saddlebag",
+        })
+        assert first.status_code == second.status_code == 201
+
+        edited = client.patch(
+            f"/api/content-pages/illegal-items/{first.json()['id']}",
+            headers=admin,
+            json={"rarity": "Легендарный", "source": "Авторский материал"},
+        )
+        assert edited.status_code == 200, edited.text
+        assert edited.json()["rarity"] == "Легендарный"
+
+        reordered = client.put(
+            "/api/content-pages/illegal-items/order",
+            headers=admin,
+            json={"block_ids": [second.json()["id"], first.json()["id"]]},
+        )
+        assert reordered.status_code == 200, reordered.text
+        assert [entry["title"] for entry in reordered.json()] == [
+            "Клинок вечной ночи", "Посох Магуса"
+        ]
+
+        assert client.post("/api/content-pages/illegal-items", headers=admin, json={
+            "title": "Опасный предмет", "rarity": "Мифический",
+            "source_url": "https://example.com/item", "source": "Homebrew",
+        }).status_code == 422
+        assert client.post("/api/content-pages/illegal-items", headers=admin, json={
+            "title": "Опасный предмет", "rarity": "Редкий",
+            "source_url": "javascript:alert(1)", "source": "Homebrew",
+        }).status_code == 422
+
+        deleted = client.delete(
+            f"/api/content-pages/illegal-items/{second.json()['id']}", headers=admin
+        )
+        assert deleted.status_code == 204
+        remaining = client.get("/api/content-pages/illegal-items", headers=admin).json()
+        assert [entry["position"] for entry in remaining] == [0]
+
+
+def test_technician_can_manage_illegal_items():
+    with TestClient(app) as client:
+        technician = create_player(client)
+        with SessionLocal() as db:
+            membership = db.query(ProjectMembership).join(User).filter(
+                User.username == "reader",
+                ProjectMembership.project_id == int(technician["X-Project-ID"]),
+            ).one()
+            membership.role = "technician"
+            db.commit()
+
+        created = client.post("/api/content-pages/illegal-items", headers=technician, json={
+            "title": "Запретный гримуар",
+            "rarity": "Артефакт",
+            "source_url": "https://example.com/items/forbidden-grimoire",
+            "source": "Homebrew",
+        })
+        assert created.status_code == 201, created.text
