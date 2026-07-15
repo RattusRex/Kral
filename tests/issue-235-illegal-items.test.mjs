@@ -25,6 +25,10 @@ test("illegal items support search, rarity filtering and sorting", () => {
   assert.match(source, /localeCompare/);
 });
 
+test("illegal items support the variable rarity in forms and filters", () => {
+  assert.match(source, /illegalItemRarities = \[[^\]]*"Варьируется"[^\]]*\]/);
+});
+
 test("only technician-level users receive illegal item management controls", () => {
   assert.match(source, /user\?\.is_admin[^]*Создать предмет/);
   assert.match(source, /startEdit/);

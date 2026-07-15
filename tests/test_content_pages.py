@@ -317,22 +317,35 @@ def test_illegal_item_crud_reordering_and_validation():
         })
         assert first.status_code == second.status_code == 201
 
+        variable = client.post("/api/content-pages/illegal-items", headers=admin, json={
+            "title": "Меч +1, +2 или +3",
+            "rarity": "Варьируется",
+            "source_url": "https://example.com/items/magic-sword",
+            "source": "Dungeon Master's Guide",
+        })
+        assert variable.status_code == 201, variable.text
+        assert variable.json()["rarity"] == "Варьируется"
+
         edited = client.patch(
             f"/api/content-pages/illegal-items/{first.json()['id']}",
             headers=admin,
-            json={"rarity": "Легендарный", "source": "Авторский материал"},
+            json={"rarity": "Варьируется", "source": "Авторский материал"},
         )
         assert edited.status_code == 200, edited.text
-        assert edited.json()["rarity"] == "Легендарный"
+        assert edited.json()["rarity"] == "Варьируется"
 
         reordered = client.put(
             "/api/content-pages/illegal-items/order",
             headers=admin,
-            json={"block_ids": [second.json()["id"], first.json()["id"]]},
+            json={
+                "block_ids": [
+                    second.json()["id"], first.json()["id"], variable.json()["id"]
+                ]
+            },
         )
         assert reordered.status_code == 200, reordered.text
         assert [entry["title"] for entry in reordered.json()] == [
-            "Клинок вечной ночи", "Посох Магуса"
+            "Клинок вечной ночи", "Посох Магуса", "Меч +1, +2 или +3"
         ]
 
         assert client.post("/api/content-pages/illegal-items", headers=admin, json={
@@ -349,7 +362,7 @@ def test_illegal_item_crud_reordering_and_validation():
         )
         assert deleted.status_code == 204
         remaining = client.get("/api/content-pages/illegal-items", headers=admin).json()
-        assert [entry["position"] for entry in remaining] == [0]
+        assert [entry["position"] for entry in remaining] == [0, 1]
 
 
 def test_technician_can_manage_illegal_items():
