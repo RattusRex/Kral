@@ -46,6 +46,11 @@ export interface ProjectContext {
   can_manage_roles: boolean;
 }
 
+export interface ProjectAbout {
+  title: string;
+  description: string;
+}
+
 export interface User {
   id: number;
   username: string;

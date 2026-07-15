@@ -3,7 +3,7 @@ import { createRoot } from "react-dom/client";
 import axios from "axios";
 import { Link, Navigate, Route, BrowserRouter as Router, Routes, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { ArrowDown, ArrowUp, BookOpen, CalendarDays, Check, ChevronDown, ChevronUp, Coins, Dice5, LogOut, MapPin, MessageSquare, Pencil, Plus, RefreshCw, Save, ScrollText, Search, Send, Shield, ShoppingBag, Swords, Trash2, Trophy, UserRound, UsersRound, X } from "lucide-react";
-import { AbilityRoll, AdminGrantLog, AdminUser, api, AttackRoll, AUTH_NOTICE_KEY, CalendarSummary, Character, CharacterAttack, ChatMessage, connectRealtime, ContentBlock, DamageRoll, GameRecruitment, Inventory, InventoryItem, KarmaOpener, KarmaPurchase, KarmaPurchaseResult, LeaderboardEntry, MagicItem, MarketSaleLog, MarketSaleResult, PaginatedResponse, PROJECT_KEY, ProjectContext, RealtimeEvent, ROLE_LABELS, SavingThrowRoll, ShopResult, ShopTransactionLog, SkillRoll, TOKEN_KEY, TransferLog, TransferTarget, User, UserRole } from "./api";
+import { AbilityRoll, AdminGrantLog, AdminUser, api, AttackRoll, AUTH_NOTICE_KEY, CalendarSummary, Character, CharacterAttack, ChatMessage, connectRealtime, ContentBlock, DamageRoll, GameRecruitment, Inventory, InventoryItem, KarmaOpener, KarmaPurchase, KarmaPurchaseResult, LeaderboardEntry, MagicItem, MarketSaleLog, MarketSaleResult, PaginatedResponse, PROJECT_KEY, ProjectAbout, ProjectContext, RealtimeEvent, ROLE_LABELS, SavingThrowRoll, ShopResult, ShopTransactionLog, SkillRoll, TOKEN_KEY, TransferLog, TransferTarget, User, UserRole } from "./api";
 import { compareHomebrewKarma, nextHomebrewSort, type HomebrewSortField } from "./homebrewSort";
 import "./styles.css";
 
@@ -112,6 +112,7 @@ const blankCharacter = {
   saving_throw_proficiencies: [] as string[]
 };
 const maxCharacters = 10;
+const ROLE_RANK: Record<UserRole, number> = { player: 0, technician: 1, admin: 2, head_admin: 3, project_owner: 4, owner: 5 };
 type NumericInputValue = number | "";
 
 const RealtimeContext = createContext<RealtimeEvent | null>(null);
@@ -258,7 +259,7 @@ function Shell({ children, user }: { children: React.ReactNode; user: User | nul
 
   function selectProject(id: number) {
     localStorage.setItem(PROJECT_KEY, String(id));
-    window.location.assign("/");
+    window.location.assign("/about-project");
   }
 
   function logout() {
@@ -271,9 +272,10 @@ function Shell({ children, user }: { children: React.ReactNode; user: User | nul
     <div className="min-h-screen bg-[#101217] text-parchment">
       <header className="sticky top-0 z-10 border-b border-white/10 bg-[#101217]/95 backdrop-blur">
         <nav className="mx-auto flex max-w-7xl items-center justify-between px-4 py-3">
-          <Link to="/characters" className="project-title text-lg font-bold text-ember">Эпоха Катастроф</Link>
+          <Link to="/about-project" className="project-title text-lg font-bold text-ember">{project?.name ?? "Эпоха Катастроф"}</Link>
           <div className="flex flex-wrap items-center gap-2">
             {projects.length > 0 && <select aria-label="Проект" className="field max-w-52" value={project?.id ?? ""} onChange={(event) => selectProject(Number(event.target.value))}><option value="" disabled>Сменить проект</option>{projects.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select>}
+            <Link className="btn-secondary" to="/about-project"><BookOpen size={16} />О проекте</Link>
             <Link className="btn-secondary" to="/"><UsersRound size={16} />Меню</Link>
             <Link className="btn-secondary" to="/characters"><UsersRound size={16} />Персонажи</Link>
             <Link className="btn-secondary" to="/chat"><MessageSquare size={16} />Чат</Link>
@@ -321,6 +323,73 @@ function HomePage() {
       </aside>
     </div>
   );
+}
+
+function markdownInline(text: string): React.ReactNode[] {
+  const pattern = /(\[[^\]]+\]\(https?:\/\/[^\s)]+\)|\*\*[^*]+\*\*|\*[^*]+\*)/g;
+  return text.split(pattern).filter(Boolean).map((part, index) => {
+    const link = part.match(/^\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)$/);
+    if (link) return <a className="text-ember underline" href={link[2]} key={index} rel="noreferrer" target="_blank">{link[1]}</a>;
+    if (part.startsWith("**") && part.endsWith("**")) return <strong key={index}>{part.slice(2, -2)}</strong>;
+    if (part.startsWith("*") && part.endsWith("*")) return <em key={index}>{part.slice(1, -1)}</em>;
+    return part;
+  });
+}
+
+function markdownToHtml(markdown: string) {
+  const blocks = markdown.trim().split(/\n\s*\n/).filter(Boolean);
+  return blocks.map((block, blockIndex) => {
+    const lines = block.split("\n");
+    if (lines.every((line) => /^\s*[-*]\s+/.test(line))) {
+      return <ul className="list-disc space-y-1 pl-6" key={blockIndex}>{lines.map((line, lineIndex) => <li key={lineIndex}>{markdownInline(line.replace(/^\s*[-*]\s+/, ""))}</li>)}</ul>;
+    }
+    if (lines.every((line) => /^\s*\d+\.\s+/.test(line))) {
+      return <ol className="list-decimal space-y-1 pl-6" key={blockIndex}>{lines.map((line, lineIndex) => <li key={lineIndex}>{markdownInline(line.replace(/^\s*\d+\.\s+/, ""))}</li>)}</ol>;
+    }
+    return <p key={blockIndex}>{lines.map((line, lineIndex) => <span key={lineIndex}>{markdownInline(line)}{lineIndex < lines.length - 1 && <br />}</span>)}</p>;
+  });
+}
+
+function ProjectAboutPage() {
+  const [project, setProject] = useState<ProjectContext | null>(null);
+  const [content, setContent] = useState<ProjectAbout | null>(null);
+  const [form, setForm] = useState<ProjectAbout>({ title: "", description: "" });
+  const [editing, setEditing] = useState(false);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    Promise.all([api.get<ProjectContext>("/projects/current"), api.get<ProjectAbout>("/projects/about")])
+      .then(([projectResponse, aboutResponse]) => {
+        setProject(projectResponse.data);
+        setContent(aboutResponse.data);
+        setForm(aboutResponse.data);
+      })
+      .catch((requestError) => setError(apiErrorDetail(requestError, "Не удалось загрузить информацию о проекте")));
+  }, []);
+  const canEdit = Boolean(project?.role && ROLE_RANK[project.role] >= ROLE_RANK.technician);
+  async function save(event: FormEvent) {
+    event.preventDefault();
+    setError("");
+    try {
+      const response = await api.put<ProjectAbout>("/projects/about", form);
+      setContent(response.data);
+      setForm(response.data);
+      setEditing(false);
+    } catch (requestError) {
+      setError(apiErrorDetail(requestError, "Не удалось сохранить информацию о проекте"));
+    }
+  }
+  if (!content) return <section className="panel p-5">{error ? <p className="text-red-300">{error}</p> : <p>Загрузка...</p>}</section>;
+  return <section className="panel overflow-hidden p-5 sm:p-7 lg:p-10">
+    {editing && canEdit ? <form className="space-y-5" onSubmit={save}>
+      <label className="field-label"><span>Заголовок</span><input className="field text-xl font-semibold" maxLength={200} required value={form.title} onChange={(event) => setForm({ ...form, title: event.target.value })} /></label>
+      <label className="field-label"><span>Описание (Markdown)</span><textarea className="field min-h-80 resize-y" maxLength={20000} value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} /><span className="text-xs text-white/45">Поддерживаются абзацы, списки, **жирный**, *курсив* и [ссылки](https://example.com).</span></label>
+      {error && <p className="text-red-300">{error}</p>}
+      <div className="flex flex-wrap gap-2"><button className="btn" type="submit"><Save size={16} />Сохранить</button><button className="btn-secondary" type="button" onClick={() => { setForm(content); setEditing(false); setError(""); }}><X size={16} />Отмена</button></div>
+    </form> : <>
+      <div className="flex flex-wrap items-start justify-between gap-4"><h1 className="min-w-0 break-words text-3xl font-bold leading-tight text-ember md:text-5xl">{content.title}</h1>{canEdit && <button className="btn-secondary shrink-0" onClick={() => setEditing(true)}><Pencil size={16} />Редактировать</button>}</div>
+      {content.description ? <div className="mt-8 space-y-4 break-words text-base leading-7 text-white/85 sm:text-lg">{markdownToHtml(content.description)}</div> : <p className="mt-8 text-white/55">Описание проекта пока не добавлено.</p>}
+    </>}
+  </section>;
 }
 
 const PROJECT_FEATURE_LABELS: Record<string, string> = {
@@ -868,7 +937,7 @@ function ProjectSelectionPage() {
   }, []);
   function choose(project: ProjectContext) {
     localStorage.setItem(PROJECT_KEY, String(project.id));
-    navigate("/");
+    navigate("/about-project");
   }
   return <div className="grid min-h-screen place-items-center bg-[#101217] px-4 text-parchment"><section className="panel w-full max-w-xl p-6"><h1 className="text-3xl font-bold text-ember">Выберите проект</h1><p className="mt-2 text-white/60">Все персонажи, роли и игровые данные изолированы внутри проекта.</p>{error && <p className="mt-4 text-red-300">{error}</p>}<div className="mt-6 grid gap-3">{projects.map((project) => <button className="btn justify-center py-4 text-lg" key={project.id} onClick={() => choose(project)}>{project.name}</button>)}</div>{!error && projects.length === 0 && <p className="mt-5 text-white/60">Нет доступных проектов. Обратитесь к владельцу.</p>}</section></div>;
 }
@@ -3919,6 +3988,7 @@ function App() {
         <Route path="/reset-password" element={<ResetPassword />} />
         <Route path="/projects" element={<Protected><ProjectSelectionPage /></Protected>} />
         <Route path="/" element={<ProjectProtected><HomePage /></ProjectProtected>} />
+        <Route path="/about-project" element={<ProjectProtected><ProjectAboutPage /></ProjectProtected>} />
         <Route path="/characters" element={<ProjectProtected><CharactersPage /></ProjectProtected>} />
         <Route path="/characters/new" element={<ProjectProtected><CharacterFormPage /></ProjectProtected>} />
         <Route path="/characters/:id" element={<ProjectProtected><CharacterPage /></ProjectProtected>} />

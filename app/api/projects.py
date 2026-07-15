@@ -17,6 +17,7 @@ from app.models.inventory import AdminGrantLog, KarmaPurchase, MarketSaleLog, Sh
 from app.models.character import CalendarAuditLog
 from app.models.user import User
 from app.schemas.project import (
+    ProjectAboutUpdate,
     ProjectAvailabilityUpdate,
     ProjectCreate,
     ProjectFeaturesUpdate,
@@ -25,6 +26,13 @@ from app.schemas.project import (
 
 
 router = APIRouter(prefix="/projects")
+
+
+def serialize_about(project: Project) -> dict[str, str]:
+    return {
+        "title": project.about_title or f"Добро пожаловать в {project.name}",
+        "description": project.about_description or "",
+    }
 
 
 def generate_project_slug(name: str) -> str:
@@ -271,6 +279,27 @@ def current_project(
         ProjectMembership.user_id == current_user.id,
     ).first()
     return serialize_project(access[0], membership, current_user)
+
+
+@router.get("/about")
+def get_project_about(
+    access: tuple[Project, str] = Depends(get_current_project_access),
+):
+    return serialize_about(access[0])
+
+
+@router.put("/about")
+def update_project_about(
+    data: ProjectAboutUpdate,
+    access: tuple[Project, str] = Depends(require_project_admin),
+    db: Session = Depends(get_db),
+):
+    project = access[0]
+    project.about_title = data.title
+    project.about_description = data.description
+    db.commit()
+    db.refresh(project)
+    return serialize_about(project)
 
 
 @router.get("/{project_id}/settings")
