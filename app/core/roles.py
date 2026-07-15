@@ -49,7 +49,13 @@ ROLE_RANK = {
 }
 
 # Roles that may use the game-master / administrative endpoints.
-ADMIN_ROLES = (Role.OWNER, Role.HEAD_ADMIN, Role.ADMIN, Role.TECHNICIAN)
+ADMIN_ROLES = (
+    Role.OWNER,
+    Role.PROJECT_OWNER,
+    Role.HEAD_ADMIN,
+    Role.ADMIN,
+    Role.TECHNICIAN,
+)
 
 # Roles that may manage other users' roles.
 ROLE_MANAGER_ROLES = (Role.OWNER, Role.HEAD_ADMIN)
