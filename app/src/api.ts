@@ -70,13 +70,15 @@ export interface Project {
 
 export interface ContentBlock {
   id: number;
-  page_slug: "server-rules" | "approved-homebrew";
+  page_slug: "server-rules" | "approved-homebrew" | "illegal-items";
   title: string;
   content: string;
   content_type: string | null;
   karma_cost: number | null;
   is_banned: boolean;
   source_url: string | null;
+  rarity: string | null;
+  source: string | null;
   notes: string | null;
   position: number;
   created_at: string;

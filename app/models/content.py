@@ -30,6 +30,8 @@ class ContentBlock(Base):
     karma_cost: Mapped[int | None] = mapped_column(Integer, nullable=True)
     is_banned: Mapped[bool] = mapped_column(Boolean, default=False)
     source_url: Mapped[str | None] = mapped_column(String(2_000), nullable=True)
+    rarity: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    source: Mapped[str | None] = mapped_column(String(200), nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     position: Mapped[int] = mapped_column(Integer)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)

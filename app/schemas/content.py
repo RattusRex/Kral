@@ -7,6 +7,11 @@ MAX_CONTENT_TITLE_LENGTH = 200
 MAX_CONTENT_LENGTH = 20_000
 MAX_CONTENT_TYPE_LENGTH = 100
 MAX_NOTES_LENGTH = 5_000
+MAX_RARITY_LENGTH = 50
+MAX_SOURCE_LENGTH = 200
+ILLEGAL_ITEM_RARITIES = {
+    "Обычный", "Необычный", "Редкий", "Очень редкий", "Легендарный", "Артефакт"
+}
 
 
 class ContentBlockCreate(BaseModel):
@@ -54,6 +59,8 @@ class ContentBlockResponse(BaseModel):
     karma_cost: int | None = None
     is_banned: bool = False
     source_url: str | None = None
+    rarity: str | None = None
+    source: str | None = None
     notes: str | None = None
     position: int
     created_at: datetime
@@ -115,3 +122,55 @@ class HomebrewEntryUpdate(BaseModel):
             self.is_banned = False
             fields_set.add("is_banned")
         return self
+
+
+class IllegalItemBase(BaseModel):
+    title: str = Field(min_length=1, max_length=MAX_CONTENT_TITLE_LENGTH)
+    rarity: str = Field(min_length=1, max_length=MAX_RARITY_LENGTH)
+    source_url: HttpUrl
+    source: str = Field(min_length=1, max_length=MAX_SOURCE_LENGTH)
+
+    @field_validator("title", "rarity", "source")
+    @classmethod
+    def validate_text(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("must not be blank")
+        return value
+
+    @field_validator("rarity")
+    @classmethod
+    def validate_rarity(cls, value: str) -> str:
+        if value not in ILLEGAL_ITEM_RARITIES:
+            raise ValueError("unknown rarity")
+        return value
+
+
+class IllegalItemCreate(IllegalItemBase):
+    model_config = ConfigDict(extra="forbid")
+
+
+class IllegalItemUpdate(BaseModel):
+    title: str | None = Field(default=None, min_length=1, max_length=MAX_CONTENT_TITLE_LENGTH)
+    rarity: str | None = Field(default=None, min_length=1, max_length=MAX_RARITY_LENGTH)
+    source_url: HttpUrl | None = None
+    source: str | None = Field(default=None, min_length=1, max_length=MAX_SOURCE_LENGTH)
+
+    model_config = ConfigDict(extra="forbid")
+
+    @field_validator("title", "rarity", "source")
+    @classmethod
+    def validate_optional_text(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        value = value.strip()
+        if not value:
+            raise ValueError("must not be blank")
+        return value
+
+    @field_validator("rarity")
+    @classmethod
+    def validate_optional_rarity(cls, value: str | None) -> str | None:
+        if value is not None and value not in ILLEGAL_ITEM_RARITIES:
+            raise ValueError("unknown rarity")
+        return value
