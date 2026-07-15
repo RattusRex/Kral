@@ -345,6 +345,70 @@ def test_global_admin_role_does_not_leak_into_player_project_membership():
         assert client.get("/api/admin/characters", headers=headers).status_code == 403
 
 
+def test_effective_role_and_permissions_follow_the_selected_project_for_every_role():
+    with TestClient(app) as client:
+        owner = login(client, "admin", "admin123")
+        administrative = client.post(
+            "/api/projects", headers=owner,
+            json={"name": "Administrative Roles", "slug": "administrative-roles"},
+        ).json()
+        players = client.post(
+            "/api/projects", headers=owner,
+            json={"name": "Player Roles", "slug": "player-roles"},
+        ).json()
+
+        for role in ("project_owner", "head_admin", "admin", "technician", "player"):
+            username = f"isolated-{role.replace('_', '-')}"
+            user_id = register(client, username)
+            assert client.put(
+                f"/api/projects/{administrative['id']}/members/{user_id}",
+                headers=owner, json={"role": role},
+            ).status_code == 200
+            assert client.put(
+                f"/api/projects/{players['id']}/members/{user_id}",
+                headers=owner, json={"role": "player"},
+            ).status_code == 200
+
+            token = login(client, username, PASSWORD)
+            administrative_headers = project_headers(token, administrative["id"])
+            player_headers = project_headers(token, players["id"])
+
+            administrative_me = client.get("/api/me", headers=administrative_headers)
+            assert administrative_me.status_code == 200, administrative_me.text
+            assert administrative_me.json()["role"] == role
+            assert administrative_me.json()["is_admin"] is (role != "player")
+
+            player_me = client.get("/api/me", headers=player_headers)
+            assert player_me.status_code == 200, player_me.text
+            assert player_me.json()["role"] == "player"
+            assert player_me.json()["is_admin"] is False
+            assert player_me.json()["is_head_admin"] is False
+            assert client.get("/api/admin/characters", headers=player_headers).status_code == 403
+
+        owner_me = client.get(
+            "/api/me", headers=project_headers(owner, players["id"])
+        )
+        assert owner_me.status_code == 200, owner_me.text
+        assert owner_me.json()["role"] == "owner"
+        assert owner_me.json()["is_admin"] is True
+
+
+def test_me_without_selected_project_does_not_expose_legacy_global_admin_role():
+    with TestClient(app) as client:
+        user_id = register(client, "legacy-global-admin")
+        with SessionLocal() as db:
+            db.get(User, user_id).role = "admin"
+            db.commit()
+
+        headers = login(client, "legacy-global-admin", PASSWORD)
+        response = client.get("/api/me", headers=headers)
+
+        assert response.status_code == 200, response.text
+        assert response.json()["role"] == "player"
+        assert response.json()["is_admin"] is False
+        assert response.json()["is_head_admin"] is False
+
+
 def test_gameplay_requires_explicit_project_selection():
     with TestClient(app) as client:
         owner = login(client, "admin", "admin123")

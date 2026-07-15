@@ -381,7 +381,11 @@ def get_me(
         ).first()
         if not current_user.is_owner and not membership:
             raise HTTPException(status_code=403, detail="Project permissions required")
-    effective_role = Role.OWNER if current_user.is_owner else membership.role if membership else current_user.role
+    # The legacy users.role column is global and must never grant non-owner
+    # permissions. Until a project is selected, expose the least-privileged
+    # role; after selection, derive every permission flag from that project's
+    # membership only.
+    effective_role = Role.OWNER if current_user.is_owner else membership.role if membership else Role.PLAYER
     return {
         "id": current_user.id,
         "username": current_user.username,
