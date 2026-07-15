@@ -39,6 +39,7 @@ Swagger documentation: http://localhost:8000/docs
 Notable protected API routes:
 
 - `GET /api/leaderboard` returns users ranked by karma.
+- `WS /api/ws?token=<jwt>&project_id=<id>` provides the centralized project-scoped realtime event stream. The React client connects after project selection, keeps the connection through authenticated navigation, sends heartbeats, and reconnects with bounded exponential backoff. Successful mutations invalidate chat, recruitment, character, market, user, and audit-log views without an F5 refresh. Each browser tab has its own connection. Multi-worker deployments require a shared pub/sub broker because the included connection registry is process-local.
 - `GET/POST /api/chat/messages` stores general chat messages and `/r` roll commands.
 - `DELETE /api/chat/messages/{id}` lets an administrator, head administrator, or owner remove any chat message; players are rejected by the backend.
 - `GET/POST /api/game-recruitments` lists game announcements and lets administrators publish them. Players enroll an owned living character through `/applications`; only the announcement author can publish the selected roster through `/participants`. Enrollment and selection notices are persisted in the announcement chat.

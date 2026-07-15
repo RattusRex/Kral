@@ -23,6 +23,7 @@ from app.api.attacks import router as attacks_router
 from app.api.chat import router as chat_router
 from app.api.karma_shop import router as karma_shop_router
 from app.api.recruitments import router as recruitments_router
+from app.api.realtime import router as realtime_router
 from app.api.content import router as content_router
 from app.models.chat import ChatMessage
 from app.models.recruitment import GameApplication, GameRecruitment, RecruitmentMessage
@@ -35,6 +36,7 @@ from app.core.roles import Role
 from app.core.env import load_env
 from app.core.email_verification import log_email_configuration
 from app.core.request_limits import RequestBodyLimitMiddleware
+from app.core.realtime_middleware import RealtimeMutationMiddleware
 from sqlalchemy import inspect, text
 from sqlalchemy.orm import Session
 
@@ -357,6 +359,7 @@ _allowed_origins = [o.strip() for o in _raw_origins.split(",") if o.strip()]
 app = FastAPI(lifespan=lifespan)
 
 app.add_middleware(RequestBodyLimitMiddleware)
+app.add_middleware(RealtimeMutationMiddleware)
 
 app.add_middleware(
     CORSMiddleware,
@@ -377,6 +380,7 @@ app.include_router(recruitments_router, prefix="/api")
 app.include_router(content_router, prefix="/api")
 app.include_router(users_router, prefix="/api")
 app.include_router(projects_router, prefix="/api")
+app.include_router(realtime_router, prefix="/api")
 
 @app.get("/")
 def root():

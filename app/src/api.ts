@@ -459,6 +459,76 @@ export interface KarmaOpener {
   note: string | null;
 }
 
+export interface RealtimeEvent {
+  type: string;
+  project_id?: number;
+  user_id?: number;
+  entity_id?: number;
+  created_at?: string;
+}
+
+export function realtimeWebSocketURL(token: string, projectId: string) {
+  const apiURL = new URL(API_BASE_URL, window.location.origin);
+  apiURL.protocol = apiURL.protocol === "https:" ? "wss:" : "ws:";
+  apiURL.pathname = `${apiURL.pathname.replace(/\/$/, "")}/ws`;
+  apiURL.search = new URLSearchParams({ token, project_id: projectId }).toString();
+  return apiURL.toString();
+}
+
+export function connectRealtime(onEvent: (event: RealtimeEvent) => void) {
+  let socket: WebSocket | null = null;
+  let reconnectTimer: number | undefined;
+  let heartbeatTimer: number | undefined;
+  let stopped = false;
+  let attempt = 0;
+
+  function connect() {
+    const token = localStorage.getItem(TOKEN_KEY);
+    const projectId = localStorage.getItem(PROJECT_KEY);
+    if (stopped || !token || !projectId) return;
+    socket = new WebSocket(realtimeWebSocketURL(token, projectId));
+    socket.onopen = () => {
+      attempt = 0;
+      heartbeatTimer = window.setInterval(() => {
+        if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: "ping" }));
+      }, 25_000);
+    };
+    socket.onmessage = (message) => {
+      try {
+        const event = JSON.parse(message.data) as RealtimeEvent;
+        if (event.type !== "pong" && event.type !== "connection.ready") onEvent(event);
+      } catch {
+        // Ignore malformed frames; a later valid invalidation can still refresh the page.
+      }
+    };
+    socket.onclose = () => {
+      if (heartbeatTimer) window.clearInterval(heartbeatTimer);
+      if (!stopped) {
+        attempt += 1;
+        reconnectTimer = window.setTimeout(connect, Math.min(30_000, 1_000 * (2 ** attempt)));
+      }
+    };
+  }
+
+  function handleStorage(event: StorageEvent) {
+    if (event.key === TOKEN_KEY || event.key === PROJECT_KEY) {
+      if (!event.newValue && event.key === TOKEN_KEY) stopped = true;
+      socket?.close();
+      if (!stopped && (!socket || socket.readyState === WebSocket.CLOSED)) connect();
+    }
+  }
+
+  window.addEventListener("storage", handleStorage);
+  connect();
+  return () => {
+    stopped = true;
+    if (reconnectTimer) window.clearTimeout(reconnectTimer);
+    if (heartbeatTimer) window.clearInterval(heartbeatTimer);
+    window.removeEventListener("storage", handleStorage);
+    socket?.close();
+  };
+}
+
 export const api = axios.create({
   baseURL: API_BASE_URL
 });
