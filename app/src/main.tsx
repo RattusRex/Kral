@@ -1,9 +1,9 @@
-import { Component, FormEvent, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { Component, createContext, FormEvent, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import axios from "axios";
 import { Link, Navigate, Route, BrowserRouter as Router, Routes, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { ArrowDown, ArrowUp, BookOpen, CalendarDays, Check, ChevronDown, ChevronUp, Coins, Dice5, LogOut, MapPin, MessageSquare, Pencil, Plus, RefreshCw, Save, ScrollText, Search, Send, Shield, ShoppingBag, Swords, Trash2, Trophy, UserRound, UsersRound, X } from "lucide-react";
-import { AbilityRoll, AdminGrantLog, AdminUser, api, AttackRoll, AUTH_NOTICE_KEY, CalendarSummary, Character, CharacterAttack, ChatMessage, ContentBlock, DamageRoll, GameRecruitment, Inventory, InventoryItem, KarmaOpener, KarmaPurchase, KarmaPurchaseResult, LeaderboardEntry, MagicItem, MarketSaleLog, MarketSaleResult, PaginatedResponse, PROJECT_KEY, ProjectContext, ROLE_LABELS, SavingThrowRoll, ShopResult, ShopTransactionLog, SkillRoll, TOKEN_KEY, TransferLog, TransferTarget, User, UserRole } from "./api";
+import { AbilityRoll, AdminGrantLog, AdminUser, api, AttackRoll, AUTH_NOTICE_KEY, CalendarSummary, Character, CharacterAttack, ChatMessage, connectRealtime, ContentBlock, DamageRoll, GameRecruitment, Inventory, InventoryItem, KarmaOpener, KarmaPurchase, KarmaPurchaseResult, LeaderboardEntry, MagicItem, MarketSaleLog, MarketSaleResult, PaginatedResponse, PROJECT_KEY, ProjectContext, RealtimeEvent, ROLE_LABELS, SavingThrowRoll, ShopResult, ShopTransactionLog, SkillRoll, TOKEN_KEY, TransferLog, TransferTarget, User, UserRole } from "./api";
 import "./styles.css";
 
 const rarities = ["Обычный", "Необычный", "Редкий"];
@@ -111,6 +111,23 @@ const blankCharacter = {
 };
 const maxCharacters = 10;
 type NumericInputValue = number | "";
+
+const RealtimeContext = createContext<RealtimeEvent | null>(null);
+
+function RealtimeProvider({ children }: { children: React.ReactNode }) {
+  const [event, setEvent] = useState<RealtimeEvent | null>(null);
+  useEffect(() => connectRealtime(setEvent), []);
+  return <RealtimeContext.Provider value={event}>{children}</RealtimeContext.Provider>;
+}
+
+function useRealtime(types: string[], refresh: () => void) {
+  const event = useContext(RealtimeContext);
+  const refreshRef = useRef(refresh);
+  refreshRef.current = refresh;
+  useEffect(() => {
+    if (event && types.includes(event.type)) refreshRef.current();
+  }, [event, types.join("|")]);
+}
 
 function numericInputChange(setValue: (value: NumericInputValue) => void) {
   return (event: React.ChangeEvent<HTMLInputElement>) => setValue(event.target.value === "" ? "" : event.target.value as unknown as number);
@@ -960,7 +977,7 @@ function CharactersPage() {
   const [characters, setCharacters] = useState<Character[]>([]);
   const [inventories, setInventories] = useState<Record<number, Inventory>>({});
 
-  useEffect(() => {
+  function loadCharacters() {
     api.get<Character[]>("/characters").then(async (response) => {
       setCharacters(response.data);
       const pairs = await Promise.all(response.data.map(async (character) => {
@@ -969,7 +986,9 @@ function CharactersPage() {
       }));
       setInventories(Object.fromEntries(pairs));
     });
-  }, []);
+  }
+  useEffect(loadCharacters, []);
+  useRealtime(["character.changed", "market.changed"], loadCharacters);
 
   const characterLimitReached = characters.length >= maxCharacters;
 
@@ -1034,6 +1053,12 @@ function CalendarPanel({ characterId, agentType = "character", title = "Кале
   const calendarPath = agentType === "character"
     ? `/characters/${characterId}/calendar`
     : `/characters/${characterId}/calendar/agents/${agentType}`;
+
+  function loadCalendar() {
+    api.get<CalendarSummary>(calendarPath, { params: { page, page_size: 10 } })
+      .then((response) => setSummary(response.data));
+  }
+  useRealtime(["character.changed", "market.changed"], loadCalendar);
 
   useEffect(() => {
     let active = true;
@@ -1308,6 +1333,18 @@ function CharacterPage() {
       setAttacks(attacksResponse.data);
     });
   }, [id]);
+  useRealtime(["character.changed", "market.changed"], () => {
+    if (!id) return;
+    Promise.all([
+      api.get<Character>(`/characters/${id}`),
+      api.get<Inventory>(`/characters/${id}/inventory`),
+      api.get<CharacterAttack[]>(`/characters/${id}/attacks`)
+    ]).then(([characterResponse, inventoryResponse, attackResponse]) => {
+      setCharacter(characterResponse.data);
+      setInventory(inventoryResponse.data);
+      setAttacks(attackResponse.data);
+    });
+  });
 
   if (!character) return <p>Загрузка...</p>;
   const abilities = abilityDefinitions.map((ability) => ({
@@ -2191,6 +2228,10 @@ function MarketPage() {
       .then((response) => setInventory(response.data))
       .catch((loadError) => setError(apiErrorDetail(loadError, "Не удалось загрузить баланс")));
   }, [characterId]);
+  useRealtime(["market.changed", "character.changed"], () => {
+    if (!characterId) return;
+    api.get<Inventory>(`/characters/${characterId}/inventory`).then((response) => setInventory(response.data));
+  });
 
   async function sell(event: FormEvent) {
     event.preventDefault();
@@ -2287,7 +2328,7 @@ function ResultPanel({ result, onConfirm, onContinue }: { result: ShopResult | n
 }
 
 function ProfilePage() {
-  const { user, loading } = useAuth();
+  const { user, loading, setUser } = useAuth();
   const [project, setProject] = useState<ProjectContext | null>(null);
   const [purchases, setPurchases] = useState<KarmaPurchase[]>([]);
   useEffect(() => {
@@ -2296,6 +2337,11 @@ function ProfilePage() {
       if (user && response.data.features.karma !== false && response.data.features.karma_shop !== false) api.get<KarmaPurchase[]>("/karma-shop/purchases").then((purchasesResponse) => setPurchases(purchasesResponse.data));
     });
   }, [user]);
+  useRealtime(["user.changed", "character.changed", "logs.changed"], () => {
+    api.get<User>("/me").then((response) => setUser(response.data));
+    api.get<ProjectContext>("/projects/current").then((response) => setProject(response.data));
+    api.get<KarmaPurchase[]>("/karma-shop/purchases").then((response) => setPurchases(response.data));
+  });
   if (loading || !user) return <p>Загрузка...</p>;
   return <div className="grid gap-4 md:grid-cols-2"><section className="panel p-5"><h1 className="text-xl font-bold text-ember">{user.username}</h1><p>{user.email}</p>{project?.features.karma !== false && <p className="mt-2">Карма: {project?.karma ?? 0}</p>}</section>{project?.features.karma !== false && project?.features.karma_shop !== false && <section className="panel p-5"><h2 className="text-xl font-bold text-ember">Открывашки</h2><div className="mt-4 space-y-2">{purchases.map((purchase) => <div className="rounded-md bg-black/25 p-3" key={purchase.id}><p className="font-semibold">{purchase.name}</p><p className="text-sm text-white/55">{purchase.purchase_type === "opener" ? "Открывашка" : "Товар"} · {purchase.cost} кармы</p></div>)}{!purchases.length && <p className="text-white/55">Покупок пока нет</p>}</div></section>}</div>;
 }
@@ -2343,6 +2389,10 @@ function KarmaShopPage() {
       setOpeners(response.data);
     });
   }, []);
+  useRealtime(["character.changed", "logs.changed"], () => {
+    api.get<ProjectContext>("/projects/current").then((response) => setKarma(response.data.karma));
+    api.get<Character[]>("/characters").then((response) => setCharacters(response.data));
+  });
 
   async function execute(path: string, payload: object, success: string) {
     setError(""); setMessage("");
@@ -2449,6 +2499,7 @@ function GameRecruitmentsPage() {
   }
 
   useEffect(() => { load(); }, [page, pageSize]);
+  useRealtime(["recruitment.changed"], load);
 
   async function loadChat(recruitmentId: number, beforeId?: number) {
     const response = await api.get<import("./api").RecruitmentMessage[]>(`/game-recruitments/${recruitmentId}/messages`, { params: { before_id: beforeId, limit: CHAT_PAGE_SIZE } });
@@ -2677,6 +2728,7 @@ function ChatPage() {
     setHasMore(false);
     loadMessages(channel);
   }, [channel]);
+  useRealtime(["chat.changed"], () => loadMessages(channel));
 
   useLayoutEffect(() => {
     // Only scroll once the freshly loaded messages have actually rendered.
@@ -2893,6 +2945,7 @@ function AdminPage() {
   }
 
   useEffect(load, [characterPage, characterPageSize, userPage, userPageSize]);
+  useRealtime(["character.changed", "user.changed", "logs.changed"], load);
   useEffect(() => { api.get<ProjectContext>("/projects/current").then((response) => setProject(response.data)); }, []);
 
   async function action(path: string, body?: unknown) {
@@ -3399,6 +3452,7 @@ function GrantLogsPage() {
       });
     loadLogs();
   }, []);
+  useRealtime(["logs.changed"], () => loadLogs());
 
   return (
     <section className="panel p-5">
@@ -3455,6 +3509,7 @@ function ShopLogsPage() {
   useEffect(() => {
     loadLogs();
   }, [filters]);
+  useRealtime(["logs.changed", "market.changed"], () => loadLogs());
 
   function updateFilter(field: keyof typeof filters, value: string) {
     setFilters((current) => ({ ...current, [field]: value }));
@@ -3556,6 +3611,10 @@ function MarketSalesPage() {
       .then((response) => setLogs(response.data))
       .catch((loadError) => setError(apiErrorDetail(loadError, "Не удалось загрузить продажи")));
   }, [date]);
+  useRealtime(["market.changed", "logs.changed"], () => {
+    api.get<MarketSaleLog[]>("/admin/market-sales", { params: date ? { date } : {} })
+      .then((response) => setLogs(response.data));
+  });
   return (
     <section className="panel p-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -3584,6 +3643,9 @@ function KarmaShopLogsPage() {
       .then((response) => setLogs(response.data))
       .catch((loadError) => setError(apiErrorDetail(loadError, "Не удалось загрузить логи")));
   }, []);
+  useRealtime(["logs.changed"], () => {
+    api.get<KarmaPurchase[]>("/admin/karma-shop-logs").then((response) => setLogs(response.data));
+  });
   return <section className="panel p-5"><div className="flex flex-wrap items-center justify-between gap-3"><div><h1 className="text-2xl font-bold text-ember">Логи магазина кармы</h1><p className="text-sm text-white/55">История всех покупок за карму</p></div><Link className="btn-secondary" to="/admin-menu">Назад</Link></div>{error && <p className="mt-3 text-red-300">{error}</p>}<div className="responsive-table mt-5"><table className="w-full min-w-[850px] text-left text-sm"><thead className="text-xs uppercase text-white/45"><tr><th className="py-2 pr-3">Дата</th><th className="py-2 pr-3">Кто выполнил</th><th className="py-2 pr-3">Игрок</th><th className="py-2 pr-3">Персонаж</th><th className="py-2 pr-3">Тип</th><th className="py-2 pr-3">Наименование</th><th className="py-2 pr-3">Стоимость</th><th className="py-2 pr-3">Уровень</th></tr></thead><tbody>{logs.map((log) => <tr className="border-t border-white/10" key={log.id}><td className="py-3 pr-3">{new Date(log.created_at).toLocaleString("ru-RU")}</td><td className="py-3 pr-3">{log.actor_username ?? log.username}</td><td className="py-3 pr-3">{log.username}</td><td className="py-3 pr-3">{log.character_name ?? "-"}</td><td className="py-3 pr-3">{karmaPurchaseLabels[log.purchase_type]}</td><td className="py-3 pr-3">{log.name}</td><td className="py-3 pr-3">{log.cost} кармы</td><td className="py-3 pr-3">{log.character_level ?? "-"}</td></tr>)}</tbody></table>{!logs.length && <p className="py-6 text-center text-white/55">Записей нет</p>}</div></section>;
 }
 
@@ -3617,6 +3679,7 @@ function TransferLogsPage() {
   useEffect(() => {
     loadLogs();
   }, [filters]);
+  useRealtime(["logs.changed", "market.changed"], () => loadLogs());
 
   function updateFilter(field: keyof typeof filters, value: string) {
     setFilters((current) => ({ ...current, [field]: value }));
@@ -3758,6 +3821,7 @@ class ErrorBoundary extends Component<{ children: React.ReactNode }, { error: Er
 function App() {
   return (
     <Router>
+      <RealtimeProvider>
       <Routes>
         <Route path="/login" element={<Login />} />
         <Route path="/register" element={<Register />} />
@@ -3791,6 +3855,7 @@ function App() {
         <Route path="/admin" element={<AdminProtected><AdminPage /></AdminProtected>} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
+      </RealtimeProvider>
     </Router>
   );
 }
