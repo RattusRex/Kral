@@ -4,7 +4,7 @@ import axios from "axios";
 import ReactMarkdown from "react-markdown";
 import { Link, Navigate, Route, BrowserRouter as Router, Routes, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { ArrowDown, ArrowLeft, ArrowUp, BookOpen, CalendarDays, Check, ChevronDown, ChevronUp, Coins, Dice5, LogOut, MapPin, MessageSquare, Pencil, Plus, RefreshCw, Save, ScrollText, Search, Send, Shield, ShoppingBag, Swords, Trash2, Trophy, UserRound, UsersRound, X } from "lucide-react";
-import { AbilityRoll, AdminGrantLog, AdminUser, api, AttackRoll, AUTH_NOTICE_KEY, CalendarSummary, Character, CharacterAttack, ChatMessage, connectRealtime, ContentBlock, DamageRoll, GameRecruitment, Inventory, InventoryItem, KarmaOpener, KarmaPurchase, KarmaPurchaseResult, LeaderboardEntry, MagicItem, MarketSaleLog, MarketSaleResult, PaginatedResponse, PROJECT_KEY, ProjectAbout, ProjectContext, RealtimeEvent, ROLE_LABELS, SavingThrowRoll, ShopResult, ShopTransactionLog, SkillRoll, TOKEN_KEY, TransferLog, TransferTarget, User, UserRole } from "./api";
+import { AbilityRoll, AdminGrantLog, AdminUser, api, AttackRoll, AUTH_NOTICE_KEY, CalendarSummary, Character, CharacterAttack, ChatMessage, connectRealtime, ContentBlock, DamageRoll, GameRecruitment, Inventory, InventoryItem, KarmaOpener, KarmaPurchase, KarmaPurchaseResult, LeaderboardEntry, MagicItem, MarketSaleLog, MarketSaleResult, PaginatedResponse, PROJECT_KEY, ProjectAbout, ProjectAboutPost, ProjectContext, RealtimeEvent, ROLE_LABELS, SavingThrowRoll, ShopResult, ShopTransactionLog, SkillRoll, TOKEN_KEY, TransferLog, TransferTarget, User, UserRole } from "./api";
 import { compareHomebrewKarma, nextHomebrewSort, type HomebrewSortField } from "./homebrewSort";
 import "./styles.css";
 
@@ -326,6 +326,7 @@ function HomePage() {
       <section className="panel p-5">
         <h1 className="text-2xl font-bold text-ember">Главное меню</h1>
         <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          <Link className="btn" to="/about"><BookOpen size={18} />О проекте</Link>
           {project?.features.shop !== false && <Link className="btn" to="/shop"><ShoppingBag size={18} />Магический магазин</Link>}
           {project?.features.market !== false && <Link className="btn" to="/market"><Coins size={18} />Рынок</Link>}
           {project?.features.karma !== false && project?.features.karma_shop !== false && <Link className="btn" to="/karma-shop"><ShoppingBag size={18} />Магазин Кармы</Link>}
@@ -355,10 +356,14 @@ function MarkdownContent({ children }: { children: string }) {
 }
 
 function ProjectAboutPage() {
+  const { user } = useAuth();
   const [project, setProject] = useState<ProjectContext | null>(null);
   const [about, setAbout] = useState<ProjectAbout | null>(null);
-  const [form, setForm] = useState<ProjectAbout>({ title: "", description: "" });
-  const [editing, setEditing] = useState(false);
+  const [postForm, setPostForm] = useState({ title: "", content: "" });
+  const [editingPost, setEditingPost] = useState<ProjectAboutPost | null>(null);
+  const [showPostForm, setShowPostForm] = useState(false);
+  const [creatorForm, setCreatorForm] = useState("");
+  const [editingCreator, setEditingCreator] = useState(false);
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -368,38 +373,96 @@ function ProjectAboutPage() {
     ]).then(([projectResponse, aboutResponse]) => {
       setProject(projectResponse.data);
       setAbout(aboutResponse.data);
-      setForm(aboutResponse.data);
+      setCreatorForm(aboutResponse.data.creator_content);
     }).catch((requestError) => setError(apiErrorDetail(requestError, "Не удалось загрузить страницу проекта")));
   }, []);
 
-  async function save(event: FormEvent) {
+  const canManageAbout = Boolean(user?.is_owner || project?.role === "project_owner" || project?.role === "head_admin");
+
+  function startCreatePost() {
+    setEditingPost(null);
+    setPostForm({ title: "", content: "" });
+    setShowPostForm(true);
+  }
+
+  function startEditPost(post: ProjectAboutPost) {
+    setEditingPost(post);
+    setPostForm({ title: post.title, content: post.content });
+    setShowPostForm(true);
+  }
+
+  async function savePost(event: FormEvent) {
     event.preventDefault();
     setError("");
     try {
-      const response = await api.put<ProjectAbout>("/projects/current/about", form);
-      setAbout(response.data);
-      setForm(response.data);
-      setEditing(false);
+      if (editingPost) {
+        const response = await api.patch<ProjectAboutPost>(`/projects/current/about/posts/${editingPost.id}`, postForm);
+        setAbout((current) => current && ({ ...current, posts: current.posts.map((post) => post.id === response.data.id ? response.data : post) }));
+      } else {
+        const response = await api.post<ProjectAboutPost>("/projects/current/about/posts", postForm);
+        setAbout((current) => current && ({ ...current, posts: [...current.posts, response.data] }));
+      }
+      setShowPostForm(false);
+      setEditingPost(null);
     } catch (requestError) {
-      setError(apiErrorDetail(requestError, "Не удалось сохранить страницу проекта"));
+      setError(apiErrorDetail(requestError, "Не удалось сохранить публикацию"));
+    }
+  }
+
+  async function deletePost(post: ProjectAboutPost) {
+    if (!window.confirm(`Удалить публикацию «${post.title}»?`)) return;
+    try {
+      await api.delete(`/projects/current/about/posts/${post.id}`);
+      setAbout((current) => current && ({ ...current, posts: current.posts.filter((item) => item.id !== post.id) }));
+    } catch (requestError) {
+      setError(apiErrorDetail(requestError, "Не удалось удалить публикацию"));
+    }
+  }
+
+  async function saveCreator(event: FormEvent) {
+    event.preventDefault();
+    try {
+      const response = await api.put<{ content: string }>("/projects/current/about/creator", { content: creatorForm });
+      setAbout((current) => current && ({ ...current, creator_content: response.data.content }));
+      setEditingCreator(false);
+    } catch (requestError) {
+      setError(apiErrorDetail(requestError, "Не удалось сохранить информацию о создателе"));
     }
   }
 
   if (!about) return <p>{error || "Загрузка..."}</p>;
-  return <article className="mx-auto max-w-5xl">
+  return <article>
     {error && <p className="mb-4 rounded-md border border-red-400/30 bg-red-950/30 p-3 text-red-200">{error}</p>}
-    {editing ? <form className="panel space-y-4 p-5 sm:p-7" onSubmit={save}>
-      <label className="field-label"><span>Заголовок</span><input className="field" maxLength={200} required value={form.title} onChange={(event) => setForm({ ...form, title: event.target.value })} /></label>
-      <label className="field-label"><span>Описание (Markdown)</span><textarea className="field min-h-72" maxLength={20000} value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} /></label>
+    <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
+      <h1 className="text-3xl font-bold text-ember sm:text-4xl">О проекте</h1>
+      {canManageAbout && <button className="btn" onClick={startCreatePost}><Plus size={16} />Создать публикацию</button>}
+    </div>
+    {showPostForm && <form className="panel mb-6 space-y-4 p-5" onSubmit={savePost}>
+      <h2 className="text-xl font-semibold text-ember">{editingPost ? "Редактировать публикацию" : "Новая публикация"}</h2>
+      <label className="field-label"><span>Заголовок</span><input className="field" maxLength={200} required value={postForm.title} onChange={(event) => setPostForm({ ...postForm, title: event.target.value })} /></label>
+      <label className="field-label"><span>Содержание (Markdown)</span><textarea className="field min-h-56" maxLength={20000} required value={postForm.content} onChange={(event) => setPostForm({ ...postForm, content: event.target.value })} /></label>
       <p className="text-sm text-white/60">Поддерживаются абзацы, списки, **выделение** и [ссылки](https://example.com).</p>
-      <div className="flex flex-wrap gap-2"><button className="btn"><Save size={16} />Сохранить</button><button className="btn-secondary" onClick={() => { setForm(about); setEditing(false); }} type="button"><X size={16} />Отмена</button></div>
-    </form> : <section className="panel overflow-hidden px-5 py-8 sm:px-8 sm:py-12">
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <h1 className="min-w-0 break-words text-4xl font-bold leading-tight text-ember md:text-6xl">{about.title}</h1>
-        {project?.is_admin && <button className="btn-secondary shrink-0" onClick={() => setEditing(true)}><Pencil size={16} />Редактировать</button>}
-      </div>
-      {about.description ? <div className="mt-8"><MarkdownContent>{about.description}</MarkdownContent></div> : <p className="mt-8 text-white/55">Описание проекта пока не добавлено.</p>}
-    </section>}
+      <div className="flex flex-wrap gap-2"><button className="btn"><Save size={16} />Сохранить</button><button className="btn-secondary" onClick={() => setShowPostForm(false)} type="button"><X size={16} />Отмена</button></div>
+    </form>}
+    <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
+      <section className="min-w-0 space-y-5">
+        {about.posts.map((post) => <article className="panel p-5 sm:p-7" key={post.id}>
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <h2 className="min-w-0 break-words text-2xl font-bold text-ember">{post.title}</h2>
+            {canManageAbout && <div className="flex gap-2"><button className="btn-secondary" onClick={() => startEditPost(post)}><Pencil size={16} />Редактировать</button><button className="btn-secondary" onClick={() => deletePost(post)}><Trash2 size={16} />Удалить</button></div>}
+          </div>
+          <div className="mt-5"><MarkdownContent>{post.content}</MarkdownContent></div>
+        </article>)}
+        {about.posts.length === 0 && <div className="panel p-7 text-white/55">Публикации проекта пока не добавлены.</div>}
+      </section>
+      <aside className="panel min-w-0 p-5 lg:sticky lg:top-24">
+        <div className="flex flex-wrap items-start justify-between gap-2">
+          <h2 className="text-xl font-semibold text-ember">О создателе</h2>
+          {canManageAbout && !editingCreator && <button aria-label="Редактировать блок о создателе" className="btn-secondary px-2" onClick={() => setEditingCreator(true)}><Pencil size={16} /></button>}
+        </div>
+        {editingCreator ? <form className="mt-4 space-y-3" onSubmit={saveCreator}><textarea className="field min-h-64" maxLength={20000} value={creatorForm} onChange={(event) => setCreatorForm(event.target.value)} /><p className="text-xs text-white/55">Можно добавить сведения и ссылки в формате Markdown.</p><div className="flex flex-wrap gap-2"><button className="btn"><Save size={16} />Сохранить</button><button className="btn-secondary" type="button" onClick={() => { setCreatorForm(about.creator_content); setEditingCreator(false); }}><X size={16} />Отмена</button></div></form> : about.creator_content ? <div className="mt-4"><MarkdownContent>{about.creator_content}</MarkdownContent></div> : <p className="mt-4 text-white/55">Информация о создателе пока не добавлена.</p>}
+      </aside>
+    </div>
   </article>;
 }
 

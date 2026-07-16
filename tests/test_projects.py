@@ -50,11 +50,13 @@ def project_headers(headers, project_id):
     return {**headers, "X-Project-ID": str(project_id)}
 
 
-def test_project_about_page_is_isolated_and_editable_from_technician_up():
+def test_project_about_page_has_isolated_posts_creator_content_and_required_role_permissions():
     with TestClient(app) as client:
         owner = login(client, "admin", "admin123")
-        technician_id = register(client, "about-technician")
-        player_id = register(client, "about-player")
+        role_users = {
+            role: register(client, f"about-{role}")
+            for role in ("head_admin", "admin", "technician", "player")
+        }
         first = client.post(
             "/api/projects", headers=owner,
             json={"name": "First about", "slug": "first-about"},
@@ -64,46 +66,76 @@ def test_project_about_page_is_isolated_and_editable_from_technician_up():
             json={"name": "Second about", "slug": "second-about"},
         ).json()
         for project in (first, second):
-            assert client.put(
-                f"/api/projects/{project['id']}/members/{technician_id}",
-                headers=owner, json={"role": "technician"},
-            ).status_code == 200
-            assert client.put(
-                f"/api/projects/{project['id']}/members/{player_id}",
-                headers=owner, json={"role": "player"},
-            ).status_code == 200
+            for role, user_id in role_users.items():
+                assert client.put(
+                    f"/api/projects/{project['id']}/members/{user_id}",
+                    headers=owner, json={"role": role},
+                ).status_code == 200
 
-        technician = login(client, "about-technician", PASSWORD)
-        player = login(client, "about-player", PASSWORD)
-        formatted_description = "**Welcome**\n\n- First rule\n- [Guide](https://example.com)"
-        updated = client.put(
-            "/api/projects/current/about",
-            headers=project_headers(technician, first["id"]),
-            json={"title": "Welcome to First", "description": formatted_description},
-        )
-        assert updated.status_code == 200, updated.text
-        assert updated.json() == {
-            "title": "Welcome to First", "description": formatted_description,
+        role_headers = {
+            role: login(client, f"about-{role}", PASSWORD)
+            for role in role_users
         }
+        first_owner = project_headers(owner, first["id"])
+        post_payloads = [
+            {"title": "Welcome to First", "content": "**Welcome** to the project."},
+            {"title": "News", "content": "- First rule\n- [Guide](https://example.com)"},
+        ]
+        created_posts = []
+        for payload in post_payloads:
+            response = client.post("/api/projects/current/about/posts", headers=first_owner, json=payload)
+            assert response.status_code == 201, response.text
+            created_posts.append(response.json())
+
+        creator = client.put(
+            "/api/projects/current/about/creator",
+            headers=project_headers(role_headers["head_admin"], first["id"]),
+            json={"content": "Created by **RattusRex**\n\n[GitHub](https://github.com/RattusRex)"},
+        )
+        assert creator.status_code == 200, creator.text
+
+        edited = client.patch(
+            f"/api/projects/current/about/posts/{created_posts[0]['id']}",
+            headers=project_headers(role_headers["head_admin"], first["id"]),
+            json={"title": "Updated welcome"},
+        )
+        assert edited.status_code == 200, edited.text
+        assert edited.json()["title"] == "Updated welcome"
+
+        for role in ("admin", "technician", "player"):
+            headers = project_headers(role_headers[role], first["id"])
+            assert client.post(
+                "/api/projects/current/about/posts", headers=headers,
+                json={"title": "Forbidden", "content": "No"},
+            ).status_code == 403
+            assert client.patch(
+                f"/api/projects/current/about/posts/{created_posts[0]['id']}",
+                headers=headers, json={"title": "Forbidden"},
+            ).status_code == 403
+            assert client.delete(
+                f"/api/projects/current/about/posts/{created_posts[0]['id']}", headers=headers,
+            ).status_code == 403
+            assert client.put(
+                "/api/projects/current/about/creator", headers=headers, json={"content": "Forbidden"},
+            ).status_code == 403
 
         first_page = client.get(
             "/api/projects/current/about",
-            headers=project_headers(player, first["id"]),
+            headers=project_headers(role_headers["player"], first["id"]),
         )
         second_page = client.get(
             "/api/projects/current/about",
-            headers=project_headers(player, second["id"]),
+            headers=project_headers(role_headers["player"], second["id"]),
         )
         assert first_page.status_code == second_page.status_code == 200
-        assert first_page.json() == updated.json()
-        assert second_page.json() == {
-            "title": "Second about", "description": "",
-        }
-        assert client.put(
-            "/api/projects/current/about",
-            headers=project_headers(player, first["id"]),
-            json={"title": "Hacked", "description": "No"},
-        ).status_code == 403
+        assert [post["title"] for post in first_page.json()["posts"]] == ["Updated welcome", "News"]
+        assert first_page.json()["creator_content"].startswith("Created by")
+        assert second_page.json() == {"posts": [], "creator_content": ""}
+
+        deleted = client.delete(
+            f"/api/projects/current/about/posts/{created_posts[1]['id']}", headers=first_owner,
+        )
+        assert deleted.status_code == 204
 
 
 def test_legacy_admin_is_promoted_before_project_schema_migration():

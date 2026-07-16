@@ -3,12 +3,13 @@ import unicodedata
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, Header, HTTPException, status
+from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.api.users import get_current_user, get_db
 from app.core.roles import PROJECT_ROLES, ROLE_RANK, Role, normalize_role
-from app.models.project import DEFAULT_FEATURES, Project, ProjectAuditLog, ProjectMembership
+from app.models.project import DEFAULT_FEATURES, Project, ProjectAboutPost, ProjectAuditLog, ProjectMembership
 from app.models.character import Character
 from app.models.chat import ChatMessage
 from app.models.content import ContentBlock
@@ -18,8 +19,12 @@ from app.models.character import CalendarAuditLog
 from app.models.user import User
 from app.schemas.project import (
     ProjectAvailabilityUpdate,
+    ProjectAboutCreatorResponse,
+    ProjectAboutCreatorUpdate,
+    ProjectAboutPostCreate,
+    ProjectAboutPostResponse,
+    ProjectAboutPostUpdate,
     ProjectAboutResponse,
-    ProjectAboutUpdate,
     ProjectCreate,
     ProjectFeaturesUpdate,
     ProjectRoleUpdate,
@@ -130,6 +135,14 @@ def require_project_game_master(
 ) -> tuple[Project, str]:
     if ROLE_RANK[access[1]] < ROLE_RANK[Role.ADMIN]:
         raise HTTPException(status_code=403, detail="Game master permissions required")
+    return access
+
+
+def require_about_manager(
+    access: tuple[Project, str] = Depends(get_current_project_access),
+) -> tuple[Project, str]:
+    if access[1] not in (Role.OWNER, Role.PROJECT_OWNER, Role.HEAD_ADMIN):
+        raise HTTPException(status_code=403, detail="About page management permissions required")
     return access
 
 
@@ -252,6 +265,7 @@ def delete_project(
         db.delete(character)
     db.query(ChatMessage).filter_by(project_id=project.id).delete(synchronize_session=False)
     db.query(ContentBlock).filter_by(project_id=project.id).delete(synchronize_session=False)
+    db.query(ProjectAboutPost).filter_by(project_id=project.id).delete(synchronize_session=False)
     for model in (
         ShopTransactionLog, MarketSaleLog, TransferLog, AdminGrantLog,
         CalendarAuditLog, KarmaPurchase,
@@ -277,24 +291,93 @@ def current_project(
 
 @router.get("/current/about", response_model=ProjectAboutResponse)
 def get_project_about(
+    db: Session = Depends(get_db),
     access: tuple[Project, str] = Depends(get_current_project_access),
 ):
     project = access[0]
-    return {"title": project.about_title or project.name, "description": project.about_description or ""}
+    posts = db.query(ProjectAboutPost).filter_by(project_id=project.id).order_by(
+        ProjectAboutPost.position.asc(), ProjectAboutPost.id.asc()
+    ).all()
+    return {"posts": posts, "creator_content": project.about_creator_content or ""}
 
 
-@router.put("/current/about", response_model=ProjectAboutResponse)
-def update_project_about(
-    data: ProjectAboutUpdate,
+@router.post(
+    "/current/about/posts",
+    response_model=ProjectAboutPostResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_project_about_post(
+    data: ProjectAboutPostCreate,
     db: Session = Depends(get_db),
-    access: tuple[Project, str] = Depends(require_project_admin),
+    access: tuple[Project, str] = Depends(require_about_manager),
 ):
     project = access[0]
-    project.about_title = data.title
-    project.about_description = data.description
+    last_position = db.query(func.max(ProjectAboutPost.position)).filter_by(
+        project_id=project.id
+    ).scalar()
+    post = ProjectAboutPost(
+        project_id=project.id,
+        title=data.title,
+        content=data.content,
+        position=(last_position if last_position is not None else -1) + 1,
+    )
+    db.add(post)
     db.commit()
-    db.refresh(project)
-    return {"title": project.about_title, "description": project.about_description}
+    db.refresh(post)
+    return post
+
+
+def get_about_post_or_404(
+    db: Session, project_id: int, post_id: int
+) -> ProjectAboutPost:
+    post = db.query(ProjectAboutPost).filter_by(id=post_id, project_id=project_id).first()
+    if not post:
+        raise HTTPException(status_code=404, detail="About post not found")
+    return post
+
+
+@router.patch("/current/about/posts/{post_id}", response_model=ProjectAboutPostResponse)
+def update_project_about_post(
+    post_id: int,
+    data: ProjectAboutPostUpdate,
+    db: Session = Depends(get_db),
+    access: tuple[Project, str] = Depends(require_about_manager),
+):
+    post = get_about_post_or_404(db, access[0].id, post_id)
+    for field, value in data.model_dump(exclude_unset=True).items():
+        setattr(post, field, value)
+    db.commit()
+    db.refresh(post)
+    return post
+
+
+@router.delete("/current/about/posts/{post_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_project_about_post(
+    post_id: int,
+    db: Session = Depends(get_db),
+    access: tuple[Project, str] = Depends(require_about_manager),
+):
+    post = get_about_post_or_404(db, access[0].id, post_id)
+    deleted_position = post.position
+    db.delete(post)
+    db.query(ProjectAboutPost).filter(
+        ProjectAboutPost.project_id == access[0].id,
+        ProjectAboutPost.position > deleted_position,
+    ).update({ProjectAboutPost.position: ProjectAboutPost.position - 1}, synchronize_session=False)
+    db.commit()
+    return None
+
+
+@router.put("/current/about/creator", response_model=ProjectAboutCreatorResponse)
+def update_project_about_creator(
+    data: ProjectAboutCreatorUpdate,
+    db: Session = Depends(get_db),
+    access: tuple[Project, str] = Depends(require_about_manager),
+):
+    project = access[0]
+    project.about_creator_content = data.content
+    db.commit()
+    return {"content": project.about_creator_content}
 
 
 @router.get("/{project_id}/settings")
