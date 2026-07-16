@@ -8,7 +8,7 @@ import { compareHomebrewKarma, nextHomebrewSort, type HomebrewSortField } from "
 import "./styles.css";
 
 const rarities = ["Обычный", "Необычный", "Редкий"];
-const illegalItemRarities = ["Обычный", "Необычный", "Редкий", "Очень редкий", "Легендарный", "Артефакт"];
+const illegalItemRarities = ["Обычный", "Необычный", "Редкий", "Очень редкий", "Легендарный", "Артефакт", "Варьируется"];
 // The game world started counting in-world time on this date; characters
 // cannot be created (or spend downtime) earlier than it.
 const GAME_EPOCH = "2025-06-01";
