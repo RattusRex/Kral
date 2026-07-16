@@ -1,9 +1,10 @@
 import { Component, createContext, FormEvent, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import axios from "axios";
+import ReactMarkdown from "react-markdown";
 import { Link, Navigate, Route, BrowserRouter as Router, Routes, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { ArrowDown, ArrowLeft, ArrowUp, BookOpen, CalendarDays, Check, ChevronDown, ChevronUp, Coins, Dice5, LogOut, MapPin, MessageSquare, Pencil, Plus, RefreshCw, Save, ScrollText, Search, Send, Shield, ShoppingBag, Swords, Trash2, Trophy, UserRound, UsersRound, X } from "lucide-react";
-import { AbilityRoll, AdminGrantLog, AdminUser, api, AttackRoll, AUTH_NOTICE_KEY, CalendarSummary, Character, CharacterAttack, ChatMessage, connectRealtime, ContentBlock, DamageRoll, GameRecruitment, Inventory, InventoryItem, KarmaOpener, KarmaPurchase, KarmaPurchaseResult, LeaderboardEntry, MagicItem, MarketSaleLog, MarketSaleResult, PaginatedResponse, PROJECT_KEY, ProjectContext, RealtimeEvent, ROLE_LABELS, SavingThrowRoll, ShopResult, ShopTransactionLog, SkillRoll, TOKEN_KEY, TransferLog, TransferTarget, User, UserRole } from "./api";
+import { AbilityRoll, AdminGrantLog, AdminUser, api, AttackRoll, AUTH_NOTICE_KEY, CalendarSummary, Character, CharacterAttack, ChatMessage, connectRealtime, ContentBlock, DamageRoll, GameRecruitment, Inventory, InventoryItem, KarmaOpener, KarmaPurchase, KarmaPurchaseResult, LeaderboardEntry, MagicItem, MarketSaleLog, MarketSaleResult, PaginatedResponse, PROJECT_KEY, ProjectAbout, ProjectContext, RealtimeEvent, ROLE_LABELS, SavingThrowRoll, ShopResult, ShopTransactionLog, SkillRoll, TOKEN_KEY, TransferLog, TransferTarget, User, UserRole } from "./api";
 import { compareHomebrewKarma, nextHomebrewSort, type HomebrewSortField } from "./homebrewSort";
 import "./styles.css";
 
@@ -281,7 +282,7 @@ function Shell({ children, user }: { children: React.ReactNode; user: User | nul
 
   function selectProject(id: number) {
     localStorage.setItem(PROJECT_KEY, String(id));
-    window.location.assign("/");
+    window.location.assign("/about");
   }
 
   function logout() {
@@ -294,10 +295,11 @@ function Shell({ children, user }: { children: React.ReactNode; user: User | nul
     <div className="min-h-screen bg-[#101217] text-parchment">
       <header className="sticky top-0 z-10 border-b border-white/10 bg-[#101217]/95 backdrop-blur">
         <nav className="mx-auto flex max-w-7xl items-center justify-between px-4 py-3">
-          <Link to="/characters" className="project-title text-lg font-bold text-ember">Эпоха Катастроф</Link>
+          <Link to="/about" className="project-title text-lg font-bold text-ember">{project?.name ?? "Эпоха Катастроф"}</Link>
           <div className="flex flex-wrap items-center gap-2">
             {projects.length > 0 && <select aria-label="Проект" className="field max-w-52" value={project?.id ?? ""} onChange={(event) => selectProject(Number(event.target.value))}><option value="" disabled>Сменить проект</option>{projects.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select>}
             <Link className="btn-secondary" to="/"><UsersRound size={16} />Меню</Link>
+            <Link className="btn-secondary" to="/about"><BookOpen size={16} />О проекте</Link>
             <Link className="btn-secondary" to="/characters"><UsersRound size={16} />Персонажи</Link>
             <Link className="btn-secondary" to="/chat"><MessageSquare size={16} />Чат</Link>
             {project?.features.recruitments !== false && <Link className="btn-secondary" to="/game-recruitments"><CalendarDays size={16} />Набор на игры</Link>}
@@ -344,6 +346,61 @@ function HomePage() {
       </aside>
     </div>
   );
+}
+
+function MarkdownContent({ children }: { children: string }) {
+  return <div className="project-about-content"><ReactMarkdown components={{
+    a: ({ children: label, ...props }) => <a {...props} rel="noreferrer" target="_blank">{label}</a>
+  }}>{children}</ReactMarkdown></div>;
+}
+
+function ProjectAboutPage() {
+  const [project, setProject] = useState<ProjectContext | null>(null);
+  const [about, setAbout] = useState<ProjectAbout | null>(null);
+  const [form, setForm] = useState<ProjectAbout>({ title: "", description: "" });
+  const [editing, setEditing] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    Promise.all([
+      api.get<ProjectContext>("/projects/current"),
+      api.get<ProjectAbout>("/projects/current/about")
+    ]).then(([projectResponse, aboutResponse]) => {
+      setProject(projectResponse.data);
+      setAbout(aboutResponse.data);
+      setForm(aboutResponse.data);
+    }).catch((requestError) => setError(apiErrorDetail(requestError, "Не удалось загрузить страницу проекта")));
+  }, []);
+
+  async function save(event: FormEvent) {
+    event.preventDefault();
+    setError("");
+    try {
+      const response = await api.put<ProjectAbout>("/projects/current/about", form);
+      setAbout(response.data);
+      setForm(response.data);
+      setEditing(false);
+    } catch (requestError) {
+      setError(apiErrorDetail(requestError, "Не удалось сохранить страницу проекта"));
+    }
+  }
+
+  if (!about) return <p>{error || "Загрузка..."}</p>;
+  return <article className="mx-auto max-w-5xl">
+    {error && <p className="mb-4 rounded-md border border-red-400/30 bg-red-950/30 p-3 text-red-200">{error}</p>}
+    {editing ? <form className="panel space-y-4 p-5 sm:p-7" onSubmit={save}>
+      <label className="field-label"><span>Заголовок</span><input className="field" maxLength={200} required value={form.title} onChange={(event) => setForm({ ...form, title: event.target.value })} /></label>
+      <label className="field-label"><span>Описание (Markdown)</span><textarea className="field min-h-72" maxLength={20000} value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} /></label>
+      <p className="text-sm text-white/60">Поддерживаются абзацы, списки, **выделение** и [ссылки](https://example.com).</p>
+      <div className="flex flex-wrap gap-2"><button className="btn"><Save size={16} />Сохранить</button><button className="btn-secondary" onClick={() => { setForm(about); setEditing(false); }} type="button"><X size={16} />Отмена</button></div>
+    </form> : <section className="panel overflow-hidden px-5 py-8 sm:px-8 sm:py-12">
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <h1 className="min-w-0 break-words text-4xl font-bold leading-tight text-ember md:text-6xl">{about.title}</h1>
+        {project?.is_admin && <button className="btn-secondary shrink-0" onClick={() => setEditing(true)}><Pencil size={16} />Редактировать</button>}
+      </div>
+      {about.description ? <div className="mt-8"><MarkdownContent>{about.description}</MarkdownContent></div> : <p className="mt-8 text-white/55">Описание проекта пока не добавлено.</p>}
+    </section>}
+  </article>;
 }
 
 const PROJECT_FEATURE_LABELS: Record<string, string> = {
@@ -891,7 +948,7 @@ function ProjectSelectionPage() {
   }, []);
   function choose(project: ProjectContext) {
     localStorage.setItem(PROJECT_KEY, String(project.id));
-    navigate("/");
+    navigate("/about");
   }
   return <div className="grid min-h-screen place-items-center bg-[#101217] px-4 text-parchment"><section className="panel w-full max-w-xl p-6"><h1 className="text-3xl font-bold text-ember">Выберите проект</h1><p className="mt-2 text-white/60">Все персонажи, роли и игровые данные изолированы внутри проекта.</p>{error && <p className="mt-4 text-red-300">{error}</p>}<div className="mt-6 grid gap-3">{projects.map((project) => <button className="btn justify-center py-4 text-lg" key={project.id} onClick={() => choose(project)}>{project.name}</button>)}</div>{!error && projects.length === 0 && <p className="mt-5 text-white/60">Нет доступных проектов. Обратитесь к владельцу.</p>}</section></div>;
 }
@@ -3943,6 +4000,7 @@ function App() {
         <Route path="/reset-password" element={<ResetPassword />} />
         <Route path="/projects" element={<Protected><ProjectSelectionPage /></Protected>} />
         <Route path="/" element={<ProjectProtected><HomePage /></ProjectProtected>} />
+        <Route path="/about" element={<ProjectProtected><ProjectAboutPage /></ProjectProtected>} />
         <Route path="/characters" element={<ProjectProtected><CharactersPage /></ProjectProtected>} />
         <Route path="/characters/new" element={<ProjectProtected><CharacterFormPage /></ProjectProtected>} />
         <Route path="/characters/:id" element={<ProjectProtected><CharacterPage /></ProjectProtected>} />

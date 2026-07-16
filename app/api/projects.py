@@ -18,6 +18,8 @@ from app.models.character import CalendarAuditLog
 from app.models.user import User
 from app.schemas.project import (
     ProjectAvailabilityUpdate,
+    ProjectAboutResponse,
+    ProjectAboutUpdate,
     ProjectCreate,
     ProjectFeaturesUpdate,
     ProjectRoleUpdate,
@@ -271,6 +273,28 @@ def current_project(
         ProjectMembership.user_id == current_user.id,
     ).first()
     return serialize_project(access[0], membership, current_user)
+
+
+@router.get("/current/about", response_model=ProjectAboutResponse)
+def get_project_about(
+    access: tuple[Project, str] = Depends(get_current_project_access),
+):
+    project = access[0]
+    return {"title": project.about_title or project.name, "description": project.about_description or ""}
+
+
+@router.put("/current/about", response_model=ProjectAboutResponse)
+def update_project_about(
+    data: ProjectAboutUpdate,
+    db: Session = Depends(get_db),
+    access: tuple[Project, str] = Depends(require_project_admin),
+):
+    project = access[0]
+    project.about_title = data.title
+    project.about_description = data.description
+    db.commit()
+    db.refresh(project)
+    return {"title": project.about_title, "description": project.about_description}
 
 
 @router.get("/{project_id}/settings")
