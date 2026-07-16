@@ -86,8 +86,17 @@ export interface ContentBlock {
 }
 
 export interface ProjectAbout {
+  posts: ProjectAboutPost[];
+  creator_content: string;
+}
+
+export interface ProjectAboutPost {
+  id: number;
   title: string;
-  description: string;
+  content: string;
+  position: number;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface Character {

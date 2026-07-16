@@ -28,7 +28,7 @@ from app.api.content import router as content_router
 from app.models.chat import ChatMessage
 from app.models.recruitment import GameApplication, GameRecruitment, RecruitmentMessage
 from app.models.content import ContentBlock
-from app.models.project import DEFAULT_FEATURES, DEFAULT_PROJECT_NAME, Project, ProjectAuditLog, ProjectMembership
+from app.models.project import DEFAULT_FEATURES, DEFAULT_PROJECT_NAME, Project, ProjectAboutPost, ProjectAuditLog, ProjectMembership
 from app.api.projects import router as projects_router
 from app.core.calendar import GAME_EPOCH
 from app.core.security import hash_password
@@ -191,6 +191,19 @@ def ensure_schema_columns() -> None:
     ensure_column("projects", "features", "JSON NOT NULL DEFAULT '{}'")
     ensure_column("projects", "about_title", "VARCHAR(200)")
     ensure_column("projects", "about_description", "TEXT NOT NULL DEFAULT ''")
+    ensure_column("projects", "about_creator_content", "TEXT NOT NULL DEFAULT ''")
+    # Preserve the single introduction created by issue #239 as the first
+    # publication when upgrading an existing installation.
+    with engine.begin() as connection:
+        connection.execute(text(
+            "INSERT INTO project_about_posts "
+            "(project_id, title, content, position, created_at, updated_at) "
+            "SELECT p.id, COALESCE(NULLIF(p.about_title, ''), p.name), "
+            "p.about_description, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP "
+            "FROM projects p "
+            "WHERE p.about_description <> '' AND NOT EXISTS ("
+            "SELECT 1 FROM project_about_posts pap WHERE pap.project_id = p.id)"
+        ))
     ensure_column("project_memberships", "karma", "INTEGER NOT NULL DEFAULT 0")
     # Existing installations predate projects; all legacy characters belong to
     # the campaign's original ecosystem.

@@ -44,10 +44,30 @@ class Project(Base):
     settings: Mapped[dict] = mapped_column(JSON, default=dict)
     about_title: Mapped[str | None] = mapped_column(String(200), nullable=True)
     about_description: Mapped[str] = mapped_column(Text, default="", server_default="")
+    about_creator_content: Mapped[str] = mapped_column(Text, default="", server_default="")
 
     owner = relationship("User", foreign_keys=[owner_id])
     memberships = relationship("ProjectMembership", back_populates="project", cascade="all, delete-orphan")
     characters = relationship("Character", back_populates="project")
+    about_posts = relationship(
+        "ProjectAboutPost", back_populates="project", cascade="all, delete-orphan"
+    )
+
+
+class ProjectAboutPost(Base):
+    __tablename__ = "project_about_posts"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    project_id: Mapped[int] = mapped_column(
+        ForeignKey("projects.id", ondelete="CASCADE"), index=True
+    )
+    title: Mapped[str] = mapped_column(String(200))
+    content: Mapped[str] = mapped_column(Text)
+    position: Mapped[int] = mapped_column(Integer)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, onupdate=utc_now)
+
+    project = relationship("Project", back_populates="about_posts")
 
 
 class ProjectMembership(Base):

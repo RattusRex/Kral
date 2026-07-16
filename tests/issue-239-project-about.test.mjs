@@ -10,11 +10,11 @@ test("choosing or switching a project opens its about page", () => {
   assert.match(source, /path="\/about"/);
 });
 
-test("project about page exposes responsive title, formatted content, and role-aware editing", () => {
+test("project about page exposes responsive formatted content and restricted editing", () => {
   assert.match(source, /function ProjectAboutPage/);
   assert.match(source, /\/projects\/current\/about/);
-  assert.match(source, /project\?\.is_admin/);
+  assert.match(source, /canManageAbout/);
   assert.match(source, /Редактировать/);
-  assert.match(source, /text-4xl[\s\S]*md:text-6xl/);
+  assert.match(source, /sm:text-4xl/);
   assert.match(source, /MarkdownContent/);
 });
