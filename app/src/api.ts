@@ -85,6 +85,11 @@ export interface ContentBlock {
   updated_at: string;
 }
 
+export interface ProjectAbout {
+  title: string;
+  description: string;
+}
+
 export interface Character {
   id: number;
   project_id: number;

@@ -50,6 +50,62 @@ def project_headers(headers, project_id):
     return {**headers, "X-Project-ID": str(project_id)}
 
 
+def test_project_about_page_is_isolated_and_editable_from_technician_up():
+    with TestClient(app) as client:
+        owner = login(client, "admin", "admin123")
+        technician_id = register(client, "about-technician")
+        player_id = register(client, "about-player")
+        first = client.post(
+            "/api/projects", headers=owner,
+            json={"name": "First about", "slug": "first-about"},
+        ).json()
+        second = client.post(
+            "/api/projects", headers=owner,
+            json={"name": "Second about", "slug": "second-about"},
+        ).json()
+        for project in (first, second):
+            assert client.put(
+                f"/api/projects/{project['id']}/members/{technician_id}",
+                headers=owner, json={"role": "technician"},
+            ).status_code == 200
+            assert client.put(
+                f"/api/projects/{project['id']}/members/{player_id}",
+                headers=owner, json={"role": "player"},
+            ).status_code == 200
+
+        technician = login(client, "about-technician", PASSWORD)
+        player = login(client, "about-player", PASSWORD)
+        formatted_description = "**Welcome**\n\n- First rule\n- [Guide](https://example.com)"
+        updated = client.put(
+            "/api/projects/current/about",
+            headers=project_headers(technician, first["id"]),
+            json={"title": "Welcome to First", "description": formatted_description},
+        )
+        assert updated.status_code == 200, updated.text
+        assert updated.json() == {
+            "title": "Welcome to First", "description": formatted_description,
+        }
+
+        first_page = client.get(
+            "/api/projects/current/about",
+            headers=project_headers(player, first["id"]),
+        )
+        second_page = client.get(
+            "/api/projects/current/about",
+            headers=project_headers(player, second["id"]),
+        )
+        assert first_page.status_code == second_page.status_code == 200
+        assert first_page.json() == updated.json()
+        assert second_page.json() == {
+            "title": "Second about", "description": "",
+        }
+        assert client.put(
+            "/api/projects/current/about",
+            headers=project_headers(player, first["id"]),
+            json={"title": "Hacked", "description": "No"},
+        ).status_code == 403
+
+
 def test_legacy_admin_is_promoted_before_project_schema_migration():
     Base.metadata.drop_all(bind=engine)
     legacy_metadata = MetaData()

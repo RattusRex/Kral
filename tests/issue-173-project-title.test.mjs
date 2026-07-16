@@ -8,7 +8,7 @@ const styles = await readFile(new URL("../app/src/styles.css", import.meta.url),
 test("project title wraps only between words at constrained widths", () => {
   assert.match(
     source,
-    /<Link to="\/characters" className="project-title [^"]*">Эпоха Катастроф<\/Link>/,
+    /<Link to="\/about" className="project-title [^"]*">{project\?\.name \?\? "Эпоха Катастроф"}<\/Link>/,
   );
   assert.match(styles, /\.project-title\s*{[\s\S]*overflow-wrap:\s*normal;[\s\S]*word-break:\s*normal;/);
 });

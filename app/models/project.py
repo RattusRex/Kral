@@ -1,6 +1,6 @@
 from datetime import UTC, datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, JSON, String, UniqueConstraint
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, JSON, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.roles import Role
@@ -42,6 +42,8 @@ class Project(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
     owner_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
     settings: Mapped[dict] = mapped_column(JSON, default=dict)
+    about_title: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    about_description: Mapped[str] = mapped_column(Text, default="", server_default="")
 
     owner = relationship("User", foreign_keys=[owner_id])
     memberships = relationship("ProjectMembership", back_populates="project", cascade="all, delete-orphan")
