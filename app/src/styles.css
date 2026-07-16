@@ -89,6 +89,15 @@ select.field option:hover {
   white-space: normal;
 }
 
+.back-button {
+  position: fixed;
+  z-index: 30;
+  top: 5.25rem;
+  left: max(1rem, calc((100vw - 80rem) / 2 + 1rem));
+  background-color: rgb(16 18 23 / 0.95);
+  backdrop-filter: blur(8px);
+}
+
 .mode-tab {
   @apply inline-flex items-center justify-center rounded-md border border-white/15 bg-white/5 px-3 py-2 text-sm font-semibold text-parchment transition hover:border-ember;
 }
@@ -150,6 +159,13 @@ select.field option:hover {
 }
 
 @media (max-width: 639px) {
+  .back-button {
+    top: auto;
+    right: 1rem;
+    bottom: 1rem;
+    left: 1rem;
+  }
+
   .skill-row {
     grid-template-columns: minmax(0, 1fr);
   }

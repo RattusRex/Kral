@@ -2,7 +2,7 @@ import { Component, createContext, FormEvent, useContext, useEffect, useLayoutEf
 import { createRoot } from "react-dom/client";
 import axios from "axios";
 import { Link, Navigate, Route, BrowserRouter as Router, Routes, useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { ArrowDown, ArrowUp, BookOpen, CalendarDays, Check, ChevronDown, ChevronUp, Coins, Dice5, LogOut, MapPin, MessageSquare, Pencil, Plus, RefreshCw, Save, ScrollText, Search, Send, Shield, ShoppingBag, Swords, Trash2, Trophy, UserRound, UsersRound, X } from "lucide-react";
+import { ArrowDown, ArrowLeft, ArrowUp, BookOpen, CalendarDays, Check, ChevronDown, ChevronUp, Coins, Dice5, LogOut, MapPin, MessageSquare, Pencil, Plus, RefreshCw, Save, ScrollText, Search, Send, Shield, ShoppingBag, Swords, Trash2, Trophy, UserRound, UsersRound, X } from "lucide-react";
 import { AbilityRoll, AdminGrantLog, AdminUser, api, AttackRoll, AUTH_NOTICE_KEY, CalendarSummary, Character, CharacterAttack, ChatMessage, connectRealtime, ContentBlock, DamageRoll, GameRecruitment, Inventory, InventoryItem, KarmaOpener, KarmaPurchase, KarmaPurchaseResult, LeaderboardEntry, MagicItem, MarketSaleLog, MarketSaleResult, PaginatedResponse, PROJECT_KEY, ProjectContext, RealtimeEvent, ROLE_LABELS, SavingThrowRoll, ShopResult, ShopTransactionLog, SkillRoll, TOKEN_KEY, TransferLog, TransferTarget, User, UserRole } from "./api";
 import { compareHomebrewKarma, nextHomebrewSort, type HomebrewSortField } from "./homebrewSort";
 import "./styles.css";
@@ -112,6 +112,7 @@ const blankCharacter = {
   saving_throw_proficiencies: [] as string[]
 };
 const maxCharacters = 10;
+const NAVIGATION_HISTORY_KEY = "has-in-app-navigation-history";
 type NumericInputValue = number | "";
 
 const RealtimeContext = createContext<RealtimeEvent | null>(null);
@@ -238,6 +239,28 @@ function useAuth() {
   }, []);
 
   return { user, loading, setUser };
+}
+
+function BackButton() {
+  const navigate = useNavigate();
+  const hasInAppHistory = sessionStorage.getItem(NAVIGATION_HISTORY_KEY) === "true"
+    && Number(window.history.state?.idx) > 0;
+
+  useEffect(() => {
+    if (Number(window.history.state?.idx) > 0) {
+      sessionStorage.setItem(NAVIGATION_HISTORY_KEY, "true");
+    }
+  }, []);
+
+  function goBack() {
+    if (hasInAppHistory && Number(window.history.state?.idx) > 0) {
+      navigate(-1);
+      return;
+    }
+    navigate("/", { replace: true });
+  }
+
+  return <button aria-label="Вернуться на предыдущую страницу" className="back-button btn-secondary" onClick={goBack} type="button"><ArrowLeft aria-hidden="true" size={18} />Назад</button>;
 }
 
 function Shell({ children, user }: { children: React.ReactNode; user: User | null }) {
@@ -3911,6 +3934,7 @@ function App() {
   return (
     <Router>
       <RealtimeProvider>
+      <BackButton />
       <Routes>
         <Route path="/login" element={<Login />} />
         <Route path="/register" element={<Register />} />
