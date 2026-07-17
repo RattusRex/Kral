@@ -15,6 +15,19 @@ class KarmaOpener(BaseModel):
     note: str | None = None
 
 
+class AdminOpenerCreateRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=255)
+    cost: int = Field(default=0, ge=0, le=1_000_000)
+
+    @field_validator("name")
+    @classmethod
+    def normalize_name(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("Название открывашки обязательно")
+        return normalized
+
+
 class KarmaItemPurchaseRequest(BaseModel):
     purchase_type: Literal["item", "opener"]
     name: str = Field(min_length=1, max_length=255)

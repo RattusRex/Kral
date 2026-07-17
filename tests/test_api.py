@@ -971,6 +971,131 @@ def test_admin_player_profiles_are_project_scoped_and_forbid_players():
         ).status_code == 403
 
 
+def test_admins_manage_player_openers_with_project_scoped_grant_logs():
+    with TestClient(app) as client:
+        owner_headers = {"Authorization": f"Bearer {login(client, 'admin', 'admin123')}"}
+        player_id = register_verified_user(client, "opener-profile-player")
+        technician_id = register_verified_user(client, "opener-technician")
+        player_headers = {
+            "Authorization": f"Bearer {login(client, 'opener-profile-player', 'Cobalt!River7Lantern')}"
+        }
+        technician_headers = {
+            "Authorization": f"Bearer {login(client, 'opener-technician', 'Cobalt!River7Lantern')}"
+        }
+        with SessionLocal() as db:
+            default_project = db.query(Project).filter(
+                Project.name == DEFAULT_PROJECT_NAME
+            ).one()
+            db.query(ProjectMembership).filter_by(
+                project_id=default_project.id, user_id=technician_id,
+            ).update({ProjectMembership.role: "technician"})
+            db.commit()
+
+        assert client.post(
+            f"/api/admin/users/{player_id}/openers", headers=player_headers,
+            json={"name": "Запретная школа", "cost": 0},
+        ).status_code == 403
+
+        created = client.post(
+            f"/api/admin/users/{player_id}/openers", headers=technician_headers,
+            json={"name": "  Запретная школа  ", "cost": 0},
+        )
+        assert created.status_code == 201, created.text
+        opener = created.json()
+        assert opener["name"] == "Запретная школа"
+        assert opener["cost"] == 0
+        assert opener["user_id"] == player_id
+        assert opener["actor_id"] == technician_id
+
+        profiles = client.get(
+            "/api/admin/player-profiles", headers=technician_headers,
+            params={"search": "opener-profile-player"},
+        ).json()
+        assert [(row["name"], row["cost"]) for row in profiles[0]["openers"]] == [
+            ("Запретная школа", 0),
+        ]
+
+        add_log = client.get(
+            "/api/admin/grant-logs", headers=owner_headers,
+            params={"user_id": player_id, "operation_type": "opener_add"},
+        )
+        assert add_log.status_code == 200, add_log.text
+        assert len(add_log.json()) == 1
+        assert {
+            key: add_log.json()[0][key]
+            for key in ("operation_type", "value", "admin_id", "user_id")
+        } == {
+            "operation_type": "opener_add",
+            "value": "Запретная школа",
+            "admin_id": technician_id,
+            "user_id": player_id,
+        }
+
+        assert client.delete(
+            f"/api/admin/users/{player_id}/openers/{opener['id']}",
+            headers=player_headers,
+        ).status_code == 403
+        deleted = client.delete(
+            f"/api/admin/users/{player_id}/openers/{opener['id']}",
+            headers=technician_headers,
+        )
+        assert deleted.status_code == 204, deleted.text
+
+        profiles = client.get(
+            "/api/admin/player-profiles", headers=technician_headers,
+            params={"search": "opener-profile-player"},
+        ).json()
+        assert profiles[0]["openers"] == []
+        remove_log = client.get(
+            "/api/admin/grant-logs", headers=owner_headers,
+            params={"user_id": player_id, "operation_type": "opener_remove"},
+        )
+        assert remove_log.status_code == 200, remove_log.text
+        assert [(row["value"], row["admin_id"]) for row in remove_log.json()] == [
+            ("Запретная школа", technician_id),
+        ]
+
+
+def test_admin_opener_management_cannot_cross_project_boundaries():
+    with TestClient(app) as client:
+        owner = {"Authorization": f"Bearer {login(client, 'admin', 'admin123')}"}
+        player_id = register_verified_user(client, "multi-project-opener-player")
+        with SessionLocal() as db:
+            owner_id = db.query(User.id).filter(User.username == "admin").scalar()
+            default_project_id = db.query(Project.id).filter(
+                Project.name == DEFAULT_PROJECT_NAME
+            ).scalar()
+        other_project_id = create_project_fixture(
+            "Other opener project", owner_id, [(player_id, "player")],
+        )
+        default_headers = {**owner, "X-Project-ID": str(default_project_id)}
+        other_headers = {**owner, "X-Project-ID": str(other_project_id)}
+
+        first = client.post(
+            f"/api/admin/users/{player_id}/openers", headers=default_headers,
+            json={"name": "Только первый проект", "cost": 0},
+        )
+        assert first.status_code == 201, first.text
+        second = client.post(
+            f"/api/admin/users/{player_id}/openers", headers=other_headers,
+            json={"name": "Только второй проект", "cost": 0},
+        )
+        assert second.status_code == 201, second.text
+
+        assert client.delete(
+            f"/api/admin/users/{player_id}/openers/{second.json()['id']}",
+            headers=default_headers,
+        ).status_code == 404
+        assert [row["name"] for row in client.get(
+            "/api/admin/player-profiles", headers=default_headers,
+            params={"search": "multi-project-opener-player"},
+        ).json()[0]["openers"]] == ["Только первый проект"]
+        assert [row["name"] for row in client.get(
+            "/api/admin/player-profiles", headers=other_headers,
+            params={"search": "multi-project-opener-player"},
+        ).json()[0]["openers"]] == ["Только второй проект"]
+
+
 def test_karma_resurrection_enforces_ownership_death_level_and_balance():
     with TestClient(app) as client:
         admin_headers = {"Authorization": f"Bearer {login(client, 'admin', 'admin123')}"}
