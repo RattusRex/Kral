@@ -23,21 +23,20 @@ router = APIRouter(
     dependencies=[Depends(require_feature("karma")), Depends(require_feature("karma_shop"))],
 )
 XP_KARMA_COST = 5
-OPENER_NOTE = "Условия применения проверяются администрацией или мастером."
 OPENER_CATALOG = (
-    KarmaOpener(name="Смена расы", cost=10, note=OPENER_NOTE),
-    KarmaOpener(name="Смена класса", cost=20, note=OPENER_NOTE),
-    KarmaOpener(name="Смена подкласса", cost=15, note=OPENER_NOTE),
-    KarmaOpener(name="Смена черты", cost=10, note=OPENER_NOTE),
-    KarmaOpener(name="Смена классового умения", cost=5, note=OPENER_NOTE),
-    KarmaOpener(name="Смена предыстории", cost=10, note=OPENER_NOTE),
-    KarmaOpener(name="Открыть заклинание", cost=5, note=OPENER_NOTE),
-    KarmaOpener(name="Смена опционального умения", cost=5, note=OPENER_NOTE),
-    KarmaOpener(name="Мультикласс", cost=5, note=OPENER_NOTE),
-    KarmaOpener(name="Открыть расу", cost=15, note=OPENER_NOTE),
-    KarmaOpener(name="Открыть подкласс", cost=20, note=OPENER_NOTE),
-    KarmaOpener(name="Открыть черту", cost=10, note=OPENER_NOTE),
-    KarmaOpener(name="Открыть предысторию", cost=10, note=OPENER_NOTE),
+    KarmaOpener(name="Смена расы", cost=10),
+    KarmaOpener(name="Смена класса", cost=20),
+    KarmaOpener(name="Смена подкласса", cost=15),
+    KarmaOpener(name="Смена черты", cost=10),
+    KarmaOpener(name="Смена классового умения", cost=5),
+    KarmaOpener(name="Смена предыстории", cost=10),
+    KarmaOpener(name="Открыть заклинание", cost=5),
+    KarmaOpener(name="Смена опционального умения", cost=5),
+    KarmaOpener(name="Мультикласс", cost=5),
+    KarmaOpener(name="Открыть расу", cost=15),
+    KarmaOpener(name="Открыть подкласс", cost=20),
+    KarmaOpener(name="Открыть черту", cost=10),
+    KarmaOpener(name="Открыть предысторию", cost=10),
 )
 OPENER_COSTS = {opener.name: opener.cost for opener in OPENER_CATALOG}
 
@@ -150,14 +149,18 @@ def purchase_item(
     current_user: User = Depends(get_current_user),
     access=Depends(get_current_project_access),
 ):
+    project, _ = access
+    membership = db.query(ProjectMembership).filter_by(
+        project_id=project.id, user_id=current_user.id,
+    ).one()
     cost = (
         OPENER_COSTS.get(request.name, request.cost)
         if request.purchase_type == "opener"
         else request.cost
     )
-    charge_karma(current_user, cost)
+    charge_karma(membership, cost)
     purchase = record_purchase(
-        db, current_user, request.purchase_type, request.name, cost,
+        db, membership, request.purchase_type, request.name, cost,
     )
     purchase.project_id = project.id
     return commit_result(db, membership, purchase)

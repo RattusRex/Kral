@@ -370,6 +370,15 @@ export interface AdminUser extends User {
   is_head_admin: boolean;
 }
 
+export interface PlayerProfile {
+  id: number;
+  username: string;
+  email: string;
+  karma: number;
+  characters: Array<{ id: number; name: string; class_name: string; level: number }>;
+  openers: Array<{ id: number; name: string; cost: number; created_at: string }>;
+}
+
 export interface PaginatedResponse<T> {
   items: T[];
   page: number;

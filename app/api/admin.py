@@ -1,7 +1,8 @@
 from datetime import date, datetime, time, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy.orm import Session
+from sqlalchemy import or_
+from sqlalchemy.orm import Session, selectinload
 
 from app.api.inventory import add_currency, get_character_inventory, validate_rarity
 from app.api.users import get_current_user, get_db
@@ -428,6 +429,60 @@ def list_users(
             sum(character.project_id == _.active_project_id for character in row[0].characters),
         ),
     )
+
+
+@router.get("/player-profiles")
+def list_player_profiles(
+    search: str = Query(default="", max_length=255),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    normalized_search = search.strip()
+    query = (
+        db.query(User, ProjectMembership)
+        .join(ProjectMembership)
+        .filter(ProjectMembership.project_id == current_user.active_project_id)
+        .options(selectinload(User.characters))
+    )
+    if normalized_search:
+        pattern = f"%{normalized_search}%"
+        query = query.filter(or_(
+            User.username.ilike(pattern),
+            User.email.ilike(pattern),
+        ))
+
+    rows = query.order_by(User.username).all()
+    user_ids = [user.id for user, _ in rows]
+    openers_by_user: dict[int, list[KarmaPurchase]] = {user_id: [] for user_id in user_ids}
+    if user_ids:
+        purchases = db.query(KarmaPurchase).filter(
+            KarmaPurchase.project_id == current_user.active_project_id,
+            KarmaPurchase.user_id.in_(user_ids),
+            KarmaPurchase.purchase_type == "opener",
+        ).order_by(KarmaPurchase.created_at.desc(), KarmaPurchase.id.desc()).all()
+        for purchase in purchases:
+            if purchase.user_id is not None:
+                openers_by_user[purchase.user_id].append(purchase)
+
+    return [{
+        "id": user.id,
+        "username": user.username,
+        "email": user.email,
+        "karma": membership.karma,
+        "characters": [{
+            "id": character.id,
+            "name": character.name,
+            "class_name": character.class_name,
+            "level": character.level,
+        } for character in user.characters
+            if character.project_id == current_user.active_project_id],
+        "openers": [{
+            "id": purchase.id,
+            "name": purchase.name,
+            "cost": purchase.cost,
+            "created_at": purchase.created_at,
+        } for purchase in openers_by_user[user.id]],
+    } for user, membership in rows]
 
 
 @router.post("/users/{user_id}/verify-email")

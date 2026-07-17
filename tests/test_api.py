@@ -863,7 +863,7 @@ def test_karma_shop_opener_catalog_and_fixed_prices_are_server_controlled():
         granted = client.post(
             f"/api/admin/users/{created_user.json()['id']}/karma",
             headers=admin_headers,
-            json={"amount": 50, "reason": "Тест предустановленных открывашек"},
+            json={"amount": 200, "reason": "Тест предустановленных открывашек"},
         )
         assert granted.status_code == 200, granted.text
 
@@ -885,30 +885,90 @@ def test_karma_shop_opener_catalog_and_fixed_prices_are_server_controlled():
             ("Открыть предысторию", 10),
         ]
 
-        preset_purchase = client.post(
-            "/api/karma-shop/purchases",
-            headers=player_headers,
-            json={"purchase_type": "opener", "name": "Смена класса", "cost": 1},
-        )
-        assert preset_purchase.status_code == 200, preset_purchase.text
-        assert preset_purchase.json()["purchase"]["cost"] == 20
-        assert preset_purchase.json()["remaining_karma"] == 30
+        remaining_karma = 200
+        for opener in catalog.json():
+            preset_purchase = client.post(
+                "/api/karma-shop/purchases",
+                headers=player_headers,
+                json={"purchase_type": "opener", "name": opener["name"], "cost": 1},
+            )
+            assert preset_purchase.status_code == 200, (
+                opener["name"], preset_purchase.text
+            )
+            remaining_karma -= opener["cost"]
+            assert preset_purchase.json()["purchase"]["cost"] == opener["cost"]
+            assert preset_purchase.json()["remaining_karma"] == remaining_karma
 
-        custom_purchase = client.post(
-            "/api/karma-shop/purchases",
-            headers=player_headers,
-            json={"purchase_type": "opener", "name": "Нестандартная открывашка", "cost": 7},
-        )
-        assert custom_purchase.status_code == 200, custom_purchase.text
-        assert custom_purchase.json()["purchase"]["cost"] == 7
-        assert custom_purchase.json()["remaining_karma"] == 23
+        purchases = client.get("/api/karma-shop/purchases", headers=player_headers)
+        assert purchases.status_code == 200, purchases.text
+        assert {row["name"] for row in purchases.json()} == {
+            opener["name"] for opener in catalog.json()
+        }
 
         logs = client.get("/api/admin/karma-shop-logs", headers=admin_headers)
         assert logs.status_code == 200, logs.text
-        assert [(row["name"], row["cost"]) for row in logs.json()] == [
-            ("Нестандартная открывашка", 7),
-            ("Смена класса", 20),
+        assert {(row["name"], row["cost"]) for row in logs.json()} == {
+            (opener["name"], opener["cost"]) for opener in catalog.json()
+        }
+
+
+def test_admin_player_profiles_are_project_scoped_and_forbid_players():
+    with TestClient(app) as client:
+        admin_headers = {"Authorization": f"Bearer {login(client, 'admin', 'admin123')}"}
+        created_user = client.post("/api/users", json={
+            "username": "profile-player",
+            "email": "profile-player@example.com",
+            "password": TEST_USER_PASSWORD,
+        })
+        assert created_user.status_code == 200, created_user.text
+        user_id = created_user.json()["id"]
+        player_headers = {
+            "Authorization": f"Bearer {login(client, 'profile-player', TEST_USER_PASSWORD)}"
+        }
+        character = client.post("/api/characters", headers=player_headers, json={
+            "name": "Profile Hero", "class_name": "Bard", "level": 2,
+            "route": "Lore",
+        })
+        assert character.status_code == 200, character.text
+        grant = client.post(
+            f"/api/admin/users/{user_id}/karma",
+            headers=admin_headers,
+            json={"amount": 25, "reason": "Тест профиля"},
+        )
+        assert grant.status_code == 200, grant.text
+        for opener in ("Открыть заклинание", "Мультикласс"):
+            purchase = client.post(
+                "/api/karma-shop/purchases", headers=player_headers,
+                json={"purchase_type": "opener", "name": opener, "cost": 1},
+            )
+            assert purchase.status_code == 200, purchase.text
+
+        profiles = client.get(
+            "/api/admin/player-profiles", headers=admin_headers,
+            params={"search": "profile-player"},
+        )
+        assert profiles.status_code == 200, profiles.text
+        profile = profiles.json()[0]
+        assert profile["username"] == "profile-player"
+        assert profile["email"] == "profile-player@example.com"
+        assert profile["karma"] == 15
+        assert profile["characters"] == [{
+            "id": character.json()["id"], "name": "Profile Hero",
+            "class_name": "Bard", "level": 2,
+        }]
+        assert [opener["name"] for opener in profile["openers"]] == [
+            "Мультикласс", "Открыть заклинание",
         ]
+
+        email_search = client.get(
+            "/api/admin/player-profiles", headers=admin_headers,
+            params={"search": "profile-player@example.com"},
+        )
+        assert email_search.status_code == 200, email_search.text
+        assert [row["id"] for row in email_search.json()] == [user_id]
+        assert client.get(
+            "/api/admin/player-profiles", headers=player_headers,
+        ).status_code == 403
 
 
 def test_karma_resurrection_enforces_ownership_death_level_and_balance():
