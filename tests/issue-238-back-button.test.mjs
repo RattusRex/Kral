@@ -9,10 +9,19 @@ const backButton = source.slice(
   source.indexOf("function BackButton()"),
   source.indexOf("function Shell("),
 );
+const shell = source.slice(
+  source.indexOf("function Shell("),
+  source.indexOf("function HomePage()"),
+);
+const header = shell.slice(
+  shell.indexOf("<header"),
+  shell.indexOf("</header>") + "</header>".length,
+);
 const app = source.slice(source.indexOf("function App()"));
 
-test("a single shared back button is mounted for every route", () => {
-  assert.match(app, /<BackButton\s*\/>/);
+test("the shared back button is mounted in the authenticated header only", () => {
+  assert.match(header, /<BackButton\s*\/>/);
+  assert.doesNotMatch(app, /<BackButton\s*\/>/);
   assert.match(backButton, /Назад/);
   assert.match(backButton, /ArrowLeft/);
   assert.match(backButton, /className="back-button btn-secondary"/);
@@ -25,7 +34,12 @@ test("back navigation uses in-app history and safely falls back home", () => {
   assert.match(backButton, /navigate\("\/",\s*\{\s*replace:\s*true\s*\}\)/);
 });
 
-test("the control keeps a consistent responsive position", () => {
+test("the control participates in the responsive header layout without overlaying content", () => {
   assert.match(styles, /\.back-button\s*\{/);
-  assert.match(styles, /@media \(max-width:\s*639px\)[\s\S]*\.back-button\s*\{/);
+  const rule = styles.slice(
+    styles.indexOf(".back-button"),
+    styles.indexOf("}", styles.indexOf(".back-button")) + 1,
+  );
+  assert.doesNotMatch(rule, /position:\s*(?:fixed|absolute)/);
+  assert.doesNotMatch(rule, /(?:top|right|bottom|left):/);
 });

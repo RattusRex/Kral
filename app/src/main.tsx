@@ -294,8 +294,11 @@ function Shell({ children, user }: { children: React.ReactNode; user: User | nul
   return (
     <div className="min-h-screen bg-[#101217] text-parchment">
       <header className="sticky top-0 z-10 border-b border-white/10 bg-[#101217]/95 backdrop-blur">
-        <nav className="mx-auto flex max-w-7xl items-center justify-between px-4 py-3">
-          <Link to="/about" className="project-title text-lg font-bold text-ember">{project?.name ?? "Эпоха Катастроф"}</Link>
+        <nav className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-2 px-4 py-3">
+          <div className="flex min-w-0 items-center gap-2">
+            <BackButton />
+            <Link to="/about" className="project-title min-w-0 text-lg font-bold text-ember">{project?.name ?? "Эпоха Катастроф"}</Link>
+          </div>
           <div className="flex flex-wrap items-center gap-2">
             {projects.length > 0 && <select aria-label="Проект" className="field max-w-52" value={project?.id ?? ""} onChange={(event) => selectProject(Number(event.target.value))}><option value="" disabled>Сменить проект</option>{projects.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select>}
             <Link className="btn-secondary" to="/"><UsersRound size={16} />Меню</Link>
@@ -4054,7 +4057,6 @@ function App() {
   return (
     <Router>
       <RealtimeProvider>
-      <BackButton />
       <Routes>
         <Route path="/login" element={<Login />} />
         <Route path="/register" element={<Register />} />
