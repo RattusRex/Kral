@@ -4,7 +4,7 @@ import axios from "axios";
 import ReactMarkdown from "react-markdown";
 import { Link, Navigate, Route, BrowserRouter as Router, Routes, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { ArrowDown, ArrowLeft, ArrowUp, BookOpen, CalendarDays, Check, ChevronDown, ChevronUp, Coins, Dice5, LogOut, MapPin, MessageSquare, Pencil, Plus, RefreshCw, Save, ScrollText, Search, Send, Shield, ShoppingBag, Swords, Trash2, Trophy, UserRound, UsersRound, X } from "lucide-react";
-import { AbilityRoll, AdminGrantLog, AdminUser, api, AttackRoll, AUTH_NOTICE_KEY, CalendarSummary, Character, CharacterAttack, ChatMessage, connectRealtime, ContentBlock, DamageRoll, GameRecruitment, Inventory, InventoryItem, KarmaOpener, KarmaPurchase, KarmaPurchaseResult, LeaderboardEntry, MagicItem, MarketSaleLog, MarketSaleResult, PaginatedResponse, PROJECT_KEY, ProjectAbout, ProjectAboutPost, ProjectContext, RealtimeEvent, ROLE_LABELS, SavingThrowRoll, ShopResult, ShopTransactionLog, SkillRoll, TOKEN_KEY, TransferLog, TransferTarget, User, UserRole } from "./api";
+import { AbilityRoll, AdminGrantLog, AdminUser, api, AttackRoll, AUTH_NOTICE_KEY, CalendarSummary, Character, CharacterAttack, ChatMessage, connectRealtime, ContentBlock, DamageRoll, GameRecruitment, Inventory, InventoryItem, KarmaOpener, KarmaPurchase, KarmaPurchaseResult, LeaderboardEntry, MagicItem, MarketSaleLog, MarketSaleResult, PaginatedResponse, PlayerProfile, PROJECT_KEY, ProjectAbout, ProjectAboutPost, ProjectContext, RealtimeEvent, ROLE_LABELS, SavingThrowRoll, ShopResult, ShopTransactionLog, SkillRoll, TOKEN_KEY, TransferLog, TransferTarget, User, UserRole } from "./api";
 import { compareHomebrewKarma, nextHomebrewSort, type HomebrewSortField } from "./homebrewSort";
 import "./styles.css";
 
@@ -491,6 +491,7 @@ function AdminMenuPage() {
       <p className="mt-2 text-white/60">Административные функции проекта</p>
       <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         <Link className="btn" to="/admin"><Shield size={18} />Администрирование</Link>
+        <Link className="btn" to="/admin/player-profiles"><UsersRound size={18} />Профили игроков</Link>
         {project.features.logs !== false && <Link className="btn" to="/admin/shop-logs"><ScrollText size={18} />Логи</Link>}
         {project.features.market_logs !== false && <Link className="btn" to="/admin/market-sales"><ScrollText size={18} />Рынок-логи</Link>}
         {project.features.logs !== false && <Link className="btn" to="/admin/transfer-logs"><ScrollText size={18} />Передачи</Link>}
@@ -2639,7 +2640,7 @@ function KarmaShopPage() {
     }
   }
 
-  return <div className="space-y-4"><section className="panel p-5"><h1 className="text-2xl font-bold text-ember">Магазин Кармы</h1><p className="mt-2 text-white/70">Баланс: {karma} кармы</p>{message && <p className="mt-3 text-emerald-200">{message}</p>}{error && <p className="mt-3 text-red-300">{error}</p>}</section><div className="grid gap-4 lg:grid-cols-3"><section className="panel p-5"><h2 className="text-lg font-semibold text-ember">Покупка опыта</h2><p className="text-sm text-white/55">1 опыт = 5 кармы</p><select className="field mt-4" value={characterId} onChange={(event) => setCharacterId(event.target.value)}><option value="">Выберите персонажа</option>{characters.map((character) => <option key={character.id} value={character.id}>{character.name} · ур. {character.level}</option>)}</select><input className="field mt-3" min={1} type="number" value={xpAmount} onChange={numericInputChange(setXpAmount)} onBlur={normalizeNumberOnBlur(setXpAmount, 1)} /><button className="btn mt-3" disabled={!characterId || normalizeNumber(xpAmount) < 1} onClick={() => execute("/karma-shop/xp", { character_id: Number(characterId), amount: normalizeNumber(xpAmount, 1) }, `Куплено ${normalizeNumber(xpAmount, 1)} опыта`)}>Купить за {normalizeNumber(xpAmount) * 5} кармы</button></section><section className="panel p-5"><h2 className="text-lg font-semibold text-ember">Покупка открывашки</h2><select aria-label="Открывашка" className="field mt-4" value={selectedOpener} onChange={(event) => setSelectedOpener(event.target.value)}><option value="">Выберите открывашку</option>{openers.map((opener) => <option key={opener.name} value={opener.name}>{opener.name} · {opener.cost} кармы</option>)}<option value="custom">Нестандартная открывашка</option></select>{selectedOpener === "custom" && <><input className="field mt-3" placeholder="Название открывашки" value={customOpenerName} onChange={(event) => setCustomOpenerName(event.target.value)} /><input aria-label="Стоимость нестандартной открывашки" className="field mt-3" min={1} type="number" value={customOpenerCost} onChange={numericInputChange(setCustomOpenerCost)} onBlur={normalizeNumberOnBlur(setCustomOpenerCost, 1)} /></>}{selectedOpenerDefinition?.note && <p className="mt-3 rounded-md border border-ember/25 bg-ember/10 p-3 text-sm text-white/70">{selectedOpenerDefinition.note}</p>}<button className="btn mt-3" disabled={!openerName || openerCost < 1} onClick={() => execute("/karma-shop/purchases", { purchase_type: "opener", name: openerName, cost: openerCost }, "Открывашка добавлена в профиль")}>Купить за {openerCost || 0} кармы</button></section><section className="panel p-5"><h2 className="text-lg font-semibold text-ember">Воскресить персонажа</h2><p className="text-sm text-white/55">1–5 уровень: 5 кармы · 6–10: 10 кармы · 11+: недоступно</p><select className="field mt-4" value={resurrectionCharacter ? characterId : ""} onChange={(event) => setCharacterId(event.target.value)}><option value="">Выберите погибшего персонажа</option>{resurrectionCharacters.map((character) => <option key={character.id} value={character.id}>{character.name} · ур. {character.level}</option>)}</select>{resurrectionCharacters.length === 0 && <p className="mt-3 text-sm text-white/55">Нет погибших персонажей доступного уровня.</p>}{resurrectionCost !== null && !canAffordResurrection && <p className="mt-3 text-sm text-red-300">Недостаточно кармы для воскрешения.</p>}<button className="btn mt-3" disabled={!resurrectionCharacter || !canAffordResurrection} onClick={() => execute("/karma-shop/resurrect", { character_id: Number(characterId) }, "Персонаж воскрешён")}>Воскресить за {resurrectionCost ?? "—"} кармы</button></section></div></div>;
+  return <div className="space-y-4"><section className="panel p-5"><h1 className="text-2xl font-bold text-ember">Магазин Кармы</h1><p className="mt-2 text-white/70">Баланс: {karma} кармы</p>{message && <p className="mt-3 text-emerald-200">{message}</p>}{error && <p className="mt-3 text-red-300">{error}</p>}</section><div className="grid gap-4 lg:grid-cols-3"><section className="panel p-5"><h2 className="text-lg font-semibold text-ember">Покупка опыта</h2><p className="text-sm text-white/55">1 опыт = 5 кармы</p><select className="field mt-4" value={characterId} onChange={(event) => setCharacterId(event.target.value)}><option value="">Выберите персонажа</option>{characters.map((character) => <option key={character.id} value={character.id}>{character.name} · ур. {character.level}</option>)}</select><input className="field mt-3" min={1} type="number" value={xpAmount} onChange={numericInputChange(setXpAmount)} onBlur={normalizeNumberOnBlur(setXpAmount, 1)} /><button className="btn mt-3" disabled={!characterId || normalizeNumber(xpAmount) < 1} onClick={() => execute("/karma-shop/xp", { character_id: Number(characterId), amount: normalizeNumber(xpAmount, 1) }, `Куплено ${normalizeNumber(xpAmount, 1)} опыта`)}>Купить за {normalizeNumber(xpAmount) * 5} кармы</button></section><section className="panel p-5"><h2 className="text-lg font-semibold text-ember">Покупка открывашки</h2><select aria-label="Открывашка" className="field mt-4" value={selectedOpener} onChange={(event) => setSelectedOpener(event.target.value)}><option value="">Выберите открывашку</option>{openers.map((opener) => <option key={opener.name} value={opener.name}>{opener.name} · {opener.cost} кармы</option>)}<option value="custom">Нестандартная открывашка</option></select>{selectedOpener === "custom" && <><input className="field mt-3" placeholder="Название открывашки" value={customOpenerName} onChange={(event) => setCustomOpenerName(event.target.value)} /><input aria-label="Стоимость нестандартной открывашки" className="field mt-3" min={1} type="number" value={customOpenerCost} onChange={numericInputChange(setCustomOpenerCost)} onBlur={normalizeNumberOnBlur(setCustomOpenerCost, 1)} /></>}<button className="btn mt-3" disabled={!openerName || openerCost < 1} onClick={() => execute("/karma-shop/purchases", { purchase_type: "opener", name: openerName, cost: openerCost }, "Открывашка добавлена в профиль")}>Купить за {openerCost || 0} кармы</button></section><section className="panel p-5"><h2 className="text-lg font-semibold text-ember">Воскресить персонажа</h2><p className="text-sm text-white/55">1–5 уровень: 5 кармы · 6–10: 10 кармы · 11+: недоступно</p><select className="field mt-4" value={resurrectionCharacter ? characterId : ""} onChange={(event) => setCharacterId(event.target.value)}><option value="">Выберите погибшего персонажа</option>{resurrectionCharacters.map((character) => <option key={character.id} value={character.id}>{character.name} · ур. {character.level}</option>)}</select>{resurrectionCharacters.length === 0 && <p className="mt-3 text-sm text-white/55">Нет погибших персонажей доступного уровня.</p>}{resurrectionCost !== null && !canAffordResurrection && <p className="mt-3 text-sm text-red-300">Недостаточно кармы для воскрешения.</p>}<button className="btn mt-3" disabled={!resurrectionCharacter || !canAffordResurrection} onClick={() => execute("/karma-shop/resurrect", { character_id: Number(characterId) }, "Персонаж воскрешён")}>Воскресить за {resurrectionCost ?? "—"} кармы</button></section></div></div>;
 }
 
 function LeaderboardPage() {
@@ -3120,6 +3121,55 @@ function PaginationControls({ page, pageSize, pages, total, onPageChange, onPage
         <button className="btn-secondary" disabled={page >= pages} onClick={() => onPageChange(page + 1)}>Вперёд</button>
       </div>
     </div>
+  );
+}
+
+function PlayerProfilesPage() {
+  const [profiles, setProfiles] = useState<PlayerProfile[]>([]);
+  const [search, setSearch] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    const handle = window.setTimeout(() => {
+      setLoading(true);
+      setError("");
+      api.get<PlayerProfile[]>("/admin/player-profiles", {
+        params: { search: search.trim() || undefined }
+      })
+        .then((response) => setProfiles(response.data))
+        .catch((requestError) => setError(apiErrorDetail(requestError, "Не удалось загрузить профили игроков")))
+        .finally(() => setLoading(false));
+    }, 200);
+    return () => window.clearTimeout(handle);
+  }, [search]);
+
+  return (
+    <section className="space-y-4">
+      <div className="panel p-5">
+        <h1 className="text-2xl font-bold text-ember">Профили игроков</h1>
+        <p className="mt-2 text-white/60">Карма, персонажи и приобретённые открывашки пользователей текущего проекта</p>
+        <label className="field-label mt-4">
+          <span>Поиск</span>
+          <input className="field" placeholder="Поиск по логину или электронной почте" value={search} onChange={(event) => setSearch(event.target.value)} />
+        </label>
+      </div>
+      {error && <section className="panel p-5 text-red-300">{error}</section>}
+      {loading && <section className="panel p-5 text-white/60">Загрузка...</section>}
+      {!loading && !error && profiles.map((profile) => (
+        <article className="panel p-5" key={profile.id}>
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div><h2 className="text-xl font-semibold text-ember">{profile.username}</h2><p className="text-sm text-white/55">{profile.email}</p></div>
+            <span className="rounded-md bg-ember/15 px-3 py-2 font-semibold text-ember">Карма: {profile.karma}</span>
+          </div>
+          <div className="mt-5 grid gap-5 md:grid-cols-2">
+            <div><h3 className="font-semibold">Персонажи</h3><div className="mt-2 space-y-2">{profile.characters.map((character) => <div className="rounded-md border border-white/10 p-3" key={character.id}><span className="font-semibold">{character.name}</span><p className="text-sm text-white/60">{character.class_name} · {character.level} уровень</p></div>)}{profile.characters.length === 0 && <p className="text-sm text-white/55">Персонажей пока нет</p>}</div></div>
+            <div><h3 className="font-semibold">Открывашки</h3><div className="mt-2 space-y-2">{profile.openers.map((opener) => <div className="rounded-md border border-white/10 p-3" key={opener.id}><span className="font-semibold">{opener.name}</span><p className="text-sm text-white/60">{opener.cost} кармы</p></div>)}{profile.openers.length === 0 && <p className="text-sm text-white/55">Открывашек пока нет</p>}</div></div>
+          </div>
+        </article>
+      ))}
+      {!loading && !error && profiles.length === 0 && <section className="panel p-5 text-white/55">Пользователи не найдены</section>}
+    </section>
   );
 }
 
@@ -4086,6 +4136,7 @@ function App() {
         <Route path="/admin/karma-shop-logs" element={<AdminProtected><FeatureProtected feature="karma_logs"><KarmaShopLogsPage /></FeatureProtected></AdminProtected>} />
         <Route path="/admin/transfer-logs" element={<AdminProtected><FeatureProtected feature="logs"><TransferLogsPage /></FeatureProtected></AdminProtected>} />
         <Route path="/admin/grant-logs" element={<AdminProtected><FeatureProtected feature="logs"><GrantLogsPage /></FeatureProtected></AdminProtected>} />
+        <Route path="/admin/player-profiles" element={<AdminProtected><PlayerProfilesPage /></AdminProtected>} />
         <Route path="/admin/characters/:id" element={<AdminProtected><AdminCharacterPage /></AdminProtected>} />
         <Route path="/admin" element={<AdminProtected><AdminPage /></AdminProtected>} />
         <Route path="*" element={<Navigate to="/" replace />} />
