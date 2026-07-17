@@ -23,7 +23,7 @@ test("preset cost is automatic while a custom opener keeps manual fields", () =>
   assert.match(karmaShopPage, /selectedOpenerDefinition\?\.cost/);
 });
 
-test("opener notes are displayed as guidance", () => {
-  assert.match(karmaShopPage, /selectedOpenerDefinition\?\.note/);
-  assert.match(karmaShopPage, /\{selectedOpenerDefinition\.note\}<\/p>/);
+test("openers are granted immediately without approval guidance", () => {
+  assert.doesNotMatch(karmaShopPage, /selectedOpenerDefinition\?\.note/);
+  assert.doesNotMatch(karmaShopPage, /проверяются администрацией или мастером/);
 });
