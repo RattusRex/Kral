@@ -26,7 +26,7 @@ from app.schemas.inventory import (
     TransferLogResponse,
 )
 from app.schemas.user import AdminResourceUpdate, RoleUpdate
-from app.schemas.karma_shop import KarmaPurchaseResponse
+from app.schemas.karma_shop import AdminOpenerCreateRequest, KarmaPurchaseResponse
 from app.core import calendar as game_calendar
 from app.core.calendar import GAME_EPOCH
 from app.core.roles import PROJECT_ROLES, ROLE_RANK, Role, normalize_role
@@ -485,6 +485,63 @@ def list_player_profiles(
     } for user, membership in rows]
 
 
+def get_project_member_or_404(user_id: int, project_id: int, db: Session) -> User:
+    membership = db.query(ProjectMembership).filter_by(
+        project_id=project_id, user_id=user_id,
+    ).first()
+    if not membership:
+        raise HTTPException(status_code=404, detail="User not found")
+    return membership.user
+
+
+@router.post("/users/{user_id}/openers", response_model=KarmaPurchaseResponse, status_code=201)
+def add_player_opener(
+    user_id: int,
+    data: AdminOpenerCreateRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    user = get_project_member_or_404(user_id, current_user.active_project_id, db)
+    opener = KarmaPurchase(
+        project_id=current_user.active_project_id,
+        user_id=user.id,
+        username=user.username,
+        actor_id=current_user.id,
+        actor_username=current_user.username,
+        purchase_type="opener",
+        name=data.name,
+        cost=data.cost,
+    )
+    db.add(opener)
+    add_grant_log(db, current_user, user, "opener_add", data.name, "Открывашка добавлена администратором")
+    db.commit()
+    db.refresh(opener)
+    return opener
+
+
+@router.delete("/users/{user_id}/openers/{opener_id}", status_code=204)
+def remove_player_opener(
+    user_id: int,
+    opener_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    user = get_project_member_or_404(user_id, current_user.active_project_id, db)
+    opener = db.query(KarmaPurchase).filter_by(
+        id=opener_id,
+        project_id=current_user.active_project_id,
+        user_id=user.id,
+        purchase_type="opener",
+    ).first()
+    if not opener:
+        raise HTTPException(status_code=404, detail="Opener not found")
+    opener_name = opener.name
+    db.delete(opener)
+    add_grant_log(db, current_user, user, "opener_remove", opener_name, "Открывашка удалена администратором")
+    db.commit()
+    return None
+
+
 @router.post("/users/{user_id}/verify-email")
 def manually_verify_user_email(
     user_id: int,
@@ -778,7 +835,7 @@ def list_grant_logs(
     if admin_id is not None:
         query = query.filter(AdminGrantLog.admin_id == admin_id)
     if operation_type:
-        if operation_type not in {"karma", "xp", "gold", "item"}:
+        if operation_type not in {"karma", "xp", "gold", "item", "opener_add", "opener_remove"}:
             raise HTTPException(status_code=400, detail="Unknown grant operation type")
         query = query.filter(AdminGrantLog.operation_type == operation_type)
     if operation_date is not None:

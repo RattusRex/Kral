@@ -3132,6 +3132,43 @@ function PlayerProfilesPage() {
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [openerNames, setOpenerNames] = useState<Record<number, string>>({});
+  const [savingProfileId, setSavingProfileId] = useState<number | null>(null);
+
+  async function addOpener(profileId: number) {
+    const name = (openerNames[profileId] ?? "").trim();
+    if (!name) return;
+    setSavingProfileId(profileId);
+    setError("");
+    try {
+      const response = await api.post<KarmaPurchase>(`/admin/users/${profileId}/openers`, { name, cost: 0 });
+      const created = response.data;
+      setProfiles((current) => current.map((profile) => profile.id === profileId
+        ? { ...profile, openers: [created, ...profile.openers] }
+        : profile));
+      setOpenerNames((current) => ({ ...current, [profileId]: "" }));
+    } catch (requestError) {
+      setError(apiErrorDetail(requestError, "Не удалось добавить открывашку"));
+    } finally {
+      setSavingProfileId(null);
+    }
+  }
+
+  async function removeOpener(profileId: number, openerId: number) {
+    if (!window.confirm("Удалить открывашку из профиля игрока?")) return;
+    setSavingProfileId(profileId);
+    setError("");
+    try {
+      await api.delete(`/admin/users/${profileId}/openers/${openerId}`);
+      setProfiles((current) => current.map((profile) => profile.id === profileId
+        ? { ...profile, openers: profile.openers.filter((opener) => opener.id !== openerId) }
+        : profile));
+    } catch (requestError) {
+      setError(apiErrorDetail(requestError, "Не удалось удалить открывашку"));
+    } finally {
+      setSavingProfileId(null);
+    }
+  }
 
   useEffect(() => {
     const handle = window.setTimeout(() => {
@@ -3167,7 +3204,7 @@ function PlayerProfilesPage() {
           </div>
           <div className="mt-5 grid gap-5 md:grid-cols-2">
             <div><h3 className="font-semibold">Персонажи</h3><div className="mt-2 space-y-2">{profile.characters.map((character) => <div className="rounded-md border border-white/10 p-3" key={character.id}><span className="font-semibold">{character.name}</span><p className="text-sm text-white/60">{character.class_name} · {character.level} уровень</p></div>)}{profile.characters.length === 0 && <p className="text-sm text-white/55">Персонажей пока нет</p>}</div></div>
-            <div><h3 className="font-semibold">Открывашки</h3><div className="mt-2 space-y-2">{profile.openers.map((opener) => <div className="rounded-md border border-white/10 p-3" key={opener.id}><span className="font-semibold">{opener.name}</span><p className="text-sm text-white/60">{opener.cost} кармы</p></div>)}{profile.openers.length === 0 && <p className="text-sm text-white/55">Открывашек пока нет</p>}</div></div>
+            <div><h3 className="font-semibold">Открывашки</h3><div className="mt-2 space-y-2">{profile.openers.map((opener) => <div className="flex items-center justify-between gap-3 rounded-md border border-white/10 p-3" key={opener.id}><div><span className="font-semibold">{opener.name}</span><p className="text-sm text-white/60">{opener.cost} кармы</p></div><button aria-label={`Удалить открывашку ${opener.name}`} className="btn-secondary" disabled={savingProfileId === profile.id} onClick={() => removeOpener(profile.id, opener.id)} title="Удалить открывашку"><Trash2 size={16} /></button></div>)}{profile.openers.length === 0 && <p className="text-sm text-white/55">Открывашек пока нет</p>}</div><div className="mt-3 flex flex-col gap-2 sm:flex-row"><input aria-label={`Новая открывашка для ${profile.username}`} className="field" maxLength={255} placeholder="Название открывашки" value={openerNames[profile.id] ?? ""} onChange={(event) => setOpenerNames((current) => ({ ...current, [profile.id]: event.target.value }))} /><button className="btn whitespace-nowrap" disabled={savingProfileId === profile.id || !(openerNames[profile.id] ?? "").trim()} onClick={() => addOpener(profile.id)}><Plus size={16} />Добавить открывашку</button></div></div>
           </div>
         </article>
       ))}
@@ -3711,7 +3748,9 @@ const grantTypeLabels: Record<AdminGrantLog["operation_type"], string> = {
   karma: "Карма",
   xp: "Опыт",
   gold: "Золото",
-  item: "Предмет"
+  item: "Предмет",
+  opener_add: "Открывашка добавлена",
+  opener_remove: "Открывашка удалена"
 };
 
 function GrantLogsPage() {

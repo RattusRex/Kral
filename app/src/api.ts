@@ -450,7 +450,7 @@ export interface AdminGrantLog {
   username: string;
   character_id: number | null;
   character_name: string | null;
-  operation_type: "karma" | "xp" | "gold" | "item";
+  operation_type: "karma" | "xp" | "gold" | "item" | "opener_add" | "opener_remove";
   value: string;
   reason: string;
 }
