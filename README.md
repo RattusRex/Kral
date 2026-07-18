@@ -2,6 +2,10 @@
 
 Prototype web application for D&D 2014 open-table bookkeeping: characters, inventory, currency, karma, shop searches, and GM administration.
 
+For a detailed agent/developer-oriented map of the current screens, game
+mechanics, permissions, data model, API modules, and architectural risks, see
+[`docs/project-review.md`](docs/project-review.md).
+
 ## Backend Setup
 
 1. Install Python 3.11+.
